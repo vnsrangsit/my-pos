@@ -892,45 +892,165 @@ function getRecognition(){
   r.interimResults = true;
   return r;
 }
-const numberWords = {'หนึ่ง':1,'สอง':2,'สาม':3,'สี่':4,'ห้า':5,'หก':6,'เจ็ด':7,'แปด':8,'เก้า':9,'สิบ':10};
 const unitWords = 'ชิ้น|อัน|คู่|ขวด|ถุง|กล่อง|แก้ว';
 
-function parseQty(text){
-  const m = text.match(/(\d+)/);
-  if(m) return parseInt(m[1]);
-  for(const word in numberWords){
-    if(text.includes(word)) return numberWords[word];
+/* ============ THAI NUMBER-SPEECH PARSER ============
+   รองรับทั้งการอ่านทีละหลัก ("สามเก้า" -> 39) และการอ่านเป็นจำนวน ("สามสิบเก้า" -> 39)
+   กติกา: ถ้าคำพูดมีคำหน่วย (สิบ/ร้อย/พัน/หมื่น/แสน/ล้าน) ให้ตีความแบบจำนวน (ตำแหน่งหลัก)
+          ถ้าไม่มีคำหน่วยเลย ให้ตีความแบบอ่านทีละหลักแล้วนำมาต่อกัน
+*/
+const THAI_DIGIT_WORDS = {'ศูนย์':0,'หนึ่ง':1,'สอง':2,'สาม':3,'สี่':4,'ห้า':5,'หก':6,'เจ็ด':7,'แปด':8,'เก้า':9};
+const THAI_UNIT_WORDS  = {'สิบ':10,'ร้อย':100,'พัน':1000,'หมื่น':10000,'แสน':100000,'ล้าน':1000000};
+const THAI_NUM_TOKENS = Object.keys(THAI_DIGIT_WORDS).concat(Object.keys(THAI_UNIT_WORDS), ['เอ็ด','ยี่'])
+  .sort((a,b)=>b.length-a.length);
+
+// เดินอ่านคำเลขไทยที่ติดกัน (ข้ามช่องว่างระหว่างคำได้) จากตำแหน่งเริ่มต้นของ text ให้ยาวที่สุด
+function consumeThaiNumberWords(text){
+  let i = 0, tokens = [];
+  while(i < text.length){
+    if(/\s/.test(text[i])){ i++; continue; }
+    let matched = null;
+    for(const tok of THAI_NUM_TOKENS){
+      if(text.startsWith(tok, i)){ matched = tok; break; }
+    }
+    if(!matched) break;
+    tokens.push(matched);
+    i += matched.length;
   }
-  return 1;
+  return { tokens, end: i };
 }
 
-// Parses "<ชื่อ> [สี <สี>] [เบอร์ <เบอร์>] [<qty> unit] [ราคา] <price> [บาท]"
+// แปลงลิสต์คำเลขไทยที่ tokenize แล้วให้เป็นตัวเลข
+function thaiTokensToNumber(tokens){
+  if(!tokens.length) return null;
+  const hasUnit = tokens.some(w => THAI_UNIT_WORDS[w] !== undefined);
+
+  if(!hasUnit){
+    // Rule 1: อ่านทีละหลัก เอามาต่อกันตรงๆ
+    let digits = '';
+    for(const w of tokens){
+      if(THAI_DIGIT_WORDS[w] !== undefined) digits += String(THAI_DIGIT_WORDS[w]);
+      else if(w === 'เอ็ด') digits += '1';
+      else if(w === 'ยี่') digits += '2';
+    }
+    return digits === '' ? null : parseInt(digits, 10);
+  }
+
+  // Rule 2-4: อ่านเป็นจำนวน (ตำแหน่งหลัก)
+  let total = 0, section = 0, current = 0;
+  for(const w of tokens){
+    if(THAI_DIGIT_WORDS[w] !== undefined){ current = THAI_DIGIT_WORDS[w]; }
+    else if(w === 'เอ็ด'){ current = 1; }
+    else if(w === 'ยี่'){ current = 2; }
+    else if(THAI_UNIT_WORDS[w] !== undefined){
+      const unit = THAI_UNIT_WORDS[w];
+      if(unit === 1000000){
+        total += (section + current) * unit;
+        section = 0; current = 0;
+      } else {
+        const mult = current === 0 ? 1 : current;
+        section += mult * unit;
+        current = 0;
+      }
+    }
+  }
+  total += section + current;
+  return total;
+}
+
+// ดึงตัวเลข (อารบิกหรือคำอ่านไทย) ที่อยู่ถัดจากตำแหน่ง fromIndex ในสตริง t (ข้ามช่องว่างนำหน้า)
+// คืนค่า {value, endIndex} หรือ null ถ้าไม่เจอ
+function extractNumberAfter(t, fromIndex){
+  let i = fromIndex;
+  while(i < t.length && /\s/.test(t[i])) i++;
+  const rest = t.slice(i);
+  const digitMatch = rest.match(/^\d+(?:\.\d+)?/);
+  if(digitMatch){
+    return { value: parseFloat(digitMatch[0]), endIndex: i + digitMatch[0].length };
+  }
+  const { tokens, end } = consumeThaiNumberWords(rest);
+  if(tokens.length){
+    const value = thaiTokensToNumber(tokens);
+    if(value !== null) return { value, endIndex: i + end };
+  }
+  return null;
+}
+
+// หาเลขไทย/อารบิกที่อยู่ท้ายสุดของสตริง (ต้องอ่านต่อเนื่องไปจนจบสตริงพอดี) -> {value, startIndex}
+function findTrailingNumber(t){
+  const trailDigit = t.match(/(\d+(?:\.\d+)?)\s*$/);
+  if(trailDigit) return { value: parseFloat(trailDigit[1]), startIndex: trailDigit.index };
+  for(let i = 0; i < t.length; i++){
+    if(i > 0 && !/\s/.test(t[i-1])) continue; // เริ่มสแกนเฉพาะขอบเขตคำ (ช่องว่าง/ต้นสตริง)
+    const { tokens, end } = consumeThaiNumberWords(t.slice(i));
+    if(tokens.length && i + end === t.length){
+      return { value: thaiTokensToNumber(tokens), startIndex: i };
+    }
+  }
+  return null;
+}
+
+// หาเลขไทย/อารบิก "ที่ไหนก็ได้" ในสตริง (เอาตัวที่ยาวที่สุด/ซ้ายสุด) -> {value, start, length}
+function findAnyNumber(t){
+  const digitMatch = t.match(/\d+(?:\.\d+)?/);
+  let best = digitMatch ? { value: parseFloat(digitMatch[0]), start: digitMatch.index, length: digitMatch[0].length } : null;
+  for(let i = 0; i < t.length; i++){
+    if(i > 0 && !/\s/.test(t[i-1])) continue;
+    const { tokens, end } = consumeThaiNumberWords(t.slice(i));
+    if(tokens.length){
+      const value = thaiTokensToNumber(tokens);
+      if(value !== null && (!best || end > best.length)){
+        best = { value, start: i, length: end };
+      }
+    }
+  }
+  return best;
+}
+
+// Parses "<ชื่อ> [สี <สี>] [เบอร์ <เบอร์>] [<qty> unit] [ราคา] <price> [บาท(ถ้วน/ครับ/ค่ะ)]"
 // -> {name, color, size, qty, price}
 // เช่น "นันยาง สีดำ เบอร์ 43 ราคา 300" -> {name:'นันยาง', color:'ดำ', size:'43', qty:1, price:300}
+// รองรับทั้งพูดเลขอารบิกและพูดเป็นคำ (เช่น "เบอร์สามสิบเก้า" -> เบอร์ 39)
 function parseVoiceSell(raw){
-  let t = raw.trim().replace(/บาท\s*$/,'').trim();
+  let t = raw.trim().replace(/บาท(ถ้วน|ครับ|ค่ะ)?\s*$/,'').trim();
   if(!t) return null;
 
-  // 1) ราคา: หาคำว่า "ราคา <ตัวเลข>" ก่อน ถ้าไม่มีใช้ตัวเลขท้ายสุดแทน (เผื่อไม่ได้พูดคำว่าราคา)
+  // 1) ราคา: หาคำว่า "ราคา <ตัวเลข/คำอ่านเลข>" ก่อน ถ้าไม่มีใช้ตัวเลขท้ายสุดของประโยคแทน
   let price = null;
-  const priceKw = t.match(/ราคา\s*(\d+(?:\.\d+)?)/);
-  if(priceKw){
-    price = parseFloat(priceKw[1]);
-    t = (t.slice(0, priceKw.index) + t.slice(priceKw.index + priceKw[0].length)).trim();
-  } else {
-    const trailMatch = t.match(/(\d+(?:\.\d+)?)\s*$/);
-    if(!trailMatch) return null;
-    price = parseFloat(trailMatch[1]);
-    t = t.slice(0, trailMatch.index).trim();
+  const priceKwIdx = t.indexOf('ราคา');
+  if(priceKwIdx !== -1){
+    const res = extractNumberAfter(t, priceKwIdx + 'ราคา'.length);
+    if(res){
+      price = res.value;
+      t = (t.slice(0, priceKwIdx) + t.slice(res.endIndex)).trim();
+    }
+  }
+  if(price === null){
+    const tail = findTrailingNumber(t);
+    if(!tail) return null;
+    price = tail.value;
+    t = t.slice(0, tail.startIndex).trim();
   }
   if(!t) return null;
 
-  // 2) เบอร์: "เบอร์ <ตัวอักษร/ตัวเลข>"
+  // 2) เบอร์: "เบอร์ <ตัวอักษร/ตัวเลข/คำอ่านเลข>"
   let size = '';
-  const sizeMatch = t.match(/เบอร์\s*([0-9A-Za-zก-๙.]+)/);
-  if(sizeMatch){
-    size = sizeMatch[1];
-    t = (t.slice(0, sizeMatch.index) + t.slice(sizeMatch.index + sizeMatch[0].length)).trim();
+  const sizeKwIdx = t.indexOf('เบอร์');
+  if(sizeKwIdx !== -1){
+    const numRes = extractNumberAfter(t, sizeKwIdx + 'เบอร์'.length);
+    if(numRes){
+      size = String(numRes.value);
+      t = (t.slice(0, sizeKwIdx) + t.slice(numRes.endIndex)).trim();
+    } else {
+      // เผื่อเบอร์เป็นตัวอักษร เช่น "เบอร์ L"
+      let i = sizeKwIdx + 'เบอร์'.length;
+      while(i < t.length && /\s/.test(t[i])) i++;
+      const m = t.slice(i).match(/^[0-9A-Za-zก-๙.]+/);
+      if(m){
+        size = m[0];
+        t = (t.slice(0, sizeKwIdx) + t.slice(i + m[0].length)).trim();
+      }
+    }
   }
 
   // 3) สี: "สี <คำ>" (กันไม่ให้จับคำว่า "สี่" ซึ่งแปลว่าเลขสี่)
@@ -941,13 +1061,17 @@ function parseVoiceSell(raw){
     t = (t.slice(0, colorMatch.index) + t.slice(colorMatch.index + colorMatch[0].length)).trim();
   }
 
-  // 4) จำนวน (ถ้ามีเลข+หน่วยเหลืออยู่ในชื่อ) ปกติจะไม่ค่อยเจอสำหรับคำสั่งนี้ ดีฟอลต์ = 1
+  // 4) จำนวน: เลข/คำอ่านเลขที่อยู่ติดหน่วยนับ (ชิ้น/ขวด/...) ถ้าไม่มีถือว่า = 1
   let qty = 1;
-  const qtyRe = new RegExp('(\\d+)\\s*(' + unitWords + ')');
-  const qtyMatch = t.match(qtyRe);
-  if(qtyMatch){
-    qty = parseInt(qtyMatch[1]);
-    t = (t.slice(0, qtyMatch.index) + t.slice(qtyMatch.index + qtyMatch[0].length)).trim();
+  const unitRe = new RegExp('(' + unitWords + ')');
+  const unitMatch = t.match(unitRe);
+  if(unitMatch){
+    const before = t.slice(0, unitMatch.index);
+    const beforeNum = findTrailingNumber(before);
+    if(beforeNum){
+      qty = beforeNum.value;
+      t = (t.slice(0, beforeNum.startIndex) + t.slice(unitMatch.index + unitMatch[0].length)).trim();
+    }
   }
 
   const name = t.replace(/\s+/g,' ').trim();
@@ -988,8 +1112,13 @@ function handleVoiceCommand(text){
   }
   // "เพิ่ม <ชื่อสินค้า> <จำนวน> ชิ้น" -> ใส่ตะกร้า (ต้องมีสินค้าอยู่แล้ว)
   let body = t.replace(/^เพิ่ม/, '').trim();
-  const qty = parseQty(body);
-  body = body.replace(/\d+/g, '').replace(/(หนึ่ง|สอง|สาม|สี่|ห้า|หก|เจ็ด|แปด|เก้า|สิบ)/g,'').replace(new RegExp(unitWords,'g'),'').trim();
+  let qty = 1;
+  const found = findAnyNumber(body);
+  if(found){
+    qty = found.value;
+    body = (body.slice(0, found.start) + body.slice(found.start + found.length)).trim();
+  }
+  body = body.replace(new RegExp(unitWords,'g'),'').trim();
 
   const product = findProductByName(body);
   if(product){
