@@ -79,6 +79,11 @@
   #scanner-modal.open,#voice-modal.open{display:flex;}
   #reader{width:90vw;max-width:400px;background:#000;border-radius:10px;overflow:hidden;}
   .modal-close{margin-top:18px;}
+  #confirm-modal{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:55;display:none;align-items:center;justify-content:center;padding:16px;}
+  #confirm-modal.open{display:flex;}
+  .confirm-card{background:#fff;border-radius:12px;padding:20px;width:100%;max-width:380px;}
+  .confirm-card h3{margin:0 0 4px;font-size:16px;font-weight:800;border:none;padding:0;}
+  .confirm-sub{color:var(--muted);font-size:13px;margin-bottom:14px;}
   .toast{position:fixed;top:70px;left:50%;transform:translateX(-50%);background:#0f172a;color:#fff;padding:11px 18px;
     border-radius:8px;font-size:14px;z-index:100;opacity:0;transition:opacity .2s;pointer-events:none;max-width:85vw;text-align:center;font-weight:600;}
   .toast.show{opacity:1;}
@@ -142,9 +147,29 @@
         <button class="btn btn-outline" onclick="startVoice()">🎤 สั่งด้วยเสียง</button>
       </div>
       <div class="hint">
-        พูด "ขาย ชื่อสินค้า ราคา" เช่น <strong>"ขาย นันยาง เบอร์ 45 300"</strong> เพื่อบันทึกยอดขายทันที (ถ้าไม่เคยมีสินค้านี้ ระบบจะเพิ่มให้อัตโนมัติ)<br>
-        หรือพูด "เพิ่ม ชื่อสินค้า จำนวน" เพื่อใส่ตะกร้าไว้คิดเงินรวมทีหลัง, "คิดเงิน", "ล้างตะกร้า", "ยกเลิกรายการล่าสุด"
+        พูด "ขาย ชื่อสินค้า ราคา" เช่น <strong>"ขาย นันยาง เบอร์ 45 300"</strong> ระบบจะให้ยืนยัน/แก้ไขก่อนบันทึกเสมอ (กันฟังผิด) และเพิ่มสินค้าใหม่อัตโนมัติถ้ายังไม่เคยมี<br>
+        เคล็ดลับให้ฟังแม่นขึ้น: พูดช้าๆ เว้นจังหวะสั้นๆ ระหว่างชื่อสินค้ากับราคา และพูดคำว่า "บาท" ปิดท้ายเสมอ<br>
+        คำสั่งอื่น: "เพิ่ม ชื่อสินค้า จำนวน" (ใส่ตะกร้าไว้คิดเงินรวมทีหลัง), "คิดเงิน", "ล้างตะกร้า", "ยกเลิกรายการล่าสุด"
       </div>
+    </div>
+
+    <div class="card">
+      <h3>ขายด่วน (พิมพ์เอง ไม่ต้องมีในสต็อกก็ได้)</h3>
+      <div class="field">
+        <label>ชื่อสินค้า</label>
+        <input type="text" id="qsName" placeholder="เช่น นันยาง เบอร์ 44">
+      </div>
+      <div class="btn-row">
+        <div class="field" style="flex:1;">
+          <label>จำนวน</label>
+          <input type="number" id="qsQty" value="1" min="1">
+        </div>
+        <div class="field" style="flex:1;">
+          <label>ราคา/ชิ้น (บาท)</label>
+          <input type="number" id="qsPrice" placeholder="0" step="0.01">
+        </div>
+      </div>
+      <button class="btn btn-success btn-full" onclick="quickSell()">✅ บันทึกขาย</button>
     </div>
 
     <div class="card">
@@ -276,6 +301,32 @@
   <div id="voice-transcript">กำลังฟัง...</div>
   <div class="voice-hint">เช่น "ขาย นันยาง เบอร์ 45 300" หรือ "คิดเงิน"</div>
   <button class="btn btn-outline modal-close" onclick="stopVoice()">ปิด</button>
+</div>
+
+<!-- Confirm Sell Modal -->
+<div id="confirm-modal">
+  <div class="confirm-card">
+    <h3>ยืนยันรายการขาย</h3>
+    <div class="confirm-sub">ตรวจสอบ/แก้ไขให้ถูกต้องก่อนบันทึก (กันฟังเสียงผิด)</div>
+    <div class="field">
+      <label>ชื่อสินค้า</label>
+      <input type="text" id="cfName">
+    </div>
+    <div class="btn-row">
+      <div class="field" style="flex:1;">
+        <label>จำนวน</label>
+        <input type="number" id="cfQty" min="1">
+      </div>
+      <div class="field" style="flex:1;">
+        <label>ราคา/ชิ้น (บาท)</label>
+        <input type="number" id="cfPrice" step="0.01">
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-outline" onclick="cancelConfirmSell()">ยกเลิก</button>
+      <button class="btn btn-success" onclick="confirmSell()">✅ บันทึกขาย</button>
+    </div>
+  </div>
 </div>
 
 <div id="toast" class="toast"></div>
@@ -474,6 +525,39 @@ function instantSell(name, qty, price){
   toast(autoCreated
     ? `✅ เพิ่มสินค้าใหม่ "${product.name}" + บันทึกขาย ฿${total.toFixed(2)}`
     : `✅ บันทึกขาย: ${product.name} x${qty} = ฿${total.toFixed(2)}`);
+}
+
+/* ============ QUICK SELL (manual, always reliable) ============ */
+function quickSell(){
+  const name = document.getElementById('qsName').value.trim();
+  const qty = parseInt(document.getElementById('qsQty').value) || 1;
+  const price = parseFloat(document.getElementById('qsPrice').value) || 0;
+  if(!name){ toast('กรุณากรอกชื่อสินค้า'); return; }
+  if(price <= 0){ toast('กรุณากรอกราคา'); return; }
+  instantSell(name, qty, price);
+  document.getElementById('qsName').value = '';
+  document.getElementById('qsQty').value = '1';
+  document.getElementById('qsPrice').value = '';
+}
+
+/* ============ CONFIRM SELL MODAL (used after voice parsing) ============ */
+function openConfirmSell(name, qty, price){
+  document.getElementById('cfName').value = name;
+  document.getElementById('cfQty').value = qty;
+  document.getElementById('cfPrice').value = price;
+  document.getElementById('confirm-modal').classList.add('open');
+}
+function cancelConfirmSell(){
+  document.getElementById('confirm-modal').classList.remove('open');
+}
+function confirmSell(){
+  const name = document.getElementById('cfName').value.trim();
+  const qty = parseInt(document.getElementById('cfQty').value) || 1;
+  const price = parseFloat(document.getElementById('cfPrice').value) || 0;
+  if(!name){ toast('กรุณากรอกชื่อสินค้า'); return; }
+  if(price <= 0){ toast('กรุณากรอกราคา'); return; }
+  instantSell(name, qty, price);
+  document.getElementById('confirm-modal').classList.remove('open');
 }
 
 /* ============ STOCK TAB ============ */
@@ -788,15 +872,16 @@ function handleVoiceCommand(text){
     stopVoice();
     return;
   }
-  // "ขาย <ชื่อสินค้า> <ราคา>" -> บันทึกยอดขายทันที (auto-create ถ้ายังไม่มีสินค้านี้)
-  if(/^ขาย\s+/.test(t)){
-    const parsed = parseVoiceSell(t.replace(/^ขาย\s*/,''));
-    if(parsed){
-      instantSell(parsed.name, parsed.qty, parsed.price);
-    } else {
-      toast('ฟังไม่เข้าใจ ลองพูดใหม่ เช่น "ขาย นันยาง เบอร์ 45 300"');
-    }
+  // "ขาย <ชื่อสินค้า> <ราคา>" -> เปิดหน้ายืนยัน (auto-create ถ้ายังไม่มีสินค้านี้)
+  // ใช้ startsWith แทน regex ที่บังคับเว้นวรรค เพราะเสียงพูดบางทีติดกันไม่มีช่องว่างหลัง "ขาย"
+  if(t.startsWith('ขาย')){
+    const parsed = parseVoiceSell(t.replace(/^ขาย/, '').trim());
     stopVoice();
+    if(parsed){
+      openConfirmSell(parsed.name, parsed.qty, parsed.price);
+    } else {
+      toast('ฟังไม่เข้าใจ ลองพูดใหม่ หรือกรอกในช่อง "ขายด่วน" แทน');
+    }
     return;
   }
   // "เพิ่ม <ชื่อสินค้า> <จำนวน> ชิ้น" -> ใส่ตะกร้า (ต้องมีสินค้าอยู่แล้ว)
