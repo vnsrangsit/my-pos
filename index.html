@@ -103,6 +103,24 @@
   .hero-cols>div{flex:1;background:rgba(255,255,255,.06);border-radius:8px;padding:10px;}
   .hero-cols strong{font-size:17px;display:block;margin-top:3px;font-variant-numeric:tabular-nums;}
 
+  /* ===== Stock list groups (collapsible) ===== */
+  .stock-group{border:1px solid var(--border);border-radius:10px;margin-bottom:10px;overflow:hidden;}
+  .stock-group-header{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;cursor:pointer;background:#f8fafc;}
+  .stock-group-header:active{background:#eef2f7;}
+  .stock-group-arrow{display:inline-block;margin-left:8px;transition:transform .15s;color:var(--muted);}
+  .stock-group-header.open .stock-group-arrow{transform:rotate(180deg);}
+  .stock-group-body{padding:0 14px 10px;}
+  .stock-group-body table{margin-top:6px;}
+
+  /* ===== Bulk SKU: color rows / size table ===== */
+  .bk-color-row{display:flex;gap:8px;margin-bottom:8px;}
+  .bk-color-row input{flex:1;}
+  .bk-color-row button{flex:0 0 auto;width:40px;padding:0;}
+  .bk-size-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);}
+  .bk-size-row:last-child{border-bottom:none;}
+  .bk-size-row .bk-size-label{min-width:64px;font-size:13px;color:var(--muted);}
+  .bk-size-row input{flex:1;}
+
   @media (min-width:720px){
     .sidebar{transform:translateX(0);position:sticky;height:100vh;}
     .sidebar-close{display:none;}
@@ -378,15 +396,31 @@
 <div id="bulk-modal">
   <div class="confirm-card" style="max-width:420px;">
     <h3>เพิ่มหลายสี/เบอร์พร้อมกัน (SKU)</h3>
-    <div class="confirm-sub">กรอกสี/เบอร์คั่นด้วยจุลภาค หรือใส่ช่วงเบอร์ เช่น 28-48 ระบบจะสร้างสินค้าให้ทุกคู่ผสม (ราคา/ทุน/สต็อกจะใช้ค่าเดียวกันทุก SKU แก้ทีหลังได้)</div>
+    <div class="confirm-sub">เพิ่มสีได้ทีละสี ส่วนเบอร์พิมพ์เป็นช่วงได้ (เช่น 28-48) แล้วตั้งราคาแยกตามเบอร์ทีหลังได้</div>
     <div class="field"><label>ชื่อสินค้า</label><input type="text" id="bkName" placeholder="เช่น นันยาง" oninput="updateBulkPreview()"></div>
     <div class="field"><label>รุ่น (ไม่บังคับ)</label><input type="text" id="bkModel" placeholder="เช่น รุ่น A" oninput="updateBulkPreview()"></div>
-    <div class="field"><label>สี (คั่นด้วย , ถ้ามีหลายสี ไม่บังคับ)</label><input type="text" id="bkColors" placeholder="เช่น ดำ, น้ำตาล, ขาว" oninput="updateBulkPreview()"></div>
-    <div class="field"><label>เบอร์ (คั่นด้วย , หรือใส่ช่วงเช่น 28-48 ไม่บังคับ)</label><input type="text" id="bkSizes" placeholder="เช่น 28-48" oninput="updateBulkPreview()"></div>
-    <div class="btn-row">
-      <div class="field" style="flex:1;"><label>ราคาทุน</label><input type="number" id="bkCost" step="0.01" placeholder="0"></div>
-      <div class="field" style="flex:1;"><label>ราคาขาย</label><input type="number" id="bkPrice" step="0.01" placeholder="0"></div>
+    <div class="field">
+      <label>สี (ไม่บังคับ)</label>
+      <div id="bkColorList"></div>
+      <button type="button" class="btn btn-outline btn-full" onclick="addColorRow('')">+ เพิ่มสี</button>
     </div>
+    <div class="btn-row">
+      <div class="field" style="flex:1;"><label>ราคาทุนเริ่มต้น</label><input type="number" id="bkCost" step="0.01" placeholder="0" oninput="generateSizeRows()"></div>
+      <div class="field" style="flex:1;"><label>ราคาขายเริ่มต้น</label><input type="number" id="bkPrice" step="0.01" placeholder="0" oninput="generateSizeRows()"></div>
+    </div>
+    <div class="field"><label>เบอร์ (ใส่ช่วงเช่น 28-48 หรือคั่นด้วย , เช่น S,M,L ไม่บังคับ)</label><input type="text" id="bkSizes" placeholder="เช่น 28-48" oninput="generateSizeRows()"></div>
+
+    <div id="bkSizeTableWrap" style="display:none;">
+      <label>ตั้งราคาตามช่วงเบอร์ (เช่น 28-32 ราคา 300)</label>
+      <div class="btn-row" style="margin-bottom:10px;">
+        <input type="text" id="bkRangeSpec" placeholder="ช่วงเบอร์ เช่น 28-32">
+        <input type="number" id="bkRangePrice" placeholder="ราคาขาย">
+        <button type="button" class="btn btn-outline" style="flex:0 0 auto;" onclick="applyRangePrice()">ใส่ราคา</button>
+      </div>
+      <label>ราคาแยกตามเบอร์</label>
+      <div id="bkSizeTable" style="margin-bottom:12px;"></div>
+    </div>
+
     <div class="field"><label>สต็อกเริ่มต้นต่อ SKU (เว้นว่าง = ไม่ติดตาม)</label><input type="number" id="bkStock" placeholder="เว้นว่างได้"></div>
     <div id="bkPreview" class="muted" style="margin-bottom:12px;"></div>
     <div class="btn-row">
@@ -806,51 +840,101 @@ function deleteProduct(id){
   renderProductList();
   toast('ลบสินค้าแล้ว');
 }
+// จัดกลุ่มสินค้าเป็น ชื่อ > รุ่น > สี ให้รายการสต็อกไม่ยาว (ยุบไว้เป็นค่าเริ่มต้น กดเพื่อดูแต่ละเบอร์)
+function groupProducts(products){
+  const groups = {};
+  const order = [];
+  products.forEach(p=>{
+    const key = [p.name||'', p.model||'', p.color||''].join('|||');
+    if(!groups[key]){
+      groups[key] = { name: p.name, model: p.model||'', color: p.color||'', items: [] };
+      order.push(key);
+    }
+    groups[key].items.push(p);
+  });
+  return order.map(k=>groups[k]);
+}
+function priceRangeLabel(values){
+  const lo = Math.min(...values), hi = Math.max(...values);
+  return lo === hi ? `฿${lo}` : `฿${lo}–${hi}`;
+}
+function toggleStockGroup(id){
+  const body = document.getElementById(id);
+  const header = document.querySelector(`[data-group-toggle="${id}"]`);
+  const isOpen = body.style.display !== 'none';
+  body.style.display = isOpen ? 'none' : 'block';
+  if(header) header.classList.toggle('open', !isOpen);
+}
 function renderProductList(){
   const filter = (document.getElementById('productFilter').value || '').toLowerCase();
-  const products = loadProducts().filter(p=>
+  const allProducts = loadProducts();
+  const filtered = !filter ? allProducts : allProducts.filter(p=>
     p.name.toLowerCase().includes(filter) ||
     (p.model||'').toLowerCase().includes(filter) ||
     (p.color||'').toLowerCase().includes(filter) ||
     (p.size||'').toLowerCase().includes(filter) ||
     (p.barcode||'').includes(filter));
   const el = document.getElementById('productList');
-  if(products.length===0){ el.innerHTML = '<div class="empty">ยังไม่มีสินค้า</div>'; return; }
-  el.innerHTML = `
-    <table>
-      <thead><tr><th>ชื่อ</th><th>ทุน</th><th>ขาย</th><th>กำไร</th><th>สต็อก</th><th></th></tr></thead>
-      <tbody>
-      ${products.map(p=>{
-        const margin = (p.price||0) - (p.costPrice||0);
-        const stockDisplay = (p.stock===null || p.stock===undefined) ? '<span class="muted">ไม่ระบุ</span>' : p.stock;
-        const needsCost = !p.costPrice ? ' <span class="badge badge-warn">ยังไม่ระบุทุน</span>' : '';
-        const subtitleParts = [];
-        if(p.model) subtitleParts.push('รุ่น ' + p.model);
-        if(p.color) subtitleParts.push('สี ' + p.color);
-        if(p.size) subtitleParts.push('เบอร์ ' + p.size);
-        if(p.barcode) subtitleParts.push(p.barcode);
-        const subtitle = subtitleParts.length ? subtitleParts.join(' • ') : '-';
-        return `
-        <tr>
-          <td>${p.name}${needsCost}<br><span class="muted">${subtitle}</span></td>
-          <td>฿${p.costPrice||0}</td>
-          <td>฿${p.price}</td>
-          <td>฿${margin.toFixed(2)}</td>
-          <td>${stockDisplay}</td>
-          <td class="row-actions">
-            <button onclick="editProduct('${p.id}')">✏️</button>
-            <button onclick="deleteProduct('${p.id}')">🗑️</button>
-          </td>
-        </tr>`;
-      }).join('')}
-      </tbody>
-    </table>
-  `;
+  if(filtered.length===0){ el.innerHTML = '<div class="empty">ยังไม่มีสินค้า</div>'; return; }
+
+  const groups = groupProducts(filtered).sort((a,b)=>(a.name||'').localeCompare(b.name||'','th'));
+  const autoOpen = !!filter; // ถ้ากำลังค้นหาอยู่ ให้กางออกให้เห็นเลย
+
+  el.innerHTML = groups.map((g, gi)=>{
+    const prices = g.items.map(p=>p.price||0);
+    const costs = g.items.map(p=>p.costPrice||0);
+    const needsCost = g.items.some(p=>!p.costPrice);
+    const groupId = `stockgroup_${gi}`;
+    const sortedItems = g.items.slice().sort((a,b)=>(a.size||'').localeCompare(b.size||'', undefined, {numeric:true}));
+    return `
+      <div class="stock-group">
+        <div class="stock-group-header${autoOpen?' open':''}" data-group-toggle="${groupId}" onclick="toggleStockGroup('${groupId}')">
+          <div>
+            <strong>${g.name}</strong>
+            ${g.model ? ` <span class="badge">รุ่น ${g.model}</span>` : ''}
+            ${g.color ? ` <span class="badge">สี ${g.color}</span>` : ''}
+            ${needsCost ? ' <span class="badge badge-warn">ยังไม่ระบุทุน</span>' : ''}
+            <div class="muted">${g.items.length} เบอร์/SKU</div>
+          </div>
+          <div style="text-align:right;">
+            <div class="muted">ทุน ${priceRangeLabel(costs)}</div>
+            <div class="num">ขาย ${priceRangeLabel(prices)}</div>
+            <span class="stock-group-arrow">▾</span>
+          </div>
+        </div>
+        <div id="${groupId}" class="stock-group-body" style="display:${autoOpen?'block':'none'};">
+          <table>
+            <thead><tr><th>เบอร์</th><th>ทุน</th><th>ขาย</th><th>กำไร</th><th>สต็อก</th><th></th></tr></thead>
+            <tbody>
+            ${sortedItems.map(p=>{
+              const margin = (p.price||0) - (p.costPrice||0);
+              const stockDisplay = (p.stock===null || p.stock===undefined) ? '<span class="muted">ไม่ระบุ</span>' : p.stock;
+              return `
+              <tr>
+                <td>${p.size || '-'}${p.barcode ? '<br><span class="muted">'+p.barcode+'</span>' : ''}</td>
+                <td>฿${p.costPrice||0}</td>
+                <td>฿${p.price}</td>
+                <td>฿${margin.toFixed(2)}</td>
+                <td>${stockDisplay}</td>
+                <td class="row-actions">
+                  <button onclick="editProduct('${p.id}')">✏️</button>
+                  <button onclick="deleteProduct('${p.id}')">🗑️</button>
+                </td>
+              </tr>`;
+            }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  }).join('');
 }
 
 /* ============ BULK SKU GENERATOR ============
-   สร้างสินค้าหลายสี/เบอร์พร้อมกันในครั้งเดียว เช่น นันยาง สีดำ/น้ำตาล/ขาว เบอร์ 28-48
-   จะสร้างเป็นสินค้าแยกทุกคู่ผสม (สี x เบอร์) โดยใช้ชื่อ/รุ่น/ราคาทุน/ราคาขาย/สต็อกเดียวกัน */
+   สร้างสินค้าหลายสี/เบอร์พร้อมกันในครั้งเดียว เช่น แคชช่า รุ่นส้นสูง สีดำ/น้ำตาล/ขาว เบอร์ 28-48
+   - สี: เพิ่มทีละช่อง (ไม่ใช้จุลภาคแล้ว กันสับสน)
+   - เบอร์: พิมพ์ช่วง/ลิสต์ครั้งเดียว ระบบจะขึ้นตารางแยกทีละเบอร์ให้ตั้งราคาทุน/ราคาขายเองได้ต่อเบอร์
+     (มีเครื่องมือ "ใส่ราคาตามช่วง" ช่วยตั้งราคาทีละหลายเบอร์พร้อมกัน เช่น 28-32 ราคา 300, 33-40 ราคา 320) */
 function parseListInput(input){
   return (input || '').split(',').map(s=>s.trim()).filter(Boolean);
 }
@@ -870,29 +954,144 @@ function parseSizeListInput(input){
   }
   return sizes;
 }
-function computeBulkCombos(){
-  const colors = parseListInput(document.getElementById('bkColors').value);
+
+/* ---- สี: เพิ่ม/ลบทีละช่อง ---- */
+function addColorRow(value){
+  const container = document.getElementById('bkColorList');
+  const row = document.createElement('div');
+  row.className = 'bk-color-row';
+  row.innerHTML = `
+    <input type="text" class="bk-color-input" placeholder="เช่น ดำ" oninput="updateBulkPreview()">
+    <button type="button" class="btn btn-outline" onclick="this.parentElement.remove(); updateBulkPreview();">✕</button>
+  `;
+  container.appendChild(row);
+  if(value) row.querySelector('.bk-color-input').value = value;
+}
+function resetColorRows(){
+  document.getElementById('bkColorList').innerHTML = '';
+  addColorRow('');
+}
+function getBulkColors(){
+  return Array.from(document.querySelectorAll('.bk-color-input')).map(i=>i.value.trim()).filter(Boolean);
+}
+
+/* ---- เบอร์: ตารางราคาแยกทีละเบอร์ ---- */
+function generateSizeRows(){
   const sizes = parseSizeListInput(document.getElementById('bkSizes').value);
+  const wrap = document.getElementById('bkSizeTableWrap');
+  const tableEl = document.getElementById('bkSizeTable');
+  if(!sizes.length){
+    wrap.style.display = 'none';
+    tableEl.innerHTML = '';
+    updateBulkPreview();
+    return;
+  }
+  const defaultCost = document.getElementById('bkCost').value || '';
+  const defaultPrice = document.getElementById('bkPrice').value || '';
+  // เก็บค่าที่ผู้ใช้ตั้งไว้แล้วไว้ก่อน ไม่ให้หายตอนพิมพ์เบอร์เพิ่ม/ลด
+  const existing = {};
+  tableEl.querySelectorAll('.bk-size-row').forEach(row=>{
+    existing[row.dataset.size] = {
+      cost: row.querySelector('.bk-size-cost').value,
+      price: row.querySelector('.bk-size-price').value
+    };
+  });
+  tableEl.innerHTML = sizes.map(s=>{
+    const prev = existing[s];
+    const costVal = prev ? prev.cost : defaultCost;
+    const priceVal = prev ? prev.price : defaultPrice;
+    return `
+      <div class="bk-size-row" data-size="${s}">
+        <div class="bk-size-label">เบอร์ ${s}</div>
+        <input type="number" class="bk-size-cost" placeholder="ทุน" value="${costVal}" oninput="updateBulkPreview()">
+        <input type="number" class="bk-size-price" placeholder="ขาย" value="${priceVal}" oninput="updateBulkPreview()">
+      </div>`;
+  }).join('');
+  wrap.style.display = 'block';
+  updateBulkPreview();
+}
+function applyRangePrice(){
+  const spec = document.getElementById('bkRangeSpec').value.trim();
+  const price = document.getElementById('bkRangePrice').value;
+  if(!spec || price === ''){ toast('กรอกช่วงเบอร์และราคาก่อน'); return; }
+  const targetSizes = parseSizeListInput(spec);
+  if(!targetSizes.length){ toast('รูปแบบช่วงเบอร์ไม่ถูกต้อง'); return; }
+  const targetSet = new Set(targetSizes);
+  let count = 0;
+  document.querySelectorAll('.bk-size-row').forEach(row=>{
+    if(targetSet.has(row.dataset.size)){
+      row.querySelector('.bk-size-price').value = price;
+      count++;
+    }
+  });
+  if(count === 0){ toast('ไม่พบเบอร์ที่ตรงกับช่วงนี้ในตาราง'); return; }
+  toast(`ตั้งราคา ${price} ให้เบอร์ ${spec} แล้ว (${count} เบอร์)`);
+  updateBulkPreview();
+}
+function getBulkSizeRows(){
+  return Array.from(document.querySelectorAll('.bk-size-row')).map(row => ({
+    size: row.dataset.size,
+    costPrice: parseFloat(row.querySelector('.bk-size-cost').value) || 0,
+    price: parseFloat(row.querySelector('.bk-size-price').value) || 0
+  }));
+}
+
+function computeBulkCombos(){
+  const colors = getBulkColors();
+  const sizeRows = getBulkSizeRows();
   const colorList = colors.length ? colors : [''];
-  const sizeList = sizes.length ? sizes : [''];
+  const defaultCost = parseFloat(document.getElementById('bkCost').value) || 0;
+  const defaultPrice = parseFloat(document.getElementById('bkPrice').value) || 0;
+  const sizeList = sizeRows.length ? sizeRows : [{ size: '', costPrice: defaultCost, price: defaultPrice }];
   const combos = [];
   for(const c of colorList){
     for(const s of sizeList){
-      combos.push({ color: c, size: s });
+      combos.push({ color: c, size: s.size, costPrice: s.costPrice, price: s.price });
     }
   }
   return combos;
 }
+function findDupProduct(products, name, model, color, size){
+  return products.find(p=>
+    (p.name||'').trim().toLowerCase() === name.toLowerCase() &&
+    (p.model||'').trim().toLowerCase() === model.toLowerCase() &&
+    (p.color||'').trim().toLowerCase() === color.toLowerCase() &&
+    (p.size||'').trim().toLowerCase() === size.toLowerCase()
+  );
+}
 function openBulkAdd(){
   document.getElementById('bkName').value = '';
   document.getElementById('bkModel').value = '';
-  document.getElementById('bkColors').value = '';
   document.getElementById('bkSizes').value = '';
   document.getElementById('bkCost').value = '';
   document.getElementById('bkPrice').value = '';
   document.getElementById('bkStock').value = '';
+  document.getElementById('bkRangeSpec').value = '';
+  document.getElementById('bkRangePrice').value = '';
+  document.getElementById('bkSizeTableWrap').style.display = 'none';
+  document.getElementById('bkSizeTable').innerHTML = '';
   document.getElementById('bkPreview').textContent = '';
+  resetColorRows();
   document.getElementById('bulk-modal').classList.add('open');
+}
+// เปิด modal เพิ่ม SKU พร้อมเติมชื่อ/รุ่น/สี/ราคาจากสินค้าที่เคยขายแล้ว (ใช้จากหน้ารายการขาย)
+function openBulkAddFromProduct(productId){
+  const p = loadProducts().find(pp=>pp.id===productId);
+  if(!p){ toast('ไม่พบข้อมูลสินค้านี้แล้ว (อาจถูกลบไปแล้ว)'); return; }
+  openBulkAdd();
+  document.getElementById('bkName').value = p.name || '';
+  document.getElementById('bkModel').value = p.model || '';
+  document.getElementById('bkCost').value = p.costPrice || '';
+  document.getElementById('bkPrice').value = p.price || '';
+  if(p.color){
+    document.querySelector('.bk-color-input').value = p.color;
+  }
+  if(p.size){
+    document.getElementById('bkSizes').value = p.size;
+    generateSizeRows();
+  }
+  updateBulkPreview();
+  toast(`เติมข้อมูลจาก "${composeDisplayName(p.name,p.model,p.color,p.size)}" ให้แล้ว เพิ่มสี/เบอร์อื่นต่อได้เลย`);
 }
 function closeBulkAdd(){
   document.getElementById('bulk-modal').classList.remove('open');
@@ -904,40 +1103,31 @@ function updateBulkPreview(){
   const previewEl = document.getElementById('bkPreview');
   if(!name){ previewEl.textContent = ''; return; }
   const existing = loadProducts();
-  let newCount = 0, dupCount = 0;
+  let newCount = 0, dupCount = 0, noPriceCount = 0;
   combos.forEach(c=>{
-    const dup = existing.find(p=>
-      (p.name||'').trim().toLowerCase() === name.toLowerCase() &&
-      (p.model||'').trim().toLowerCase() === model.toLowerCase() &&
-      (p.color||'').trim().toLowerCase() === c.color.toLowerCase() &&
-      (p.size||'').trim().toLowerCase() === c.size.toLowerCase()
-    );
-    if(dup) dupCount++; else newCount++;
+    if(findDupProduct(existing, name, model, c.color, c.size)) dupCount++; else newCount++;
+    if(!c.price) noPriceCount++;
   });
-  previewEl.textContent = `จะสร้างทั้งหมด ${combos.length} SKU (ใหม่ ${newCount} รายการ${dupCount ? ', ซ้ำแล้วข้าม ' + dupCount + ' รายการ' : ''})`;
+  let text = `จะสร้างทั้งหมด ${combos.length} SKU (ใหม่ ${newCount} รายการ${dupCount ? ', ซ้ำแล้วข้าม ' + dupCount + ' รายการ' : ''})`;
+  if(noPriceCount) text += ` — ⚠️ ยังไม่ได้ตั้งราคาขาย ${noPriceCount} รายการ`;
+  previewEl.textContent = text;
 }
 function generateBulkSku(){
   const name = document.getElementById('bkName').value.trim();
   const model = document.getElementById('bkModel').value.trim();
-  const costPrice = parseFloat(document.getElementById('bkCost').value) || 0;
-  const price = parseFloat(document.getElementById('bkPrice').value) || 0;
   const stockRaw = document.getElementById('bkStock').value;
   const stock = stockRaw === '' ? null : (parseInt(stockRaw) || 0);
   if(!name){ toast('กรุณากรอกชื่อสินค้า'); return; }
-  if(price <= 0){ toast('กรุณากรอกราคาขาย'); return; }
 
   const combos = computeBulkCombos();
+  if(combos.some(c=>!c.price)){
+    if(!confirm('บาง SKU ยังไม่ได้ตั้งราคาขาย (จะบันทึกเป็น 0 ไปก่อน แก้ทีหลังได้) ต้องการสร้างต่อไหม?')) return;
+  }
   const products = loadProducts();
   let added = 0, skipped = 0;
   combos.forEach(c=>{
-    const dup = products.find(p=>
-      (p.name||'').trim().toLowerCase() === name.toLowerCase() &&
-      (p.model||'').trim().toLowerCase() === model.toLowerCase() &&
-      (p.color||'').trim().toLowerCase() === c.color.toLowerCase() &&
-      (p.size||'').trim().toLowerCase() === c.size.toLowerCase()
-    );
-    if(dup){ skipped++; return; }
-    products.push({ id: uid(), name, model, color: c.color, size: c.size, barcode:'', costPrice, price, stock });
+    if(findDupProduct(products, name, model, c.color, c.size)){ skipped++; return; }
+    products.push({ id: uid(), name, model, color: c.color, size: c.size, barcode:'', costPrice: c.costPrice, price: c.price, stock });
     added++;
   });
   saveProducts(products);
@@ -986,7 +1176,9 @@ function renderSalesList(){
     <div class="cart-item">
       <div>
         <div>${new Date(s.timestamp).toLocaleString('th-TH')}</div>
-        <div class="muted">${s.items.map(i=>i.name+' x'+i.qty).join(', ')}</div>
+        <div class="muted">${s.items.map(i=>
+          `${i.name} x${i.qty}` + (i.productId ? ` <a href="javascript:void(0)" onclick="openBulkAddFromProduct('${i.productId}')" style="color:var(--primary);font-weight:700;">➕SKU</a>` : '')
+        ).join(', ')}</div>
         <div class="muted">กำไร ฿${(s.profit||0).toFixed(2)}</div>
       </div>
       <div style="text-align:right;">
