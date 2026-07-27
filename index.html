@@ -157,20 +157,21 @@
       <h3>ขายด่วน (พิมพ์เอง ไม่ต้องมีในสต็อกก็ได้)</h3>
       <div class="field">
         <label>ชื่อสินค้า</label>
-        <input type="text" id="qsName" placeholder="เช่น นันยาง">
+        <input type="text" id="qsName" placeholder="เช่น นันยาง" oninput="checkQuickSuggestion()">
       </div>
+      <div id="qsSuggestion" class="muted" style="display:none;margin-top:-6px;margin-bottom:10px;"></div>
       <div class="field">
         <label>รุ่น (ไม่บังคับ)</label>
-        <input type="text" id="qsModel" placeholder="เช่น รุ่น A">
+        <input type="text" id="qsModel" placeholder="เช่น รุ่น A" oninput="checkQuickSuggestion()">
       </div>
       <div class="btn-row">
         <div class="field" style="flex:1;">
           <label>สี (ไม่บังคับ)</label>
-          <input type="text" id="qsColor" placeholder="เช่น ดำ">
+          <input type="text" id="qsColor" placeholder="เช่น ดำ" oninput="checkQuickSuggestion()">
         </div>
         <div class="field" style="flex:1;">
           <label>เบอร์ (ไม่บังคับ)</label>
-          <input type="text" id="qsSize" placeholder="เช่น 44">
+          <input type="text" id="qsSize" placeholder="เช่น 44" oninput="checkQuickSuggestion()">
         </div>
       </div>
       <div class="btn-row">
@@ -339,20 +340,21 @@
     <div class="confirm-sub">ตรวจสอบ/แก้ไขให้ถูกต้องก่อนบันทึก (กันฟังเสียงผิด)</div>
     <div class="field">
       <label>ชื่อสินค้า</label>
-      <input type="text" id="cfName">
+      <input type="text" id="cfName" oninput="checkNameSuggestion()">
     </div>
+    <div id="cfSuggestion" class="muted" style="display:none;margin-top:-6px;margin-bottom:10px;"></div>
     <div class="field">
       <label>รุ่น (ไม่บังคับ)</label>
-      <input type="text" id="cfModel">
+      <input type="text" id="cfModel" oninput="checkNameSuggestion()">
     </div>
     <div class="btn-row">
       <div class="field" style="flex:1;">
         <label>สี (ไม่บังคับ)</label>
-        <input type="text" id="cfColor">
+        <input type="text" id="cfColor" oninput="checkNameSuggestion()">
       </div>
       <div class="field" style="flex:1;">
         <label>เบอร์ (ไม่บังคับ)</label>
-        <input type="text" id="cfSize">
+        <input type="text" id="cfSize" oninput="checkNameSuggestion()">
       </div>
     </div>
     <div class="btn-row">
@@ -478,6 +480,41 @@ function composeDisplayName(name, model, color, size){
   if(color) s += ' สี' + color;
   if(size) s += ' เบอร์' + size;
   return s;
+}
+
+/* ============ FUZZY NAME MATCH (กันฟังเสียงเพี้ยนแล้วสร้างสินค้าซ้ำ เช่น "นันยาง" vs "นานยาง") ============ */
+function levenshtein(a, b){
+  const al = a.length, bl = b.length;
+  const dp = Array.from({length: al+1}, () => new Array(bl+1).fill(0));
+  for(let i=0;i<=al;i++) dp[i][0] = i;
+  for(let j=0;j<=bl;j++) dp[0][j] = j;
+  for(let i=1;i<=al;i++){
+    for(let j=1;j<=bl;j++){
+      const cost = a[i-1]===b[j-1] ? 0 : 1;
+      dp[i][j] = Math.min(dp[i-1][j]+1, dp[i][j-1]+1, dp[i-1][j-1]+cost);
+    }
+  }
+  return dp[al][bl];
+}
+function isSimilarName(a, b){
+  const la = (a||'').trim().toLowerCase(), lb = (b||'').trim().toLowerCase();
+  if(!la || !lb) return false;
+  if(la === lb) return false; // เท่ากันเป๊ะถือว่าไม่ใช่ "คล้าย" (ให้ findProductVariant จัดการแทน)
+  const dist = levenshtein(la, lb);
+  const maxLen = Math.max(la.length, lb.length);
+  return dist <= Math.max(1, Math.floor(maxLen * 0.3)); // ต่างกันได้ไม่เกิน ~30% ของความยาว
+}
+// หาสินค้าที่รุ่น/สี/เบอร์ตรงกัน แต่ชื่อ "คล้าย" (ไม่เป๊ะ) เผื่อฟังเสียงเพี้ยนแล้วสะกดเพี้ยนไปนิดหน่อย
+function findSimilarProduct(name, model, color, size){
+  const lm = (model||'').trim().toLowerCase();
+  const lc = (color||'').trim().toLowerCase();
+  const ls = (size||'').trim().toLowerCase();
+  return loadProducts().find(p =>
+    (p.model||'').trim().toLowerCase() === lm &&
+    (p.color||'').trim().toLowerCase() === lc &&
+    (p.size||'').trim().toLowerCase() === ls &&
+    isSimilarName(p.name, name)
+  );
 }
 
 /* ============ CART (build up, checkout together) ============ */
@@ -631,6 +668,32 @@ function quickSell(){
   document.getElementById('qsSize').value = '';
   document.getElementById('qsQty').value = '1';
   document.getElementById('qsPrice').value = '';
+  document.getElementById('qsSuggestion').style.display = 'none';
+}
+// เตือนถ้ามีสินค้าชื่อคล้ายกันอยู่แล้วตอนพิมพ์ในฟอร์มขายด่วน (กันสะกดเพี้ยน/พิมพ์ผิดแล้วสร้าง SKU ซ้ำ)
+function checkQuickSuggestion(){
+  const name = document.getElementById('qsName').value.trim();
+  const model = document.getElementById('qsModel').value.trim();
+  const color = document.getElementById('qsColor').value.trim();
+  const size = document.getElementById('qsSize').value.trim();
+  const el = document.getElementById('qsSuggestion');
+  if(!name){ el.style.display = 'none'; return; }
+  const similar = findSimilarProduct(name, model, color, size);
+  if(similar){
+    el.style.display = 'block';
+    el.innerHTML = `⚠️ มีสินค้าคล้ายกันอยู่แล้ว: <strong>${composeDisplayName(similar.name, similar.model, similar.color, similar.size)}</strong> — <a href="javascript:void(0)" onclick="useSuggestedQuickName('${similar.id}')" style="color:var(--primary);font-weight:700;">ใช่อันนี้ กดเพื่อใช้</a>`;
+  } else {
+    el.style.display = 'none';
+  }
+}
+function useSuggestedQuickName(productId){
+  const p = loadProducts().find(pp=>pp.id===productId);
+  if(!p) return;
+  document.getElementById('qsName').value = p.name;
+  document.getElementById('qsModel').value = p.model || '';
+  document.getElementById('qsColor').value = p.color || '';
+  document.getElementById('qsSize').value = p.size || '';
+  document.getElementById('qsSuggestion').style.display = 'none';
 }
 
 /* ============ CONFIRM SELL MODAL (used after voice parsing) ============ */
@@ -642,9 +705,35 @@ function openConfirmSell(name, model, color, size, qty, price){
   document.getElementById('cfQty').value = qty;
   document.getElementById('cfPrice').value = price;
   document.getElementById('confirm-modal').classList.add('open');
+  checkNameSuggestion();
 }
 function cancelConfirmSell(){
   document.getElementById('confirm-modal').classList.remove('open');
+}
+// เตือนถ้ามีสินค้าชื่อคล้ายกันอยู่แล้ว (กันฟังเสียงเพี้ยนแล้วสร้าง SKU ซ้ำ เช่น "นันยาง" ฟังเป็น "นานยาง")
+function checkNameSuggestion(){
+  const name = document.getElementById('cfName').value.trim();
+  const model = document.getElementById('cfModel').value.trim();
+  const color = document.getElementById('cfColor').value.trim();
+  const size = document.getElementById('cfSize').value.trim();
+  const el = document.getElementById('cfSuggestion');
+  if(!name){ el.style.display = 'none'; return; }
+  const similar = findSimilarProduct(name, model, color, size);
+  if(similar){
+    el.style.display = 'block';
+    el.innerHTML = `⚠️ มีสินค้าคล้ายกันอยู่แล้ว: <strong>${composeDisplayName(similar.name, similar.model, similar.color, similar.size)}</strong> — <a href="javascript:void(0)" onclick="useSuggestedName('${similar.id}')" style="color:var(--primary);font-weight:700;">ใช่อันนี้ กดเพื่อใช้</a>`;
+  } else {
+    el.style.display = 'none';
+  }
+}
+function useSuggestedName(productId){
+  const p = loadProducts().find(pp=>pp.id===productId);
+  if(!p) return;
+  document.getElementById('cfName').value = p.name;
+  document.getElementById('cfModel').value = p.model || '';
+  document.getElementById('cfColor').value = p.color || '';
+  document.getElementById('cfSize').value = p.size || '';
+  document.getElementById('cfSuggestion').style.display = 'none';
 }
 function confirmSell(){
   const name = document.getElementById('cfName').value.trim();
