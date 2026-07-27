@@ -5,225 +5,238 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>POS ร้านค้าปลีก</title>
 <link rel="manifest" href="data:application/manifest+json,{&quot;name&quot;:&quot;POS&quot;,&quot;display&quot;:&quot;standalone&quot;,&quot;start_url&quot;:&quot;.&quot;}">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root{
-    --primary:#1d4ed8; --primary-dark:#1e3a8a; --bg:#eef1f5; --card:#ffffff;
-    --text:#0f172a; --muted:#64748b; --danger:#b91c1c; --success:#15803d; --border:#d8dee8;
-    --sidebar-bg:#0f172a; --sidebar-text:#cbd5e1; --sidebar-active:#1d4ed8;
+    --primary:#1E293B; --primary-dark:#141D2B; --bg:#FAFAFA; --card:#FDFCFA;
+    --text:#1A2233; --muted:#525C6B; --danger:#9B3A30; --success:#3E6B4F; --border:#E2E8F0;
+    --fill:#F1F3F6; --danger-tint:#FBEDEB; --success-tint:#EAF4EE; --primary-tint:#E9EEF4;
+    --accent:#A8D5BA; --accent-dark:#7FB899; --accent-text:#1E293B;
+    --sidebar-bg:#1E293B; --sidebar-text:#B7C0CE; --sidebar-active:#A8D5BA;
+    --shadow: 0 1px 2px rgba(30,41,59,.04), 0 6px 18px rgba(30,41,59,.05);
   }
-  *{box-sizing:border-box;}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
   html,body{height:100%;}
-  body{margin:0;font-family:"Segoe UI",Roboto,-apple-system,BlinkMacSystemFont,Arial,sans-serif;background:var(--bg);color:var(--text);font-size:16px;line-height:1.45;}
-  .money, .num{font-variant-numeric:tabular-nums;font-weight:700;}
+  body{margin:0;font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+    background:var(--bg);color:var(--text);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased;}
+  .money, .num{font-variant-numeric:tabular-nums;font-weight:600;}
 
-  /* ===== Top bar ===== */
-  header{background:var(--card);border-bottom:1px solid var(--border);padding:12px 16px;position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:12px;}
-  .hamburger{background:var(--text);color:#fff;border:none;border-radius:8px;width:40px;height:40px;font-size:19px;cursor:pointer;flex:0 0 auto;}
-  header h1{font-size:18px;margin:0;font-weight:800;flex:1;letter-spacing:.2px;}
-  #clock{color:var(--muted);font-size:12px;white-space:nowrap;}
+  /* ===== App Header (native app style) ===== */
+  header{background:#fff;border-bottom:1px solid var(--border);
+    padding:16px 18px;position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:12px;}
+  header h1{font-size:18px;margin:0;font-weight:700;flex:1;letter-spacing:-.2px;color:var(--text);}
+  #clock{color:var(--muted);font-size:11px;white-space:nowrap;font-weight:500;}
+  .profile-icon{width:34px;height:34px;border-radius:50%;background:var(--fill);color:var(--primary);
+    display:flex;align-items:center;justify-content:center;flex:0 0 auto;border:none;cursor:pointer;}
+  .profile-icon svg{width:18px;height:18px;}
 
-  /* ===== Sidebar (off-canvas, hideable) ===== */
-  .sidebar-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:39;display:none;}
-  .sidebar-overlay.open{display:block;}
-  .sidebar{position:fixed;top:0;bottom:0;left:0;width:250px;max-width:78vw;background:var(--sidebar-bg);
-    transform:translateX(-100%);transition:transform .22s ease;z-index:40;display:flex;flex-direction:column;}
-  .sidebar.open{transform:translateX(0);}
-  .sidebar-header{display:flex;align-items:center;justify-content:space-between;padding:18px 16px;border-bottom:1px solid #1f2937;}
-  .sidebar-logo{color:#fff;font-weight:800;font-size:17px;}
-  .sidebar-close{background:none;border:none;color:#9ca3af;font-size:20px;cursor:pointer;}
-  .sidebar-nav{padding:10px;display:flex;flex-direction:column;gap:2px;}
-  .nav-item{display:flex;align-items:center;gap:12px;background:none;border:none;color:var(--sidebar-text);
-    padding:13px 12px;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;text-align:left;width:100%;}
-  .nav-item .nav-icon{font-size:19px;width:22px;text-align:center;}
-  .nav-item.active{background:var(--sidebar-active);color:#fff;}
-  .sidebar-footer{margin-top:auto;padding:14px 16px;color:#64748b;font-size:11px;border-top:1px solid #1f2937;}
+  /* ===== Bottom Tab Bar (native app style) ===== */
+  .tabbar{position:fixed;left:0;right:0;bottom:0;z-index:40;background:#fff;border-top:1px solid var(--border);
+    display:flex;padding:6px 4px calc(6px + env(safe-area-inset-bottom,0px));box-shadow:0 -2px 12px rgba(30,41,59,.05);}
+  .tabbar-item{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;background:none;border:none;
+    color:var(--muted);padding:6px 2px;cursor:pointer;border-radius:12px;}
+  .tabbar-item svg{width:22px;height:22px;}
+  .tabbar-item span{font-size:10px;font-weight:600;}
+  .tabbar-item.active{color:var(--primary);}
 
   /* ===== Layout ===== */
-  .container{padding:14px;max-width:640px;margin:0 auto;}
-  .card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:14px;}
-  .card h3{margin:0 0 12px;font-size:15px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--text);border-bottom:2px solid var(--border);padding-bottom:8px;}
+  .container{padding:18px;padding-bottom:96px;max-width:480px;margin:0 auto;}
+  .container.with-sticky-bar{padding-bottom:170px;}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:22px;margin-bottom:18px;box-shadow:var(--shadow);}
+  .card h3{margin:0 0 16px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);}
 
-  .btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;border:1px solid transparent;border-radius:8px;
-    padding:13px 16px;font-size:15px;font-weight:700;cursor:pointer;}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;border:none;border-radius:14px;
+    padding:14px 16px;font-size:16px;font-weight:600;cursor:pointer;transition:opacity .1s, transform .1s;}
+  .btn:active{opacity:.65;transform:scale(.98);}
   .btn-primary{background:var(--primary);color:#fff;}
-  .btn-primary:active{background:var(--primary-dark);}
-  .btn-outline{background:#fff;color:var(--text);border:1.5px solid var(--border);}
-  .btn-danger{background:#fff;color:var(--danger);border:1.5px solid var(--danger);}
-  .btn-success{background:var(--success);color:#fff;}
+  .btn-outline{background:var(--fill);color:var(--primary);}
+  .btn-danger{background:var(--danger-tint);color:var(--danger);}
+  .btn-success{background:var(--accent);color:var(--accent-text);}
+  .btn-success:active{background:var(--accent-dark);}
   .btn-full{width:100%;}
   .btn-row{display:flex;gap:8px;}
   .btn-row .btn{flex:1;}
+  .btn-row input{flex:1;}
 
-  input,select{width:100%;padding:12px;border:1.5px solid var(--border);border-radius:8px;font-size:15px;background:#fff;color:var(--text);}
-  input:focus,select:focus{outline:2px solid var(--primary);outline-offset:1px;}
-  label{font-size:12px;font-weight:700;color:var(--muted);margin-bottom:5px;display:block;text-transform:uppercase;letter-spacing:.3px;}
+  input,select{width:100%;padding:12px 13px;border:1px solid var(--border);border-radius:10px;font-size:16px;background:#fff;color:var(--text);transition:border-color .12s;}
+  input::placeholder{color:#A8B0BC;}
+  input:focus,select:focus{outline:none;border-color:var(--primary);}
+  label{font-size:13px;font-weight:600;color:var(--muted);margin-bottom:6px;display:block;}
   .field{margin-bottom:12px;}
 
   table{width:100%;border-collapse:collapse;font-size:14px;}
-  th,td{text-align:left;padding:10px 6px;border-bottom:1px solid var(--border);}
-  th{color:var(--muted);font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.3px;background:#f8fafc;}
-  tbody tr:hover{background:#f8fafc;}
+  th,td{text-align:left;padding:11px 6px;border-bottom:1px solid var(--border);}
+  th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.3px;}
+  tbody tr:last-child td{border-bottom:none;}
+  tbody tr:active{background:var(--fill);}
 
-  .cart-item{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border);}
+  .cart-item{display:flex;justify-content:space-between;align-items:center;padding:11px 0;border-bottom:1px solid var(--border);}
   .cart-item:last-child{border-bottom:none;}
   .qty-controls{display:flex;align-items:center;gap:8px;}
-  .qty-controls button{width:30px;height:30px;border-radius:6px;border:1.5px solid var(--border);background:#fff;font-size:16px;line-height:1;font-weight:700;}
-  .total-row{display:flex;justify-content:space-between;font-size:22px;font-weight:800;padding-top:12px;border-top:2px solid var(--border);margin-top:4px;}
+  .qty-controls button{width:30px;height:30px;border-radius:15px;border:none;background:var(--fill);color:var(--primary);font-size:16px;line-height:1;font-weight:700;}
+  .total-row{display:flex;justify-content:space-between;font-size:22px;font-weight:700;padding-top:14px;margin-top:4px;}
   .muted{color:var(--muted);font-size:13px;}
-  .empty{text-align:center;color:var(--muted);padding:26px 0;font-size:14px;}
+  .empty{text-align:center;color:var(--muted);padding:30px 0;font-size:14px;}
 
   .tab-page{display:none;}
   .tab-page.active{display:block;}
 
-  #scanner-modal, #voice-modal{position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:50;display:none;flex-direction:column;align-items:center;justify-content:center;}
+  #scanner-modal, #voice-modal{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:50;display:none;flex-direction:column;align-items:center;justify-content:center;}
   #scanner-modal.open,#voice-modal.open{display:flex;}
-  #reader{width:90vw;max-width:400px;background:#000;border-radius:10px;overflow:hidden;}
+  #reader{width:90vw;max-width:400px;background:#000;border-radius:20px;overflow:hidden;}
   .modal-close{margin-top:18px;}
-  #confirm-modal, #bulk-modal{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:55;display:none;align-items:center;justify-content:center;padding:16px;overflow-y:auto;}
+  #confirm-modal, #bulk-modal{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:55;display:none;align-items:center;justify-content:center;padding:16px;overflow-y:auto;backdrop-filter:blur(2px);}
   #confirm-modal.open, #bulk-modal.open{display:flex;}
-  .confirm-card{background:#fff;border-radius:12px;padding:20px;width:100%;max-width:380px;max-height:90vh;overflow-y:auto;margin:auto;}
-  .confirm-card h3{margin:0 0 4px;font-size:16px;font-weight:800;border:none;padding:0;}
-  .confirm-sub{color:var(--muted);font-size:13px;margin-bottom:14px;}
-  .toast{position:fixed;top:70px;left:50%;transform:translateX(-50%);background:#0f172a;color:#fff;padding:11px 18px;
-    border-radius:8px;font-size:14px;z-index:100;opacity:0;transition:opacity .2s;pointer-events:none;max-width:85vw;text-align:center;font-weight:600;}
+  .confirm-card{background:#fff;border-radius:22px;padding:22px;width:100%;max-width:380px;max-height:90vh;overflow-y:auto;margin:auto;}
+  .confirm-card h3{margin:0 0 4px;font-size:18px;font-weight:700;border:none;padding:0;letter-spacing:-.2px;}
+  .confirm-sub{color:var(--muted);font-size:13px;margin-bottom:16px;line-height:1.4;}
+  .toast{position:fixed;top:70px;left:50%;transform:translateX(-50%);background:rgba(28,28,30,.92);backdrop-filter:blur(10px);color:#fff;padding:12px 20px;
+    border-radius:24px;font-size:14px;z-index:100;opacity:0;transition:opacity .2s;pointer-events:none;max-width:85vw;text-align:center;font-weight:600;}
   .toast.show{opacity:1;}
-  .voice-pulse{width:80px;height:80px;border-radius:50%;background:var(--danger);display:flex;align-items:center;justify-content:center;font-size:32px;color:#fff;animation:pulse 1.2s infinite;}
-  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(185,28,28,.5);}70%{box-shadow:0 0 0 25px rgba(185,28,28,0);}100%{box-shadow:0 0 0 0 rgba(185,28,28,0);}}
-  #voice-transcript{color:#fff;margin-top:18px;font-size:16px;min-height:24px;text-align:center;padding:0 20px;font-weight:600;}
-  .voice-hint{color:#94a3b8;font-size:12px;margin-top:10px;text-align:center;padding:0 24px;}
-  .badge{display:inline-block;background:#dbeafe;color:var(--primary);font-size:11px;font-weight:700;padding:3px 9px;border-radius:6px;}
-  .badge-warn{background:#fef3c7;color:#92400e;}
-  .row-actions button{background:none;border:none;font-size:17px;cursor:pointer;padding:4px;}
-  .hint{font-size:13px;color:var(--muted);margin-top:8px;line-height:1.5;}
+  .voice-pulse{width:84px;height:84px;border-radius:50%;background:var(--danger);display:flex;align-items:center;justify-content:center;font-size:34px;color:#fff;animation:pulse 1.2s infinite;}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(255,59,48,.5);}70%{box-shadow:0 0 0 25px rgba(255,59,48,0);}100%{box-shadow:0 0 0 0 rgba(255,59,48,0);}}
+  #voice-transcript{color:#fff;margin-top:20px;font-size:17px;min-height:24px;text-align:center;padding:0 20px;font-weight:600;}
+  .voice-hint{color:#98989D;font-size:12px;margin-top:10px;text-align:center;padding:0 24px;}
+  .badge{display:inline-block;background:var(--accent);color:var(--accent-text);font-size:11px;font-weight:600;padding:4px 10px;border-radius:8px;}
+  .badge-warn{background:var(--primary);color:#fff;}
+  .row-actions{white-space:nowrap;}
+  .row-actions button{background:none;border:none;font-size:12px;font-weight:600;color:var(--primary);cursor:pointer;padding:4px 6px;}
+  .row-actions button:last-child{color:var(--danger);}
+  .hint{font-size:13px;color:var(--muted);margin-top:10px;line-height:1.55;}
+  .section-divider{height:1px;background:var(--border);margin:22px 0;}
+  .quick-links-row{display:flex;justify-content:center;gap:22px;margin-top:12px;}
+  .btn-link{background:none;border:none;color:var(--primary);font-size:13px;font-weight:600;cursor:pointer;padding:4px;}
+  .btn-link:active{opacity:.6;}
+  .card-footnote{background:var(--fill);margin:22px -22px -22px -22px;padding:14px 22px;border-radius:0 0 16px 16px;font-size:12px;color:var(--muted);line-height:1.6;}
+  .alert-banner{background:var(--danger-tint);color:var(--danger);border-radius:12px;padding:12px 14px;margin-bottom:14px;font-size:13px;font-weight:600;line-height:1.5;}
+  .cell-warn{color:var(--danger);font-weight:600;font-size:12px;}
 
-  .hero{background:var(--sidebar-bg);color:#fff;}
-  .hero .muted{color:#94a3b8;}
-  .hero-big{font-size:38px;font-weight:800;margin:4px 0 14px;font-variant-numeric:tabular-nums;}
+  .hero{background:linear-gradient(160deg,#1E293B,#2E3E54);color:#fff;}
+  .hero .muted{color:#B7C0CE;}
+  .hero-big{font-size:40px;font-weight:700;margin:4px 0 16px;font-variant-numeric:tabular-nums;letter-spacing:-.5px;}
   .hero-cols{display:flex;gap:10px;}
-  .hero-cols>div{flex:1;background:rgba(255,255,255,.06);border-radius:8px;padding:10px;}
+  .hero-cols>div{flex:1;background:rgba(255,255,255,.08);border-radius:14px;padding:12px;}
   .hero-cols strong{font-size:17px;display:block;margin-top:3px;font-variant-numeric:tabular-nums;}
 
   /* ===== Stock list groups (collapsible) ===== */
-  .stock-group{border:1px solid var(--border);border-radius:10px;margin-bottom:10px;overflow:hidden;}
-  .stock-group-header{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;cursor:pointer;background:#f8fafc;}
-  .stock-group-header:active{background:#eef2f7;}
+  .stock-group{background:var(--card);border-radius:16px;margin-bottom:10px;overflow:hidden;box-shadow:var(--shadow);}
+  .stock-group-header{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;cursor:pointer;}
+  .stock-group-header:active{background:var(--fill);}
   .stock-group-arrow{display:inline-block;margin-left:8px;transition:transform .15s;color:var(--muted);}
   .stock-group-header.open .stock-group-arrow{transform:rotate(180deg);}
-  .stock-group-body{padding:0 14px 10px;}
+  .stock-group-body{padding:0 16px 14px;}
   .stock-group-body table{margin-top:6px;}
+  .group-toolbar{background:var(--fill);border-radius:14px;padding:12px;margin:8px 0;}
 
   /* ===== Bulk SKU: color rows / size table ===== */
   .bk-color-row{display:flex;gap:8px;margin-bottom:8px;}
   .bk-color-row input{flex:1;}
-  .bk-color-row button{flex:0 0 auto;width:40px;padding:0;}
-  .bk-size-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);}
+  .bk-color-row button{flex:0 0 auto;width:42px;padding:0;}
+  .bk-size-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--border);}
   .bk-size-row:last-child{border-bottom:none;}
-  .bk-size-row .bk-size-label{min-width:64px;font-size:13px;color:var(--muted);}
+  .bk-size-row .bk-size-label{min-width:64px;font-size:13px;color:var(--muted);font-weight:600;}
   .bk-size-row input{flex:1;}
 
+  /* ===== Scan hero + sticky save bar (native app patterns) ===== */
+  .scan-hero{background:var(--primary);color:#fff;border-radius:18px;padding:26px 20px;text-align:center;
+    margin-bottom:18px;cursor:pointer;box-shadow:var(--shadow);}
+  .scan-hero:active{opacity:.85;}
+  .scan-hero svg{width:34px;height:34px;margin-bottom:8px;}
+  .scan-hero div.scan-label{font-size:16px;font-weight:700;}
+  .sticky-action-bar{position:fixed;left:0;right:0;bottom:58px;z-index:39;background:#fff;border-top:1px solid var(--border);
+    padding:10px 18px;display:none;}
+  .sticky-action-bar.show{display:block;}
+  .sticky-action-bar .btn{font-size:16px;padding:15px 16px;}
+
+  /* ===== Spacious list cards (touch-friendly, avoid dense tables) ===== */
+  .list-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:10px;}
+
   @media (min-width:720px){
-    .sidebar{transform:translateX(0);position:sticky;height:100vh;}
-    .sidebar-close{display:none;}
-    .sidebar-overlay{display:none !important;}
-    .hamburger{display:none;}
-    body{display:flex;}
-    .app-main{flex:1;min-width:0;}
+    body{background:#E9ECF1;}
+    .app-main{max-width:480px;margin:0 auto;background:var(--bg);min-height:100vh;box-shadow:0 0 40px rgba(30,41,59,.12);}
   }
 </style>
 </head>
 <body>
 
-<div id="sidebarOverlay" class="sidebar-overlay" onclick="closeSidebar()"></div>
-<aside id="sidebar" class="sidebar">
-  <div class="sidebar-header">
-    <span class="sidebar-logo">🛒 POS ร้านค้า</span>
-    <button class="sidebar-close" onclick="closeSidebar()">✕</button>
-  </div>
-  <nav class="sidebar-nav">
-    <button class="nav-item active" data-tab="tab-sell" onclick="switchTab('tab-sell')"><span class="nav-icon">🛒</span><span>ขายสินค้า</span></button>
-    <button class="nav-item" data-tab="tab-stock" onclick="switchTab('tab-stock')"><span class="nav-icon">📦</span><span>สต็อกสินค้า</span></button>
-    <button class="nav-item" data-tab="tab-saleslist" onclick="switchTab('tab-saleslist')"><span class="nav-icon">🧾</span><span>รายการขาย</span></button>
-    <button class="nav-item" data-tab="tab-dashboard" onclick="switchTab('tab-dashboard')"><span class="nav-icon">📊</span><span>สรุปยอด</span></button>
-  </nav>
-  <div class="sidebar-footer">ข้อมูลเก็บในเครื่องนี้ (localStorage)</div>
-</aside>
-
 <div class="app-main">
 <header>
-  <button class="hamburger" onclick="openSidebar()">☰</button>
-  <h1>POS ร้านค้าปลีก</h1>
+  <h1 id="pageTitle">สแกนสินค้า</h1>
   <span id="clock"></span>
+  <button class="profile-icon" onclick="toast('อุปกรณ์นี้ใช้เพียงคนเดียว')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.2"/><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6"/></svg>
+  </button>
 </header>
 
-<div class="container">
+<div class="container with-sticky-bar" id="container">
 
-  <!-- ===== TAB: ขาย ===== -->
+  <!-- ===== TAB: ขาย (Scan Item) ===== -->
   <section id="tab-sell" class="tab-page active">
-    <div class="card">
-      <div class="btn-row">
-        <button class="btn btn-primary" onclick="openScanner('sell')">📷 สแกนสินค้า</button>
-        <button class="btn btn-outline" onclick="startVoice()">🎤 สั่งด้วยเสียง</button>
-      </div>
-      <div class="hint">
-        พูด "ขาย ชื่อสินค้า รุ่น... สี... เบอร์... ราคา..." เช่น <strong>"ขาย นันยาง รุ่น A สีดำ เบอร์ 43 ราคา 300"</strong> ระบบจะแยก ชื่อ/รุ่น/สี/เบอร์/ราคา ให้อัตโนมัติ แล้วให้ยืนยัน/แก้ไขก่อนบันทึกเสมอ (กันฟังผิด) พร้อมเพิ่มสินค้าใหม่อัตโนมัติถ้ายังไม่เคยมี<br>
-        เคล็ดลับให้ฟังแม่นขึ้น: พูดช้าๆ เว้นจังหวะสั้นๆ ระหว่างชื่อสินค้ากับราคา และพูดคำว่า "บาท" ปิดท้ายเสมอ<br>
-        คำสั่งอื่น: "เพิ่ม ชื่อสินค้า จำนวน" (ใส่ตะกร้าไว้คิดเงินรวมทีหลัง), "คิดเงิน", "ล้างตะกร้า", "ยกเลิกรายการล่าสุด"
-      </div>
+    <div class="scan-hero" onclick="startVoice()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Z"/><path d="M19 11a7 7 0 0 1-14 0"/><path d="M12 18v3"/></svg>
+      <div class="scan-label">สั่งด้วยเสียง</div>
+    </div>
+    <div class="quick-links-row">
+      <button type="button" class="btn-link" onclick="openScanner('sell')">สแกนสินค้า</button>
     </div>
 
     <div class="card">
-      <h3>ขายด่วน (พิมพ์เอง ไม่ต้องมีในสต็อกก็ได้)</h3>
+      <h3>ขายด่วน (พิมพ์เอง)</h3>
       <div class="field">
         <label>ชื่อสินค้า</label>
         <input type="text" id="qsName" placeholder="เช่น นันยาง" oninput="checkQuickSuggestion()">
       </div>
       <div id="qsSuggestion" class="muted" style="display:none;margin-top:-6px;margin-bottom:10px;"></div>
       <div class="field">
-        <label>รุ่น (ไม่บังคับ)</label>
+        <label>รุ่น</label>
         <input type="text" id="qsModel" placeholder="เช่น รุ่น A" oninput="checkQuickSuggestion()">
       </div>
       <div class="btn-row">
         <div class="field" style="flex:1;">
-          <label>สี (ไม่บังคับ)</label>
+          <label>สี</label>
           <input type="text" id="qsColor" placeholder="เช่น ดำ" oninput="checkQuickSuggestion()">
         </div>
         <div class="field" style="flex:1;">
-          <label>เบอร์ (ไม่บังคับ)</label>
+          <label>เบอร์</label>
           <input type="text" id="qsSize" placeholder="เช่น 44" oninput="checkQuickSuggestion()">
         </div>
       </div>
       <div class="btn-row">
         <div class="field" style="flex:1;">
-          <label>จำนวน</label>
+          <label>จำนวน (คู่)</label>
           <input type="number" id="qsQty" value="1" min="1">
         </div>
         <div class="field" style="flex:1;">
-          <label>ราคา/ชิ้น (บาท)</label>
+          <label>ราคา</label>
           <input type="number" id="qsPrice" placeholder="0" step="0.01">
         </div>
       </div>
-      <button class="btn btn-success btn-full" onclick="quickSell()">✅ บันทึกขาย</button>
-    </div>
 
-    <div class="card">
-      <div class="field">
+      <div class="section-divider"></div>
+      <div class="field" style="margin-bottom:0;">
         <label>ค้นหา/เพิ่มสินค้าด้วยมือ (เข้าตะกร้า)</label>
-        <input type="text" id="manualSearch" placeholder="พิมพ์ชื่อสินค้า..." oninput="renderSearchResults()">
+        <input type="text" id="manualSearch" placeholder="ค้นหา/เพิ่มสินค้าด้วยมือ (เข้าตะกร้า)" oninput="renderSearchResults()">
         <div id="searchResults"></div>
       </div>
     </div>
 
     <div class="card">
-      <h3>ตะกร้าสินค้า</h3>
+      <h3>ตะกร้าปัจจุบัน</h3>
       <div id="cartList"><div class="empty">ยังไม่มีสินค้าในตะกร้า</div></div>
       <div class="total-row">
         <span>รวมทั้งหมด</span>
         <span id="cartTotal" class="money">฿0</span>
       </div>
       <div style="margin-top:14px;" class="btn-row">
-        <button class="btn btn-danger" onclick="clearCart()">ล้างตะกร้า</button>
-        <button class="btn btn-success" onclick="checkout()">✅ คิดเงิน</button>
+        <button class="btn btn-outline" onclick="clearCart()">ล้างตะกร้า</button>
+        <button class="btn btn-primary" onclick="checkout()">คิดเงิน</button>
       </div>
+    </div>
+
+    <div class="card-footnote" style="border-radius:16px;margin:0 0 18px;">
+      พูด "ขาย ชื่อสินค้า รุ่น... สี... เบอร์... กี่คู่... ราคา..." เช่น "ขาย นันยาง รุ่น A สีดำ เบอร์ 43 2 คู่ ราคา 300"
     </div>
   </section>
 
@@ -254,7 +267,7 @@
         <label>บาร์โค้ด / QR (ไม่บังคับ)</label>
         <div class="btn-row">
           <input type="text" id="pBarcode" placeholder="สแกนหรือพิมพ์เอง">
-          <button class="btn btn-outline" style="flex:0 0 auto;" onclick="openScanner('product')">📷</button>
+          <button class="btn btn-outline" style="flex:0 0 auto;" onclick="openScanner('product')">สแกน</button>
         </div>
       </div>
       <div class="btn-row">
@@ -273,13 +286,14 @@
       </div>
       <div class="btn-row">
         <button class="btn btn-outline" onclick="resetProductForm()">ล้างฟอร์ม</button>
-        <button class="btn btn-primary" onclick="saveProduct()">💾 บันทึกสินค้า</button>
+        <button class="btn btn-primary" onclick="saveProduct()">บันทึกสินค้า</button>
       </div>
     </div>
 
     <div class="card">
       <h3>รายการสินค้าทั้งหมด</h3>
-      <button class="btn btn-outline btn-full" style="margin-bottom:12px;" onclick="openBulkAdd()">➕ เพิ่มหลายสี/เบอร์พร้อมกัน (SKU)</button>
+      <div id="stockAlertBanner"></div>
+      <button class="btn btn-outline btn-full" style="margin-bottom:12px;" onclick="openBulkAdd()">เพิ่มหลายสี/เบอร์พร้อมกัน (SKU)</button>
       <input type="text" id="productFilter" placeholder="ค้นหาสินค้า..." style="margin-bottom:12px;" oninput="renderProductList()">
       <div id="productList"></div>
     </div>
@@ -326,14 +340,37 @@
         </select>
       </div>
       <div id="reportSummary"></div>
-      <button class="btn btn-outline btn-full" style="margin-top:12px;" onclick="exportCSV()">⬇️ ส่งออก CSV</button>
+      <button class="btn btn-outline btn-full" style="margin-top:12px;" onclick="exportCSV()">ส่งออก CSV</button>
     </div>
     <div class="card">
-      <button class="btn btn-danger btn-full" onclick="wipeAllData()">🗑️ ล้างข้อมูลทั้งหมด</button>
+      <button class="btn btn-danger btn-full" onclick="wipeAllData()">ล้างข้อมูลทั้งหมด</button>
     </div>
   </section>
 
 </div>
+
+<div class="sticky-action-bar show" id="stickyActionBar">
+  <button class="btn btn-success btn-full" onclick="quickSell()">✓ บันทึกขาย</button>
+</div>
+
+<nav class="tabbar">
+  <button class="tabbar-item active" data-tab="tab-sell" onclick="switchTab('tab-sell')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8h12l-1 12H7L6 8Z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg>
+    <span>ขาย</span>
+  </button>
+  <button class="tabbar-item" data-tab="tab-stock" onclick="switchTab('tab-stock')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l9-4 9 4-9 4-9-4Z"/><path d="M3 7v10l9 4 9-4V7"/><path d="M12 11v10"/></svg>
+    <span>สต็อก</span>
+  </button>
+  <button class="tabbar-item" data-tab="tab-saleslist" onclick="switchTab('tab-saleslist')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3Z"/><path d="M9 8h6M9 12h6"/></svg>
+    <span>รายการขาย</span>
+  </button>
+  <button class="tabbar-item" data-tab="tab-dashboard" onclick="switchTab('tab-dashboard')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M12 20V4M20 20v-7"/></svg>
+    <span>สรุปยอด</span>
+  </button>
+</nav>
 </div>
 
 <!-- Scanner Modal -->
@@ -345,9 +382,9 @@
 
 <!-- Voice Modal -->
 <div id="voice-modal">
-  <div class="voice-pulse">🎤</div>
+  <div class="voice-pulse"></div>
   <div id="voice-transcript">กำลังฟัง...</div>
-  <div class="voice-hint">เช่น "ขาย นันยาง สีดำ เบอร์ 43 ราคา 300" หรือ "คิดเงิน"</div>
+  <div class="voice-hint">พูด "ขาย ชื่อสินค้า รุ่น... สี... เบอร์... กี่คู่... ราคา..." เช่น "ขาย นันยาง รุ่น A สีดำ เบอร์ 43 2 คู่ ราคา 300"</div>
   <button class="btn btn-outline modal-close" onclick="stopVoice()">ปิด</button>
 </div>
 
@@ -377,7 +414,7 @@
     </div>
     <div class="btn-row">
       <div class="field" style="flex:1;">
-        <label>จำนวน</label>
+        <label>จำนวน (คู่)</label>
         <input type="number" id="cfQty" min="1">
       </div>
       <div class="field" style="flex:1;">
@@ -387,7 +424,7 @@
     </div>
     <div class="btn-row">
       <button class="btn btn-outline" onclick="cancelConfirmSell()">ยกเลิก</button>
-      <button class="btn btn-success" onclick="confirmSell()">✅ บันทึกขาย</button>
+      <button class="btn btn-primary" onclick="confirmSell()">บันทึกขาย</button>
     </div>
   </div>
 </div>
@@ -425,7 +462,7 @@
     <div id="bkPreview" class="muted" style="margin-bottom:12px;"></div>
     <div class="btn-row">
       <button class="btn btn-outline" onclick="closeBulkAdd()">ยกเลิก</button>
-      <button class="btn btn-primary" onclick="generateBulkSku()">✅ สร้าง SKU ทั้งหมด</button>
+      <button class="btn btn-primary" onclick="generateBulkSku()">สร้าง SKU ทั้งหมด</button>
     </div>
   </div>
 </div>
@@ -455,25 +492,25 @@ function toast(msg){
 }
 
 /* ============ SIDEBAR ============ */
-function openSidebar(){
-  document.getElementById('sidebar').classList.add('open');
-  document.getElementById('sidebarOverlay').classList.add('open');
-}
-function closeSidebar(){
-  document.getElementById('sidebar').classList.remove('open');
-  document.getElementById('sidebarOverlay').classList.remove('open');
-}
-
 /* ============ TABS ============ */
+const TAB_TITLES = {
+  'tab-sell': 'สแกนสินค้า',
+  'tab-stock': 'สต็อกสินค้า',
+  'tab-saleslist': 'รายการขาย',
+  'tab-dashboard': 'สรุปยอด'
+};
 function switchTab(id){
   document.querySelectorAll('.tab-page').forEach(el=>el.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(el=>el.classList.remove('active'));
+  document.querySelectorAll('.tabbar-item').forEach(el=>el.classList.remove('active'));
   document.getElementById(id).classList.add('active');
-  document.querySelector(`.nav-item[data-tab="${id}"]`).classList.add('active');
+  document.querySelector(`.tabbar-item[data-tab="${id}"]`).classList.add('active');
+  document.getElementById('pageTitle').textContent = TAB_TITLES[id] || 'POS ร้านค้าปลีก';
+  document.getElementById('stickyActionBar').classList.toggle('show', id === 'tab-sell');
+  document.getElementById('container').classList.toggle('with-sticky-bar', id === 'tab-sell');
   if(id === 'tab-stock') renderProductList();
   if(id === 'tab-saleslist') renderSalesList();
   if(id === 'tab-dashboard') renderDashboard();
-  closeSidebar();
+  window.scrollTo({top:0});
 }
 
 /* ============ CLOCK ============ */
@@ -555,7 +592,7 @@ function findSimilarProduct(name, model, color, size){
 function addToCart(product, qty=1){
   if(!product) return;
   if(product.stock !== undefined && product.stock !== null && product.stock <= 0){
-    toast(`⚠️ "${composeDisplayName(product.name, product.model, product.color, product.size)}" สินค้าหมด`);
+    toast(`"${composeDisplayName(product.name, product.model, product.color, product.size)}" สินค้าหมด`);
   }
   const displayName = composeDisplayName(product.name, product.model, product.color, product.size);
   const existing = cart.find(c=>c.productId === product.id);
@@ -643,7 +680,7 @@ function checkout(){
   });
   saveSales(sales);
 
-  toast(`✅ บันทึกการขาย ฿${total.toFixed(2)}`);
+  toast(`บันทึกการขาย ฿${total.toFixed(2)}`);
   clearCart();
   renderDashboard(); renderSalesList(); renderProductList();
 }
@@ -681,8 +718,8 @@ function instantSell(name, model, color, size, qty, price){
   renderDashboard(); renderSalesList(); renderProductList();
 
   toast(autoCreated
-    ? `✅ เพิ่มสินค้าใหม่ "${displayName}" + บันทึกขาย ฿${total.toFixed(2)}`
-    : `✅ บันทึกขาย: ${displayName} x${qty} = ฿${total.toFixed(2)}`);
+    ? `เพิ่มสินค้าใหม่ "${displayName}" + บันทึกขาย ฿${total.toFixed(2)}`
+    : `บันทึกขาย: ${displayName} x${qty} = ฿${total.toFixed(2)}`);
 }
 
 /* ============ QUICK SELL (manual, always reliable) ============ */
@@ -715,7 +752,7 @@ function checkQuickSuggestion(){
   const similar = findSimilarProduct(name, model, color, size);
   if(similar){
     el.style.display = 'block';
-    el.innerHTML = `⚠️ มีสินค้าคล้ายกันอยู่แล้ว: <strong>${composeDisplayName(similar.name, similar.model, similar.color, similar.size)}</strong> — <a href="javascript:void(0)" onclick="useSuggestedQuickName('${similar.id}')" style="color:var(--primary);font-weight:700;">ใช่อันนี้ กดเพื่อใช้</a>`;
+    el.innerHTML = `มีสินค้าคล้ายกันอยู่แล้ว: <strong>${composeDisplayName(similar.name, similar.model, similar.color, similar.size)}</strong> — <a href="javascript:void(0)" onclick="useSuggestedQuickName('${similar.id}')" style="color:var(--primary);font-weight:700;">ใช่อันนี้ กดเพื่อใช้</a>`;
   } else {
     el.style.display = 'none';
   }
@@ -755,7 +792,7 @@ function checkNameSuggestion(){
   const similar = findSimilarProduct(name, model, color, size);
   if(similar){
     el.style.display = 'block';
-    el.innerHTML = `⚠️ มีสินค้าคล้ายกันอยู่แล้ว: <strong>${composeDisplayName(similar.name, similar.model, similar.color, similar.size)}</strong> — <a href="javascript:void(0)" onclick="useSuggestedName('${similar.id}')" style="color:var(--primary);font-weight:700;">ใช่อันนี้ กดเพื่อใช้</a>`;
+    el.innerHTML = `มีสินค้าคล้ายกันอยู่แล้ว: <strong>${composeDisplayName(similar.name, similar.model, similar.color, similar.size)}</strong> — <a href="javascript:void(0)" onclick="useSuggestedName('${similar.id}')" style="color:var(--primary);font-weight:700;">ใช่อันนี้ กดเพื่อใช้</a>`;
   } else {
     el.style.display = 'none';
   }
@@ -865,9 +902,74 @@ function toggleStockGroup(id){
   body.style.display = isOpen ? 'none' : 'block';
   if(header) header.classList.toggle('open', !isOpen);
 }
+
+let lastRenderedGroups = []; // เก็บกลุ่มล่าสุดไว้ให้ปุ่มแก้ไข/ลบทั้งกลุ่มใช้อ้างอิง
+
+// ลบสินค้าทั้งกลุ่ม (ชื่อ+รุ่น+สีเดียวกันทุกเบอร์)
+function deleteStockGroup(groupIndex){
+  const g = lastRenderedGroups[groupIndex];
+  if(!g) return;
+  if(!confirm(`ลบสินค้าทั้งกลุ่ม "${composeDisplayName(g.name, g.model, g.color)}" ทั้งหมด ${g.items.length} เบอร์ ใช่ไหม? ลบแล้วกู้คืนไม่ได้`)) return;
+  const ids = new Set(g.items.map(p=>p.id));
+  saveProducts(loadProducts().filter(p=>!ids.has(p.id)));
+  renderProductList();
+  toast('ลบทั้งกลุ่มแล้ว');
+}
+// ลบเฉพาะเบอร์ที่ติ๊กเลือกไว้ในกลุ่ม
+function deleteSelectedInGroup(groupIndex){
+  const checked = Array.from(document.querySelectorAll(`.stockchk_${groupIndex}:checked`)).map(cb=>cb.dataset.id);
+  if(checked.length===0){ toast('ยังไม่ได้เลือกเบอร์ไหนเลย'); return; }
+  if(!confirm(`ลบ ${checked.length} เบอร์ที่เลือกใช่ไหม?`)) return;
+  const ids = new Set(checked);
+  saveProducts(loadProducts().filter(p=>!ids.has(p.id)));
+  renderProductList();
+  toast(`ลบ ${checked.length} รายการแล้ว`);
+}
+function toggleAllInGroup(groupIndex, checked){
+  document.querySelectorAll(`.stockchk_${groupIndex}`).forEach(cb=>{ cb.checked = checked; });
+}
+// ตั้งราคาทุน/ราคาขายให้หลายเบอร์พร้อมกันในกลุ่มเดียวกัน (เว้นช่วงเบอร์ว่าง = ใช้กับทุกเบอร์ในกลุ่ม)
+// เหมาะกับกรณีสินค้าคล้ายกันแต่ราคาต่างกันแค่ 3-4 ช่วง จะได้ไม่ต้องแก้ทีละเบอร์
+function applyGroupRangePrice(groupIndex){
+  const g = lastRenderedGroups[groupIndex];
+  if(!g) return;
+  const spec = document.getElementById(`grpRangeSpec_${groupIndex}`).value.trim();
+  const costRaw = document.getElementById(`grpRangeCost_${groupIndex}`).value;
+  const priceRaw = document.getElementById(`grpRangePrice_${groupIndex}`).value;
+  if(costRaw === '' && priceRaw === ''){ toast('กรอกราคาทุนหรือราคาขายก่อน'); return; }
+  const targetSizes = spec ? new Set(parseSizeListInput(spec)) : null; // ว่าง = ทุกเบอร์ในกลุ่ม
+  const idsInScope = new Set(
+    g.items.filter(p => !targetSizes || targetSizes.has((p.size||'').trim())).map(p=>p.id)
+  );
+  if(idsInScope.size === 0){ toast('ไม่พบเบอร์ที่ตรงกับช่วงนี้ในกลุ่ม'); return; }
+  const products = loadProducts().map(p=>{
+    if(!idsInScope.has(p.id)) return p;
+    const updated = { ...p };
+    if(costRaw !== '') updated.costPrice = parseFloat(costRaw) || 0;
+    if(priceRaw !== '') updated.price = parseFloat(priceRaw) || 0;
+    return updated;
+  });
+  saveProducts(products);
+  renderProductList();
+  toast(`อัปเดตราคาให้ ${idsInScope.size} เบอร์แล้ว`);
+}
 function renderProductList(){
   const filter = (document.getElementById('productFilter').value || '').toLowerCase();
   const allProducts = loadProducts();
+
+  // แจ้งเตือนสินค้าที่ยังไม่มีราคาทุน/บาร์โค้ด (นับจากสินค้าทั้งหมด ไม่ขึ้นกับตัวกรอง)
+  const missingCost = allProducts.filter(p=>!p.costPrice).length;
+  const missingBarcode = allProducts.filter(p=>!p.barcode).length;
+  const bannerEl = document.getElementById('stockAlertBanner');
+  if(missingCost || missingBarcode){
+    const parts = [];
+    if(missingCost) parts.push(`${missingCost} รายการยังไม่มีราคาทุน`);
+    if(missingBarcode) parts.push(`${missingBarcode} รายการยังไม่มีบาร์โค้ด`);
+    bannerEl.innerHTML = `<div class="alert-banner">${parts.join(' · ')}</div>`;
+  } else {
+    bannerEl.innerHTML = '';
+  }
+
   const filtered = !filter ? allProducts : allProducts.filter(p=>
     p.name.toLowerCase().includes(filter) ||
     (p.model||'').toLowerCase().includes(filter) ||
@@ -878,12 +980,14 @@ function renderProductList(){
   if(filtered.length===0){ el.innerHTML = '<div class="empty">ยังไม่มีสินค้า</div>'; return; }
 
   const groups = groupProducts(filtered).sort((a,b)=>(a.name||'').localeCompare(b.name||'','th'));
+  lastRenderedGroups = groups;
   const autoOpen = !!filter; // ถ้ากำลังค้นหาอยู่ ให้กางออกให้เห็นเลย
 
   el.innerHTML = groups.map((g, gi)=>{
     const prices = g.items.map(p=>p.price||0);
     const costs = g.items.map(p=>p.costPrice||0);
     const needsCost = g.items.some(p=>!p.costPrice);
+    const needsBarcode = g.items.some(p=>!p.barcode);
     const groupId = `stockgroup_${gi}`;
     const sortedItems = g.items.slice().sort((a,b)=>(a.size||'').localeCompare(b.size||'', undefined, {numeric:true}));
     return `
@@ -894,6 +998,7 @@ function renderProductList(){
             ${g.model ? ` <span class="badge">รุ่น ${g.model}</span>` : ''}
             ${g.color ? ` <span class="badge">สี ${g.color}</span>` : ''}
             ${needsCost ? ' <span class="badge badge-warn">ยังไม่ระบุทุน</span>' : ''}
+            ${needsBarcode ? ' <span class="badge badge-warn">ไม่มีบาร์โค้ด</span>' : ''}
             <div class="muted">${g.items.length} เบอร์/SKU</div>
           </div>
           <div style="text-align:right;">
@@ -903,22 +1008,47 @@ function renderProductList(){
           </div>
         </div>
         <div id="${groupId}" class="stock-group-body" style="display:${autoOpen?'block':'none'};">
+          ${g.items.length > 1 ? `
+          <div class="group-toolbar">
+            <div class="muted" style="margin-bottom:6px;">ตั้งราคาหลายเบอร์พร้อมกัน (เว้นช่วงว่าง = ใช้กับทุกเบอร์ในกลุ่มนี้)</div>
+            <div class="btn-row" style="margin-bottom:8px;">
+              <input type="text" id="grpRangeSpec_${gi}" placeholder="ช่วงเบอร์ เช่น 28-32 (เว้นว่างได้)">
+            </div>
+            <div class="btn-row" style="margin-bottom:8px;">
+              <input type="number" id="grpRangeCost_${gi}" placeholder="ราคาทุนใหม่">
+              <input type="number" id="grpRangePrice_${gi}" placeholder="ราคาขายใหม่">
+              <button type="button" class="btn btn-outline" style="flex:0 0 auto;" onclick="applyGroupRangePrice(${gi})">ใส่ราคา</button>
+            </div>
+            <div class="btn-row">
+              <label style="display:flex;align-items:center;gap:6px;flex:1;font-weight:600;font-size:13px;color:var(--muted);text-transform:none;">
+                <input type="checkbox" style="width:auto;" onchange="toggleAllInGroup(${gi}, this.checked)"> เลือกทั้งหมด
+              </label>
+              <button type="button" class="btn btn-outline" onclick="deleteSelectedInGroup(${gi})">ลบที่เลือก</button>
+              <button type="button" class="btn btn-danger" onclick="deleteStockGroup(${gi})">ลบทั้งกลุ่ม</button>
+            </div>
+          </div>
+          ` : `
+          <div class="group-toolbar">
+            <button type="button" class="btn btn-danger btn-full" onclick="deleteStockGroup(${gi})">ลบสินค้านี้</button>
+          </div>
+          `}
           <table>
-            <thead><tr><th>เบอร์</th><th>ทุน</th><th>ขาย</th><th>กำไร</th><th>สต็อก</th><th></th></tr></thead>
+            <thead><tr><th></th><th>เบอร์</th><th>ทุน</th><th>ขาย</th><th>กำไร</th><th>สต็อก</th><th></th></tr></thead>
             <tbody>
             ${sortedItems.map(p=>{
               const margin = (p.price||0) - (p.costPrice||0);
               const stockDisplay = (p.stock===null || p.stock===undefined) ? '<span class="muted">ไม่ระบุ</span>' : p.stock;
               return `
               <tr>
-                <td>${p.size || '-'}${p.barcode ? '<br><span class="muted">'+p.barcode+'</span>' : ''}</td>
-                <td>฿${p.costPrice||0}</td>
+                <td><input type="checkbox" class="stockchk_${gi}" data-id="${p.id}" style="width:auto;"></td>
+                <td>${p.size || '-'}${p.barcode ? '<br><span class="muted">'+p.barcode+'</span>' : '<br><span class="cell-warn">ไม่มีบาร์โค้ด</span>'}</td>
+                <td>${p.costPrice ? '฿'+p.costPrice : '<span class="cell-warn">ไม่มีทุน</span>'}</td>
                 <td>฿${p.price}</td>
                 <td>฿${margin.toFixed(2)}</td>
                 <td>${stockDisplay}</td>
                 <td class="row-actions">
-                  <button onclick="editProduct('${p.id}')">✏️</button>
-                  <button onclick="deleteProduct('${p.id}')">🗑️</button>
+                  <button onclick="editProduct('${p.id}')">แก้ไข</button>
+                  <button onclick="deleteProduct('${p.id}')">ลบ</button>
                 </td>
               </tr>`;
             }).join('')}
@@ -1109,7 +1239,7 @@ function updateBulkPreview(){
     if(!c.price) noPriceCount++;
   });
   let text = `จะสร้างทั้งหมด ${combos.length} SKU (ใหม่ ${newCount} รายการ${dupCount ? ', ซ้ำแล้วข้าม ' + dupCount + ' รายการ' : ''})`;
-  if(noPriceCount) text += ` — ⚠️ ยังไม่ได้ตั้งราคาขาย ${noPriceCount} รายการ`;
+  if(noPriceCount) text += ` — ยังไม่ได้ตั้งราคาขาย ${noPriceCount} รายการ`;
   previewEl.textContent = text;
 }
 function generateBulkSku(){
@@ -1132,7 +1262,7 @@ function generateBulkSku(){
   });
   saveProducts(products);
   renderProductList();
-  toast(`✅ สร้าง SKU ใหม่ ${added} รายการ${skipped ? ` (ข้ามที่ซ้ำ ${skipped})` : ''}`);
+  toast(`สร้าง SKU ใหม่ ${added} รายการ${skipped ? ` (ข้ามที่ซ้ำ ${skipped})` : ''}`);
   closeBulkAdd();
 }
 
@@ -1177,7 +1307,7 @@ function renderSalesList(){
       <div>
         <div>${new Date(s.timestamp).toLocaleString('th-TH')}</div>
         <div class="muted">${s.items.map(i=>
-          `${i.name} x${i.qty}` + (i.productId ? ` <a href="javascript:void(0)" onclick="openBulkAddFromProduct('${i.productId}')" style="color:var(--primary);font-weight:700;">➕SKU</a>` : '')
+          `${i.name} x${i.qty}` + (i.productId ? ` <a href="javascript:void(0)" onclick="openBulkAddFromProduct('${i.productId}')" style="color:var(--primary);font-weight:700;">+SKU</a>` : '')
         ).join(', ')}</div>
         <div class="muted">กำไร ฿${(s.profit||0).toFixed(2)}</div>
       </div>
@@ -1567,10 +1697,28 @@ function handleVoiceCommand(text){
     toast(`ไม่พบสินค้า: "${body}" (ลองพูด "ขาย ${body} ราคา" เพื่อเพิ่มสินค้าใหม่)`);
   }
 }
-function startVoice(){
+// ข้อความ error ของ SpeechRecognition แปลเป็นไทยให้เข้าใจง่าย (โดยเฉพาะบน iPhone/Safari ที่มักเจอ not-allowed)
+function voiceErrorMessage(err){
+  switch(err){
+    case 'not-allowed':
+    case 'service-not-allowed':
+      return 'ไม่ได้รับอนุญาตให้ใช้ไมโครโฟน กรุณาไปที่ตั้งค่า Safari > เว็บไซต์นี้ > ไมโครโฟน แล้วอนุญาต';
+    case 'no-speech':
+      return 'ไม่ได้ยินเสียงพูด ลองพูดใหม่อีกครั้ง';
+    case 'audio-capture':
+      return 'ไม่พบไมโครโฟนบนอุปกรณ์นี้';
+    case 'network':
+      return 'การเชื่อมต่อขัดข้อง ลองใหม่อีกครั้ง';
+    default:
+      return 'ฟังเสียงผิดพลาด (' + err + ') ลองใหม่อีกครั้ง';
+  }
+}
+
+// เริ่มฟังเสียงจริง (แยกออกมาเพราะ iOS Safari ต้องขอสิทธิ์ไมโครโฟนก่อนเสมอ ไม่งั้น SpeechRecognition จะเงียบ/ไม่ทำงาน)
+function beginRecognition(){
   recognition = getRecognition();
   if(!recognition){
-    toast('เบราว์เซอร์นี้ไม่รองรับ Voice Command');
+    toast('เบราว์เซอร์นี้ไม่รองรับ Voice Command ใช้ช่อง "ขายด่วน" แทนได้');
     return;
   }
   document.getElementById('voice-modal').classList.add('open');
@@ -1583,9 +1731,35 @@ function startVoice(){
     }
     if(finalTranscript) handleVoiceCommand(finalTranscript);
   };
-  recognition.onerror = (e)=>{ toast('ฟังเสียงผิดพลาด: '+e.error); stopVoice(); };
+  recognition.onerror = (e)=>{ toast(voiceErrorMessage(e.error)); stopVoice(); };
   recognition.onend = ()=>{ document.getElementById('voice-modal').classList.remove('open'); };
-  recognition.start();
+  try{
+    recognition.start();
+  } catch(err){
+    toast('เริ่มฟังเสียงไม่สำเร็จ ลองใหม่อีกครั้ง');
+    document.getElementById('voice-modal').classList.remove('open');
+  }
+}
+
+function startVoice(){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!SR){
+    toast('อุปกรณ์นี้ไม่รองรับ Voice Command ใช้ช่อง "ขายด่วน" แทนได้');
+    return;
+  }
+  // iOS Safari ต้องขอสิทธิ์ไมโครโฟนผ่าน getUserMedia ก่อน ไม่งั้น SpeechRecognition มักไม่ทำงาน/ไม่ขึ้น prompt ให้
+  if(navigator.mediaDevices && navigator.mediaDevices.getUserMedia){
+    navigator.mediaDevices.getUserMedia({ audio: true })
+      .then(stream=>{
+        stream.getTracks().forEach(t=>t.stop()); // ขอสิทธิ์เสร็จแล้วปิดสตรีมทันที ให้ SpeechRecognition จัดการไมค์เอง
+        beginRecognition();
+      })
+      .catch(()=>{
+        toast('ไม่ได้รับอนุญาตให้ใช้ไมโครโฟน กรุณาอนุญาตในการตั้งค่าเบราว์เซอร์ แล้วลองใหม่');
+      });
+  } else {
+    beginRecognition();
+  }
 }
 function stopVoice(){
   if(recognition){ try{ recognition.stop(); }catch(e){} }
