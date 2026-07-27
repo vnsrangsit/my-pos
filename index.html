@@ -147,7 +147,7 @@
         <button class="btn btn-outline" onclick="startVoice()">🎤 สั่งด้วยเสียง</button>
       </div>
       <div class="hint">
-        พูด "ขาย ชื่อสินค้า ราคา" เช่น <strong>"ขาย นันยาง เบอร์ 45 300"</strong> ระบบจะให้ยืนยัน/แก้ไขก่อนบันทึกเสมอ (กันฟังผิด) และเพิ่มสินค้าใหม่อัตโนมัติถ้ายังไม่เคยมี<br>
+        พูด "ขาย ชื่อสินค้า สี... เบอร์... ราคา..." เช่น <strong>"ขาย นันยาง สีดำ เบอร์ 43 ราคา 300"</strong> ระบบจะแยก ชื่อ/สี/เบอร์/ราคา ให้อัตโนมัติ แล้วให้ยืนยัน/แก้ไขก่อนบันทึกเสมอ (กันฟังผิด) พร้อมเพิ่มสินค้าใหม่อัตโนมัติถ้ายังไม่เคยมี<br>
         เคล็ดลับให้ฟังแม่นขึ้น: พูดช้าๆ เว้นจังหวะสั้นๆ ระหว่างชื่อสินค้ากับราคา และพูดคำว่า "บาท" ปิดท้ายเสมอ<br>
         คำสั่งอื่น: "เพิ่ม ชื่อสินค้า จำนวน" (ใส่ตะกร้าไว้คิดเงินรวมทีหลัง), "คิดเงิน", "ล้างตะกร้า", "ยกเลิกรายการล่าสุด"
       </div>
@@ -157,7 +157,17 @@
       <h3>ขายด่วน (พิมพ์เอง ไม่ต้องมีในสต็อกก็ได้)</h3>
       <div class="field">
         <label>ชื่อสินค้า</label>
-        <input type="text" id="qsName" placeholder="เช่น นันยาง เบอร์ 44">
+        <input type="text" id="qsName" placeholder="เช่น นันยาง">
+      </div>
+      <div class="btn-row">
+        <div class="field" style="flex:1;">
+          <label>สี (ไม่บังคับ)</label>
+          <input type="text" id="qsColor" placeholder="เช่น ดำ">
+        </div>
+        <div class="field" style="flex:1;">
+          <label>เบอร์ (ไม่บังคับ)</label>
+          <input type="text" id="qsSize" placeholder="เช่น 44">
+        </div>
       </div>
       <div class="btn-row">
         <div class="field" style="flex:1;">
@@ -201,7 +211,17 @@
       <input type="hidden" id="editProductId">
       <div class="field">
         <label>ชื่อสินค้า</label>
-        <input type="text" id="pName" placeholder="เช่น นันยาง เบอร์ 45">
+        <input type="text" id="pName" placeholder="เช่น นันยาง">
+      </div>
+      <div class="btn-row">
+        <div class="field" style="flex:1;">
+          <label>สี (ไม่บังคับ)</label>
+          <input type="text" id="pColor" placeholder="เช่น ดำ">
+        </div>
+        <div class="field" style="flex:1;">
+          <label>เบอร์ (ไม่บังคับ)</label>
+          <input type="text" id="pSize" placeholder="เช่น 43">
+        </div>
       </div>
       <div class="field">
         <label>บาร์โค้ด / QR (ไม่บังคับ)</label>
@@ -299,7 +319,7 @@
 <div id="voice-modal">
   <div class="voice-pulse">🎤</div>
   <div id="voice-transcript">กำลังฟัง...</div>
-  <div class="voice-hint">เช่น "ขาย นันยาง เบอร์ 45 300" หรือ "คิดเงิน"</div>
+  <div class="voice-hint">เช่น "ขาย นันยาง สีดำ เบอร์ 43 ราคา 300" หรือ "คิดเงิน"</div>
   <button class="btn btn-outline modal-close" onclick="stopVoice()">ปิด</button>
 </div>
 
@@ -311,6 +331,16 @@
     <div class="field">
       <label>ชื่อสินค้า</label>
       <input type="text" id="cfName">
+    </div>
+    <div class="btn-row">
+      <div class="field" style="flex:1;">
+        <label>สี (ไม่บังคับ)</label>
+        <input type="text" id="cfColor">
+      </div>
+      <div class="field" style="flex:1;">
+        <label>เบอร์ (ไม่บังคับ)</label>
+        <input type="text" id="cfSize">
+      </div>
     </div>
     <div class="btn-row">
       <div class="field" style="flex:1;">
@@ -394,18 +424,36 @@ function findProductByName(name){
          products.find(p=>p.name.toLowerCase().includes(lower)) ||
          products.find(p=>lower.includes(p.name.toLowerCase()));
 }
+// สินค้าตัวเดียวกันแต่คนละสี/เบอร์ ถือเป็นคนละ SKU กัน จึงต้องแมตช์ทั้ง 3 ค่า
+function findProductVariant(name, color, size){
+  const ln = (name||'').trim().toLowerCase();
+  const lc = (color||'').trim().toLowerCase();
+  const ls = (size||'').trim().toLowerCase();
+  return loadProducts().find(p =>
+    (p.name||'').trim().toLowerCase() === ln &&
+    (p.color||'').trim().toLowerCase() === lc &&
+    (p.size||'').trim().toLowerCase() === ls
+  );
+}
+function composeDisplayName(name, color, size){
+  let s = name || '';
+  if(color) s += ' สี' + color;
+  if(size) s += ' เบอร์' + size;
+  return s;
+}
 
 /* ============ CART (build up, checkout together) ============ */
 function addToCart(product, qty=1){
   if(!product) return;
   if(product.stock !== undefined && product.stock !== null && product.stock <= 0){
-    toast(`⚠️ "${product.name}" สินค้าหมด`);
+    toast(`⚠️ "${composeDisplayName(product.name, product.color, product.size)}" สินค้าหมด`);
   }
+  const displayName = composeDisplayName(product.name, product.color, product.size);
   const existing = cart.find(c=>c.productId === product.id);
   if(existing){ existing.qty += qty; }
-  else { cart.push({ productId: product.id, name: product.name, price: product.price, qty }); }
+  else { cart.push({ productId: product.id, name: displayName, price: product.price, qty }); }
   renderCart();
-  toast(`เพิ่ม ${product.name} x${qty}`);
+  toast(`เพิ่ม ${displayName} x${qty}`);
 }
 function changeQty(productId, delta){
   const item = cart.find(c=>c.productId===productId);
@@ -455,7 +503,7 @@ function renderSearchResults(){
   if(matches.length===0){ el.innerHTML = '<div class="muted" style="margin-top:6px;">ไม่พบสินค้า</div>'; return; }
   el.innerHTML = matches.map(p=>`
     <div class="cart-item" style="cursor:pointer;" onclick="addToCart(${JSON.stringify(p).replace(/"/g,'&quot;')},1); document.getElementById('manualSearch').value=''; renderSearchResults();">
-      <div><div>${p.name}</div><div class="muted">฿${p.price} • คงเหลือ ${p.stock===null||p.stock===undefined ? 'ไม่ระบุ' : p.stock}</div></div>
+      <div><div>${composeDisplayName(p.name,p.color,p.size)}</div><div class="muted">฿${p.price} • คงเหลือ ${p.stock===null||p.stock===undefined ? 'ไม่ระบุ' : p.stock}</div></div>
       <span class="badge">เพิ่ม</span>
     </div>
   `).join('');
@@ -491,13 +539,13 @@ function checkout(){
   renderDashboard(); renderSalesList(); renderProductList();
 }
 
-/* ============ INSTANT VOICE SELL (auto-create product) ============ */
-function instantSell(name, qty, price){
+/* ============ INSTANT VOICE SELL (auto-create product variant) ============ */
+function instantSell(name, color, size, qty, price){
   const products = loadProducts();
-  let product = findProductByName(name);
+  let product = findProductVariant(name, color, size);
   let autoCreated = false;
   if(!product){
-    product = { id: uid(), name: name, barcode:'', costPrice:0, price:price, stock:null };
+    product = { id: uid(), name: name, color: color||'', size: size||'', barcode:'', costPrice:0, price:price, stock:null };
     products.push(product);
     autoCreated = true;
   } else if(typeof product.stock === 'number'){
@@ -508,12 +556,13 @@ function instantSell(name, qty, price){
   const costPrice = product.costPrice || 0;
   const total = price * qty;
   const cost = costPrice * qty;
+  const displayName = composeDisplayName(product.name, product.color, product.size);
 
   const sales = loadSales();
   sales.push({
     id: uid(),
     timestamp: new Date().toISOString(),
-    items: [{ productId: product.id, name: product.name, price, costPrice, qty }],
+    items: [{ productId: product.id, name: displayName, price, costPrice, qty }],
     total,
     cost,
     profit: total - cost
@@ -523,26 +572,32 @@ function instantSell(name, qty, price){
   renderDashboard(); renderSalesList(); renderProductList();
 
   toast(autoCreated
-    ? `✅ เพิ่มสินค้าใหม่ "${product.name}" + บันทึกขาย ฿${total.toFixed(2)}`
-    : `✅ บันทึกขาย: ${product.name} x${qty} = ฿${total.toFixed(2)}`);
+    ? `✅ เพิ่มสินค้าใหม่ "${displayName}" + บันทึกขาย ฿${total.toFixed(2)}`
+    : `✅ บันทึกขาย: ${displayName} x${qty} = ฿${total.toFixed(2)}`);
 }
 
 /* ============ QUICK SELL (manual, always reliable) ============ */
 function quickSell(){
   const name = document.getElementById('qsName').value.trim();
+  const color = document.getElementById('qsColor').value.trim();
+  const size = document.getElementById('qsSize').value.trim();
   const qty = parseInt(document.getElementById('qsQty').value) || 1;
   const price = parseFloat(document.getElementById('qsPrice').value) || 0;
   if(!name){ toast('กรุณากรอกชื่อสินค้า'); return; }
   if(price <= 0){ toast('กรุณากรอกราคา'); return; }
-  instantSell(name, qty, price);
+  instantSell(name, color, size, qty, price);
   document.getElementById('qsName').value = '';
+  document.getElementById('qsColor').value = '';
+  document.getElementById('qsSize').value = '';
   document.getElementById('qsQty').value = '1';
   document.getElementById('qsPrice').value = '';
 }
 
 /* ============ CONFIRM SELL MODAL (used after voice parsing) ============ */
-function openConfirmSell(name, qty, price){
+function openConfirmSell(name, color, size, qty, price){
   document.getElementById('cfName').value = name;
+  document.getElementById('cfColor').value = color || '';
+  document.getElementById('cfSize').value = size || '';
   document.getElementById('cfQty').value = qty;
   document.getElementById('cfPrice').value = price;
   document.getElementById('confirm-modal').classList.add('open');
@@ -552,11 +607,13 @@ function cancelConfirmSell(){
 }
 function confirmSell(){
   const name = document.getElementById('cfName').value.trim();
+  const color = document.getElementById('cfColor').value.trim();
+  const size = document.getElementById('cfSize').value.trim();
   const qty = parseInt(document.getElementById('cfQty').value) || 1;
   const price = parseFloat(document.getElementById('cfPrice').value) || 0;
   if(!name){ toast('กรุณากรอกชื่อสินค้า'); return; }
   if(price <= 0){ toast('กรุณากรอกราคา'); return; }
-  instantSell(name, qty, price);
+  instantSell(name, color, size, qty, price);
   document.getElementById('confirm-modal').classList.remove('open');
 }
 
@@ -564,6 +621,8 @@ function confirmSell(){
 function resetProductForm(){
   document.getElementById('editProductId').value = '';
   document.getElementById('pName').value = '';
+  document.getElementById('pColor').value = '';
+  document.getElementById('pSize').value = '';
   document.getElementById('pBarcode').value = '';
   document.getElementById('pCost').value = '';
   document.getElementById('pPrice').value = '';
@@ -571,6 +630,8 @@ function resetProductForm(){
 }
 function saveProduct(){
   const name = document.getElementById('pName').value.trim();
+  const color = document.getElementById('pColor').value.trim();
+  const size = document.getElementById('pSize').value.trim();
   const barcode = document.getElementById('pBarcode').value.trim();
   const costPrice = parseFloat(document.getElementById('pCost').value) || 0;
   const price = parseFloat(document.getElementById('pPrice').value) || 0;
@@ -581,10 +642,10 @@ function saveProduct(){
   const editId = document.getElementById('editProductId').value;
   let products = loadProducts();
   if(editId){
-    products = products.map(p => p.id===editId ? {...p, name, barcode, costPrice, price, stock} : p);
+    products = products.map(p => p.id===editId ? {...p, name, color, size, barcode, costPrice, price, stock} : p);
     toast('แก้ไขสินค้าแล้ว');
   } else {
-    products.push({ id: uid(), name, barcode, costPrice, price, stock });
+    products.push({ id: uid(), name, color, size, barcode, costPrice, price, stock });
     toast('เพิ่มสินค้าแล้ว');
   }
   saveProducts(products);
@@ -596,6 +657,8 @@ function editProduct(id){
   if(!p) return;
   document.getElementById('editProductId').value = p.id;
   document.getElementById('pName').value = p.name;
+  document.getElementById('pColor').value = p.color || '';
+  document.getElementById('pSize').value = p.size || '';
   document.getElementById('pBarcode').value = p.barcode || '';
   document.getElementById('pCost').value = p.costPrice || '';
   document.getElementById('pPrice').value = p.price;
@@ -611,7 +674,11 @@ function deleteProduct(id){
 }
 function renderProductList(){
   const filter = (document.getElementById('productFilter').value || '').toLowerCase();
-  const products = loadProducts().filter(p=>p.name.toLowerCase().includes(filter) || (p.barcode||'').includes(filter));
+  const products = loadProducts().filter(p=>
+    p.name.toLowerCase().includes(filter) ||
+    (p.color||'').toLowerCase().includes(filter) ||
+    (p.size||'').toLowerCase().includes(filter) ||
+    (p.barcode||'').includes(filter));
   const el = document.getElementById('productList');
   if(products.length===0){ el.innerHTML = '<div class="empty">ยังไม่มีสินค้า</div>'; return; }
   el.innerHTML = `
@@ -622,9 +689,14 @@ function renderProductList(){
         const margin = (p.price||0) - (p.costPrice||0);
         const stockDisplay = (p.stock===null || p.stock===undefined) ? '<span class="muted">ไม่ระบุ</span>' : p.stock;
         const needsCost = !p.costPrice ? ' <span class="badge badge-warn">ยังไม่ระบุทุน</span>' : '';
+        const subtitleParts = [];
+        if(p.color) subtitleParts.push('สี ' + p.color);
+        if(p.size) subtitleParts.push('เบอร์ ' + p.size);
+        if(p.barcode) subtitleParts.push(p.barcode);
+        const subtitle = subtitleParts.length ? subtitleParts.join(' • ') : '-';
         return `
         <tr>
-          <td>${p.name}${needsCost}<br><span class="muted">${p.barcode||'-'}</span></td>
+          <td>${p.name}${needsCost}<br><span class="muted">${subtitle}</span></td>
           <td>฿${p.costPrice||0}</td>
           <td>฿${p.price}</td>
           <td>฿${margin.toFixed(2)}</td>
@@ -832,25 +904,55 @@ function parseQty(text){
   return 1;
 }
 
-// Parses "<ชื่อสินค้า...> [<qty> unit] <price> [บาท]" -> {name, qty, price}
+// Parses "<ชื่อ> [สี <สี>] [เบอร์ <เบอร์>] [<qty> unit] [ราคา] <price> [บาท]"
+// -> {name, color, size, qty, price}
+// เช่น "นันยาง สีดำ เบอร์ 43 ราคา 300" -> {name:'นันยาง', color:'ดำ', size:'43', qty:1, price:300}
 function parseVoiceSell(raw){
   let t = raw.trim().replace(/บาท\s*$/,'').trim();
-  const priceMatch = t.match(/(\d+(?:\.\d+)?)\s*$/);
-  if(!priceMatch) return null;
-  const price = parseFloat(priceMatch[1]);
-  let remainder = t.slice(0, priceMatch.index).trim();
-  if(!remainder) return null;
+  if(!t) return null;
 
+  // 1) ราคา: หาคำว่า "ราคา <ตัวเลข>" ก่อน ถ้าไม่มีใช้ตัวเลขท้ายสุดแทน (เผื่อไม่ได้พูดคำว่าราคา)
+  let price = null;
+  const priceKw = t.match(/ราคา\s*(\d+(?:\.\d+)?)/);
+  if(priceKw){
+    price = parseFloat(priceKw[1]);
+    t = (t.slice(0, priceKw.index) + t.slice(priceKw.index + priceKw[0].length)).trim();
+  } else {
+    const trailMatch = t.match(/(\d+(?:\.\d+)?)\s*$/);
+    if(!trailMatch) return null;
+    price = parseFloat(trailMatch[1]);
+    t = t.slice(0, trailMatch.index).trim();
+  }
+  if(!t) return null;
+
+  // 2) เบอร์: "เบอร์ <ตัวอักษร/ตัวเลข>"
+  let size = '';
+  const sizeMatch = t.match(/เบอร์\s*([0-9A-Za-zก-๙.]+)/);
+  if(sizeMatch){
+    size = sizeMatch[1];
+    t = (t.slice(0, sizeMatch.index) + t.slice(sizeMatch.index + sizeMatch[0].length)).trim();
+  }
+
+  // 3) สี: "สี <คำ>" (กันไม่ให้จับคำว่า "สี่" ซึ่งแปลว่าเลขสี่)
+  let color = '';
+  const colorMatch = t.match(/สี(?!่)\s*([ก-๙]+)/);
+  if(colorMatch){
+    color = colorMatch[1];
+    t = (t.slice(0, colorMatch.index) + t.slice(colorMatch.index + colorMatch[0].length)).trim();
+  }
+
+  // 4) จำนวน (ถ้ามีเลข+หน่วยเหลืออยู่ในชื่อ) ปกติจะไม่ค่อยเจอสำหรับคำสั่งนี้ ดีฟอลต์ = 1
   let qty = 1;
   const qtyRe = new RegExp('(\\d+)\\s*(' + unitWords + ')');
-  const qtyMatch = remainder.match(qtyRe);
+  const qtyMatch = t.match(qtyRe);
   if(qtyMatch){
     qty = parseInt(qtyMatch[1]);
-    remainder = (remainder.slice(0, qtyMatch.index) + remainder.slice(qtyMatch.index + qtyMatch[0].length)).trim();
+    t = (t.slice(0, qtyMatch.index) + t.slice(qtyMatch.index + qtyMatch[0].length)).trim();
   }
-  const name = remainder.replace(/\s+/g,' ').trim();
+
+  const name = t.replace(/\s+/g,' ').trim();
   if(!name) return null;
-  return { name, qty, price };
+  return { name, color, size, qty, price };
 }
 
 function handleVoiceCommand(text){
@@ -878,7 +980,7 @@ function handleVoiceCommand(text){
     const parsed = parseVoiceSell(t.replace(/^ขาย/, '').trim());
     stopVoice();
     if(parsed){
-      openConfirmSell(parsed.name, parsed.qty, parsed.price);
+      openConfirmSell(parsed.name, parsed.color, parsed.size, parsed.qty, parsed.price);
     } else {
       toast('ฟังไม่เข้าใจ ลองพูดใหม่ หรือกรอกในช่อง "ขายด่วน" แทน');
     }
