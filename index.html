@@ -64,6 +64,7 @@
   input::placeholder{color:#A8B0BC;}
   input:focus,select:focus{outline:none;border-color:var(--primary);}
   label{font-size:13px;font-weight:600;color:var(--muted);margin-bottom:6px;display:block;}
+  input[type="checkbox"]{width:20px;height:20px;accent-color:var(--primary);cursor:pointer;flex:0 0 auto;}
   .field{margin-bottom:12px;}
 
   table{width:100%;border-collapse:collapse;font-size:14px;}
@@ -111,7 +112,18 @@
   .btn-link:active{opacity:.6;}
   .card-footnote{background:var(--fill);margin:22px -22px -22px -22px;padding:14px 22px;border-radius:0 0 16px 16px;font-size:12px;color:var(--muted);line-height:1.6;}
   .alert-banner{background:var(--danger-tint);color:var(--danger);border-radius:12px;padding:12px 14px;margin-bottom:14px;font-size:13px;font-weight:600;line-height:1.5;}
+  .collapse-header{display:flex;justify-content:space-between;align-items:center;cursor:pointer;margin:0;}
+  .collapse-header h3{margin:0;}
+  .collapse-arrow{color:var(--muted);transition:transform .15s;font-size:14px;}
+  .collapse-header.open .collapse-arrow{transform:rotate(180deg);}
+  .collapse-body{margin-top:16px;}
   .cell-warn{color:var(--danger);font-weight:600;font-size:12px;}
+
+  /* ===== PIN lock screen ===== */
+  .lock-screen{position:fixed;inset:0;background:var(--primary);z-index:999;display:none;align-items:center;justify-content:center;padding:20px;}
+  .lock-card{background:#fff;border-radius:20px;padding:26px 22px;width:100%;max-width:320px;text-align:center;}
+  .lock-card h3{margin:0 0 4px;font-size:18px;font-weight:700;border:none;padding:0;color:var(--text);}
+  .lock-card input{text-align:center;letter-spacing:6px;font-size:20px;font-weight:700;}
 
   .hero{background:linear-gradient(160deg,#1E293B,#2E3E54);color:#fff;}
   .hero .muted{color:#B7C0CE;}
@@ -152,6 +164,14 @@
 
   /* ===== Spacious list cards (touch-friendly, avoid dense tables) ===== */
   .list-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:10px;}
+  .sku-card-top{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px;}
+  .sku-check{display:flex;align-items:center;gap:10px;font-weight:700;font-size:15px;}
+  .sku-card-actions{display:flex;gap:6px;}
+  .btn-sm{padding:9px 13px;font-size:13px;border-radius:10px;}
+  .sku-card-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;text-align:center;background:var(--fill);border-radius:10px;padding:10px 4px;}
+  .sku-card-grid .g-label{font-size:10px;color:var(--muted);margin-bottom:3px;text-transform:uppercase;letter-spacing:.3px;}
+  .sku-card-grid strong{font-size:14px;}
+  .sku-barcode-line{font-size:12px;color:var(--muted);margin:-4px 0 10px;}
 
   @media (min-width:720px){
     body{background:#E9ECF1;}
@@ -160,6 +180,15 @@
 </style>
 </head>
 <body>
+
+<div id="lock-screen" class="lock-screen">
+  <div class="lock-card">
+    <h3>ใส่รหัส PIN</h3>
+    <div class="muted" style="margin-bottom:16px;">แอปนี้ถูกล็อกไว้ ใส่รหัส PIN เพื่อเข้าใช้งาน</div>
+    <input type="password" inputmode="numeric" pattern="[0-9]*" id="lockPinInput" placeholder="••••" maxlength="6" onkeydown="if(event.key==='Enter')tryUnlock()">
+    <button class="btn btn-primary btn-full" style="margin-top:14px;" onclick="tryUnlock()">ปลดล็อก</button>
+  </div>
+</div>
 
 <div class="app-main">
 <header>
@@ -181,44 +210,107 @@
     <div class="quick-links-row">
       <button type="button" class="btn-link" onclick="openScanner('sell')">สแกนสินค้า</button>
     </div>
+    <div class="hint" style="text-align:center;margin-bottom:18px;">
+      พูด "ขาย ชื่อสินค้า รุ่น... สี... เบอร์... กี่คู่... ราคา..." เช่น "ขาย นันยาง รุ่น A สีดำ เบอร์ 43 2 คู่ ราคา 300"
+    </div>
 
     <div class="card">
-      <h3>ขายด่วน (พิมพ์เอง)</h3>
-      <div class="field">
-        <label>ชื่อสินค้า</label>
-        <input type="text" id="qsName" placeholder="เช่น นันยาง" oninput="checkQuickSuggestion()">
-      </div>
-      <div id="qsSuggestion" class="muted" style="display:none;margin-top:-6px;margin-bottom:10px;"></div>
-      <div class="field">
-        <label>รุ่น</label>
-        <input type="text" id="qsModel" placeholder="เช่น รุ่น A" oninput="checkQuickSuggestion()">
-      </div>
       <div class="btn-row">
-        <div class="field" style="flex:1;">
-          <label>สี</label>
-          <input type="text" id="qsColor" placeholder="เช่น ดำ" oninput="checkQuickSuggestion()">
+        <div class="field" style="flex:1;margin-bottom:0;">
+          <label>ผู้ขาย</label>
+          <select id="sellerSelect" onchange="onSellerChange()"></select>
         </div>
-        <div class="field" style="flex:1;">
-          <label>เบอร์</label>
-          <input type="text" id="qsSize" placeholder="เช่น 44" oninput="checkQuickSuggestion()">
-        </div>
-      </div>
-      <div class="btn-row">
-        <div class="field" style="flex:1;">
-          <label>จำนวน (คู่)</label>
-          <input type="number" id="qsQty" value="1" min="1">
-        </div>
-        <div class="field" style="flex:1;">
-          <label>ราคา</label>
-          <input type="number" id="qsPrice" placeholder="0" step="0.01">
+        <div class="field" style="flex:1;margin-bottom:0;">
+          <label>ชำระโดย</label>
+          <select id="paymentSelect" onchange="savePaymentPref()">
+            <option value="เงินสด">เงินสด</option>
+            <option value="โอน/พร้อมเพย์">โอน/พร้อมเพย์</option>
+          </select>
         </div>
       </div>
+    </div>
 
-      <div class="section-divider"></div>
-      <div class="field" style="margin-bottom:0;">
-        <label>ค้นหา/เพิ่มสินค้าด้วยมือ (เข้าตะกร้า)</label>
-        <input type="text" id="manualSearch" placeholder="ค้นหา/เพิ่มสินค้าด้วยมือ (เข้าตะกร้า)" oninput="renderSearchResults()">
-        <div id="searchResults"></div>
+    <div class="card">
+      <div class="collapse-header" data-collapse-toggle="collapseSearch" onclick="toggleCollapse('collapseSearch')">
+        <h3>ค้นหา/เพิ่มสินค้าด้วยมือ (เข้าตะกร้า)</h3>
+        <span class="collapse-arrow">▾</span>
+      </div>
+      <div id="collapseSearch" class="collapse-body" style="display:none;">
+        <div class="field" style="margin-bottom:0;">
+          <input type="text" id="manualSearch" placeholder="ค้นหา/เพิ่มสินค้าด้วยมือ (เข้าตะกร้า)" oninput="renderSearchResults()">
+          <div id="searchResults"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="collapse-header" data-collapse-toggle="collapseAddProduct" onclick="toggleCollapse('collapseAddProduct')">
+        <h3>เพิ่ม/แก้ไขสินค้า</h3>
+        <span class="collapse-arrow">▾</span>
+      </div>
+      <div id="collapseAddProduct" class="collapse-body" style="display:none;">
+        <input type="hidden" id="editProductId">
+        <div class="field">
+          <label>ชื่อสินค้า</label>
+          <input type="text" id="pName" placeholder="เช่น นันยาง">
+        </div>
+        <div class="field">
+          <label>รุ่น (ไม่บังคับ)</label>
+          <input type="text" id="pModel" placeholder="เช่น รุ่น A">
+        </div>
+        <div class="btn-row">
+          <div class="field" style="flex:1;">
+            <label>สี (ไม่บังคับ)</label>
+            <input type="text" id="pColor" placeholder="เช่น ดำ">
+          </div>
+          <div class="field" style="flex:1;">
+            <label>เบอร์ (ไม่บังคับ)</label>
+            <input type="text" id="pSize" placeholder="เช่น 43">
+          </div>
+        </div>
+        <div class="field">
+          <label>บาร์โค้ด / QR (ไม่บังคับ)</label>
+          <div class="btn-row">
+            <input type="text" id="pBarcode" placeholder="สแกนหรือพิมพ์เอง">
+            <button class="btn btn-outline" style="flex:0 0 auto;" onclick="openScanner('product')">สแกน</button>
+          </div>
+        </div>
+        <div class="btn-row">
+          <div class="field" style="flex:1;">
+            <label>ราคาทุน (บาท)</label>
+            <input type="number" id="pCost" placeholder="0" step="0.01">
+          </div>
+          <div class="field" style="flex:1;">
+            <label>ราคาขาย (บาท)</label>
+            <input type="number" id="pPrice" placeholder="0" step="0.01">
+          </div>
+        </div>
+        <div class="field">
+          <label>จำนวนสต็อก (เว้นว่าง = ไม่ติดตามสต็อก)</label>
+          <input type="number" id="pStock" placeholder="เว้นว่างได้">
+        </div>
+        <div class="quick-links-row" style="margin-top:4px;">
+          <button type="button" class="btn-link" onclick="resetProductForm()">ล้างฟอร์ม</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="collapse-header" data-collapse-toggle="collapseSalesList" onclick="toggleCollapse('collapseSalesList')">
+        <h3>รายการขาย</h3>
+        <span class="collapse-arrow">▾</span>
+      </div>
+      <div id="collapseSalesList" class="collapse-body" style="display:none;">
+        <div class="field">
+          <label>ช่วงเวลา</label>
+          <select id="saleListFilter" onchange="renderSalesList()">
+            <option value="today" selected>วันนี้</option>
+            <option value="week">7 วันล่าสุด</option>
+            <option value="month">เดือนนี้</option>
+            <option value="all">ทั้งหมด</option>
+          </select>
+        </div>
+        <div id="salesListTable"></div>
       </div>
     </div>
 
@@ -230,89 +322,20 @@
         <span id="cartTotal" class="money">฿0</span>
       </div>
       <div style="margin-top:14px;" class="btn-row">
-        <button class="btn btn-outline" onclick="clearCart()">ล้างตะกร้า</button>
-        <button class="btn btn-primary" onclick="checkout()">คิดเงิน</button>
+        <button class="btn btn-outline btn-full" onclick="clearCart()">ล้างตะกร้า</button>
       </div>
     </div>
 
-    <div class="card-footnote" style="border-radius:16px;margin:0 0 18px;">
-      พูด "ขาย ชื่อสินค้า รุ่น... สี... เบอร์... กี่คู่... ราคา..." เช่น "ขาย นันยาง รุ่น A สีดำ เบอร์ 43 2 คู่ ราคา 300"
-    </div>
   </section>
 
   <!-- ===== TAB: สต็อกสินค้า ===== -->
   <section id="tab-stock" class="tab-page">
-    <div class="card">
-      <h3>เพิ่ม/แก้ไขสินค้า</h3>
-      <input type="hidden" id="editProductId">
-      <div class="field">
-        <label>ชื่อสินค้า</label>
-        <input type="text" id="pName" placeholder="เช่น นันยาง">
-      </div>
-      <div class="field">
-        <label>รุ่น (ไม่บังคับ)</label>
-        <input type="text" id="pModel" placeholder="เช่น รุ่น A">
-      </div>
-      <div class="btn-row">
-        <div class="field" style="flex:1;">
-          <label>สี (ไม่บังคับ)</label>
-          <input type="text" id="pColor" placeholder="เช่น ดำ">
-        </div>
-        <div class="field" style="flex:1;">
-          <label>เบอร์ (ไม่บังคับ)</label>
-          <input type="text" id="pSize" placeholder="เช่น 43">
-        </div>
-      </div>
-      <div class="field">
-        <label>บาร์โค้ด / QR (ไม่บังคับ)</label>
-        <div class="btn-row">
-          <input type="text" id="pBarcode" placeholder="สแกนหรือพิมพ์เอง">
-          <button class="btn btn-outline" style="flex:0 0 auto;" onclick="openScanner('product')">สแกน</button>
-        </div>
-      </div>
-      <div class="btn-row">
-        <div class="field" style="flex:1;">
-          <label>ราคาทุน (บาท)</label>
-          <input type="number" id="pCost" placeholder="0" step="0.01">
-        </div>
-        <div class="field" style="flex:1;">
-          <label>ราคาขาย (บาท)</label>
-          <input type="number" id="pPrice" placeholder="0" step="0.01">
-        </div>
-      </div>
-      <div class="field">
-        <label>จำนวนสต็อก (เว้นว่าง = ไม่ติดตามสต็อก)</label>
-        <input type="number" id="pStock" placeholder="เว้นว่างได้">
-      </div>
-      <div class="btn-row">
-        <button class="btn btn-outline" onclick="resetProductForm()">ล้างฟอร์ม</button>
-        <button class="btn btn-primary" onclick="saveProduct()">บันทึกสินค้า</button>
-      </div>
-    </div>
-
     <div class="card">
       <h3>รายการสินค้าทั้งหมด</h3>
       <div id="stockAlertBanner"></div>
       <button class="btn btn-outline btn-full" style="margin-bottom:12px;" onclick="openBulkAdd()">เพิ่มหลายสี/เบอร์พร้อมกัน (SKU)</button>
       <input type="text" id="productFilter" placeholder="ค้นหาสินค้า..." style="margin-bottom:12px;" oninput="renderProductList()">
       <div id="productList"></div>
-    </div>
-  </section>
-
-  <!-- ===== TAB: รายการขาย ===== -->
-  <section id="tab-saleslist" class="tab-page">
-    <div class="card">
-      <div class="field">
-        <label>ช่วงเวลา</label>
-        <select id="saleListFilter" onchange="renderSalesList()">
-          <option value="today" selected>วันนี้</option>
-          <option value="week">7 วันล่าสุด</option>
-          <option value="month">เดือนนี้</option>
-          <option value="all">ทั้งหมด</option>
-        </select>
-      </div>
-      <h3>รายการขาย</h3>
-      <div id="salesListTable"></div>
     </div>
   </section>
 
@@ -340,8 +363,31 @@
         </select>
       </div>
       <div id="reportSummary"></div>
-      <button class="btn btn-outline btn-full" style="margin-top:12px;" onclick="exportCSV()">ส่งออก CSV</button>
     </div>
+
+    <div class="card">
+      <h3>สำรอง/กู้คืนข้อมูล</h3>
+      <div class="muted" style="margin-bottom:12px;">ข้อมูลทั้งหมดอยู่ในเครื่องนี้เท่านั้น ควรสำรองเป็นไฟล์เก็บไว้เป็นระยะ (เช่น ส่งไฟล์ให้ตัวเองทาง LINE เก็บไว้)</div>
+      <div class="btn-row">
+        <button class="btn btn-outline" onclick="exportBackupJSON()">สำรองข้อมูล (JSON)</button>
+        <button class="btn btn-outline" onclick="document.getElementById('restoreFile').click()">กู้คืนข้อมูล</button>
+      </div>
+      <input type="file" id="restoreFile" accept="application/json" style="display:none;" onchange="importBackupJSON(event)">
+    </div>
+
+    <div class="card">
+      <h3>ความปลอดภัย</h3>
+      <div class="muted" style="margin-bottom:12px;">ตั้งรหัส PIN กันคนอื่นเปิดดูข้อมูลร้านถ้ามือถือเครื่องนี้ถูกส่งต่อให้คนอื่นใช้ชั่วคราว (ไม่บังคับ)</div>
+      <div class="field">
+        <label>ตั้ง/เปลี่ยนรหัส PIN (4-6 หลัก)</label>
+        <input type="password" inputmode="numeric" pattern="[0-9]*" id="pinSetting" placeholder="เว้นว่าง = ไม่ล็อก" maxlength="6">
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-danger" onclick="clearAppPin()">ปิดการล็อก</button>
+        <button class="btn btn-primary" onclick="saveAppPin()">บันทึก PIN</button>
+      </div>
+    </div>
+
     <div class="card">
       <button class="btn btn-danger btn-full" onclick="wipeAllData()">ล้างข้อมูลทั้งหมด</button>
     </div>
@@ -350,7 +396,15 @@
 </div>
 
 <div class="sticky-action-bar show" id="stickyActionBar">
-  <button class="btn btn-success btn-full" onclick="quickSell()">✓ บันทึกขาย</button>
+  <button class="btn btn-success btn-full" onclick="checkout()">✓ คิดเงิน</button>
+</div>
+
+<div class="sticky-action-bar" id="stickyActionBarStock">
+  <button class="btn btn-primary btn-full" onclick="saveProduct()">บันทึกสินค้า</button>
+</div>
+
+<div class="sticky-action-bar" id="stickyActionBarDashboard">
+  <button class="btn btn-primary btn-full" onclick="exportCSV()">ส่งออก CSV</button>
 </div>
 
 <nav class="tabbar">
@@ -361,10 +415,6 @@
   <button class="tabbar-item" data-tab="tab-stock" onclick="switchTab('tab-stock')">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l9-4 9 4-9 4-9-4Z"/><path d="M3 7v10l9 4 9-4V7"/><path d="M12 11v10"/></svg>
     <span>สต็อก</span>
-  </button>
-  <button class="tabbar-item" data-tab="tab-saleslist" onclick="switchTab('tab-saleslist')">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3Z"/><path d="M9 8h6M9 12h6"/></svg>
-    <span>รายการขาย</span>
   </button>
   <button class="tabbar-item" data-tab="tab-dashboard" onclick="switchTab('tab-dashboard')">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M12 20V4M20 20v-7"/></svg>
@@ -472,13 +522,61 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
 <script>
 /* ============ DATA LAYER (localStorage) ============ */
-const DB_KEYS = { products: 'pos_products', sales: 'pos_sales' };
+const DB_KEYS = { products: 'pos_products', sales: 'pos_sales', staff: 'pos_staff', lastSeller: 'pos_last_seller', lastPayment: 'pos_last_payment', pin: 'pos_pin' };
 
 function loadProducts(){ return JSON.parse(localStorage.getItem(DB_KEYS.products) || '[]'); }
 function saveProducts(list){ localStorage.setItem(DB_KEYS.products, JSON.stringify(list)); }
 function loadSales(){ return JSON.parse(localStorage.getItem(DB_KEYS.sales) || '[]'); }
 function saveSales(list){ localStorage.setItem(DB_KEYS.sales, JSON.stringify(list)); }
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+
+/* ============ STAFF (ผู้ขาย) + ช่องทางชำระเงิน ============
+   สำหรับกงสี/ร้านที่มีหลายคนช่วยขาย: บันทึกไว้ในทุกรายการขายว่าใครขาย และรับเงินช่องทางไหน
+   (เงินสดเป็นค่าเริ่มต้นเสมอ ตามที่ตั้งไว้) */
+function loadStaff(){ return JSON.parse(localStorage.getItem(DB_KEYS.staff) || '[]'); }
+function saveStaff(list){ localStorage.setItem(DB_KEYS.staff, JSON.stringify(list)); }
+function renderSellerOptions(){
+  const sel = document.getElementById('sellerSelect');
+  if(!sel) return;
+  let staff = loadStaff();
+  if(staff.length === 0){ staff = ['เจ้าของร้าน']; saveStaff(staff); }
+  const lastSeller = localStorage.getItem(DB_KEYS.lastSeller) || staff[0];
+  sel.innerHTML = staff.map(s=>`<option value="${s}">${s}</option>`).join('') + `<option value="__add__">+ เพิ่มชื่อพนักงาน</option>`;
+  if(staff.includes(lastSeller)) sel.value = lastSeller;
+}
+function onSellerChange(){
+  const sel = document.getElementById('sellerSelect');
+  if(sel.value === '__add__'){
+    const name = (prompt('เพิ่มชื่อพนักงาน/ผู้ขาย') || '').trim();
+    if(name){
+      const staff = loadStaff();
+      if(!staff.includes(name)) staff.push(name);
+      saveStaff(staff);
+      renderSellerOptions();
+      sel.value = name;
+    } else {
+      renderSellerOptions();
+    }
+  }
+  localStorage.setItem(DB_KEYS.lastSeller, sel.value);
+}
+function getCurrentSeller(){
+  const sel = document.getElementById('sellerSelect');
+  return (sel && sel.value && sel.value !== '__add__') ? sel.value : (localStorage.getItem(DB_KEYS.lastSeller) || 'เจ้าของร้าน');
+}
+function savePaymentPref(){
+  const sel = document.getElementById('paymentSelect');
+  localStorage.setItem(DB_KEYS.lastPayment, sel.value);
+}
+function getCurrentPayment(){
+  const sel = document.getElementById('paymentSelect');
+  return sel ? sel.value : 'เงินสด';
+}
+function initSellerPaymentUI(){
+  renderSellerOptions();
+  const paySel = document.getElementById('paymentSelect');
+  if(paySel) paySel.value = localStorage.getItem(DB_KEYS.lastPayment) || 'เงินสด'; // เงินสดเป็นค่าเริ่มต้น
+}
 
 let cart = []; // {productId, name, price, qty}
 
@@ -496,8 +594,12 @@ function toast(msg){
 const TAB_TITLES = {
   'tab-sell': 'สแกนสินค้า',
   'tab-stock': 'สต็อกสินค้า',
-  'tab-saleslist': 'รายการขาย',
   'tab-dashboard': 'สรุปยอด'
+};
+const TAB_STICKY_BAR = {
+  'tab-sell': 'stickyActionBar',
+  'tab-stock': 'stickyActionBarStock',
+  'tab-dashboard': 'stickyActionBarDashboard'
 };
 function switchTab(id){
   document.querySelectorAll('.tab-page').forEach(el=>el.classList.remove('active'));
@@ -505,12 +607,28 @@ function switchTab(id){
   document.getElementById(id).classList.add('active');
   document.querySelector(`.tabbar-item[data-tab="${id}"]`).classList.add('active');
   document.getElementById('pageTitle').textContent = TAB_TITLES[id] || 'POS ร้านค้าปลีก';
-  document.getElementById('stickyActionBar').classList.toggle('show', id === 'tab-sell');
-  document.getElementById('container').classList.toggle('with-sticky-bar', id === 'tab-sell');
+  ['stickyActionBar','stickyActionBarStock','stickyActionBarDashboard'].forEach(barId=>{
+    document.getElementById(barId).classList.toggle('show', TAB_STICKY_BAR[id] === barId);
+  });
+  document.getElementById('container').classList.toggle('with-sticky-bar', !!TAB_STICKY_BAR[id]);
+  if(id === 'tab-sell') renderSalesList();
   if(id === 'tab-stock') renderProductList();
-  if(id === 'tab-saleslist') renderSalesList();
   if(id === 'tab-dashboard') renderDashboard();
   window.scrollTo({top:0});
+}
+
+/* ============ COLLAPSIBLE SECTIONS (ขายด่วน/เพิ่มสินค้า/รายการขาย ที่รวมมาไว้ในหน้าขาย) ============ */
+function toggleCollapse(id){
+  const body = document.getElementById(id);
+  const header = document.querySelector(`[data-collapse-toggle="${id}"]`);
+  const isOpen = body.style.display !== 'none';
+  body.style.display = isOpen ? 'none' : 'block';
+  if(header) header.classList.toggle('open', !isOpen);
+}
+function expandCollapse(id){
+  document.getElementById(id).style.display = 'block';
+  const header = document.querySelector(`[data-collapse-toggle="${id}"]`);
+  if(header) header.classList.add('open');
 }
 
 /* ============ CLOCK ============ */
@@ -676,7 +794,9 @@ function checkout(){
     items,
     total,
     cost: costTotal,
-    profit: total - costTotal
+    profit: total - costTotal,
+    seller: getCurrentSeller(),
+    payment: getCurrentPayment()
   });
   saveSales(sales);
 
@@ -711,7 +831,9 @@ function instantSell(name, model, color, size, qty, price){
     items: [{ productId: product.id, name: displayName, price, costPrice, qty }],
     total,
     cost,
-    profit: total - cost
+    profit: total - cost,
+    seller: getCurrentSeller(),
+    payment: getCurrentPayment()
   });
   saveSales(sales);
 
@@ -723,50 +845,6 @@ function instantSell(name, model, color, size, qty, price){
 }
 
 /* ============ QUICK SELL (manual, always reliable) ============ */
-function quickSell(){
-  const name = document.getElementById('qsName').value.trim();
-  const model = document.getElementById('qsModel').value.trim();
-  const color = document.getElementById('qsColor').value.trim();
-  const size = document.getElementById('qsSize').value.trim();
-  const qty = parseInt(document.getElementById('qsQty').value) || 1;
-  const price = parseFloat(document.getElementById('qsPrice').value) || 0;
-  if(!name){ toast('กรุณากรอกชื่อสินค้า'); return; }
-  if(price <= 0){ toast('กรุณากรอกราคา'); return; }
-  instantSell(name, model, color, size, qty, price);
-  document.getElementById('qsName').value = '';
-  document.getElementById('qsModel').value = '';
-  document.getElementById('qsColor').value = '';
-  document.getElementById('qsSize').value = '';
-  document.getElementById('qsQty').value = '1';
-  document.getElementById('qsPrice').value = '';
-  document.getElementById('qsSuggestion').style.display = 'none';
-}
-// เตือนถ้ามีสินค้าชื่อคล้ายกันอยู่แล้วตอนพิมพ์ในฟอร์มขายด่วน (กันสะกดเพี้ยน/พิมพ์ผิดแล้วสร้าง SKU ซ้ำ)
-function checkQuickSuggestion(){
-  const name = document.getElementById('qsName').value.trim();
-  const model = document.getElementById('qsModel').value.trim();
-  const color = document.getElementById('qsColor').value.trim();
-  const size = document.getElementById('qsSize').value.trim();
-  const el = document.getElementById('qsSuggestion');
-  if(!name){ el.style.display = 'none'; return; }
-  const similar = findSimilarProduct(name, model, color, size);
-  if(similar){
-    el.style.display = 'block';
-    el.innerHTML = `มีสินค้าคล้ายกันอยู่แล้ว: <strong>${composeDisplayName(similar.name, similar.model, similar.color, similar.size)}</strong> — <a href="javascript:void(0)" onclick="useSuggestedQuickName('${similar.id}')" style="color:var(--primary);font-weight:700;">ใช่อันนี้ กดเพื่อใช้</a>`;
-  } else {
-    el.style.display = 'none';
-  }
-}
-function useSuggestedQuickName(productId){
-  const p = loadProducts().find(pp=>pp.id===productId);
-  if(!p) return;
-  document.getElementById('qsName').value = p.name;
-  document.getElementById('qsModel').value = p.model || '';
-  document.getElementById('qsColor').value = p.color || '';
-  document.getElementById('qsSize').value = p.size || '';
-  document.getElementById('qsSuggestion').style.display = 'none';
-}
-
 /* ============ CONFIRM SELL MODAL (used after voice parsing) ============ */
 function openConfirmSell(name, model, color, size, qty, price){
   document.getElementById('cfName').value = name;
@@ -868,8 +946,12 @@ function editProduct(id){
   document.getElementById('pCost').value = p.costPrice || '';
   document.getElementById('pPrice').value = p.price;
   document.getElementById('pStock').value = (p.stock===null || p.stock===undefined) ? '' : p.stock;
-  switchTab('tab-stock');
-  window.scrollTo({top:0, behavior:'smooth'});
+  switchTab('tab-sell');
+  expandCollapse('collapseAddProduct');
+  setTimeout(()=>{
+    const el = document.getElementById('collapseAddProduct');
+    if(el) el.scrollIntoView({behavior:'smooth', block:'start'});
+  }, 50);
 }
 function deleteProduct(id){
   if(!confirm('ลบสินค้านี้ใช่ไหม?')) return;
@@ -936,7 +1018,8 @@ function applyGroupRangePrice(groupIndex){
   const spec = document.getElementById(`grpRangeSpec_${groupIndex}`).value.trim();
   const costRaw = document.getElementById(`grpRangeCost_${groupIndex}`).value;
   const priceRaw = document.getElementById(`grpRangePrice_${groupIndex}`).value;
-  if(costRaw === '' && priceRaw === ''){ toast('กรอกราคาทุนหรือราคาขายก่อน'); return; }
+  const stockRaw = document.getElementById(`grpRangeStock_${groupIndex}`).value;
+  if(costRaw === '' && priceRaw === '' && stockRaw === ''){ toast('กรอกราคาทุน/ราคาขาย/จำนวนสต็อกอย่างน้อย 1 ช่องก่อน'); return; }
   const targetSizes = spec ? new Set(parseSizeListInput(spec)) : null; // ว่าง = ทุกเบอร์ในกลุ่ม
   const idsInScope = new Set(
     g.items.filter(p => !targetSizes || targetSizes.has((p.size||'').trim())).map(p=>p.id)
@@ -947,11 +1030,12 @@ function applyGroupRangePrice(groupIndex){
     const updated = { ...p };
     if(costRaw !== '') updated.costPrice = parseFloat(costRaw) || 0;
     if(priceRaw !== '') updated.price = parseFloat(priceRaw) || 0;
+    if(stockRaw !== '') updated.stock = parseInt(stockRaw) || 0;
     return updated;
   });
   saveProducts(products);
   renderProductList();
-  toast(`อัปเดตราคาให้ ${idsInScope.size} เบอร์แล้ว`);
+  toast(`อัปเดตให้ ${idsInScope.size} เบอร์แล้ว`);
 }
 function renderProductList(){
   const filter = (document.getElementById('productFilter').value || '').toLowerCase();
@@ -970,12 +1054,13 @@ function renderProductList(){
     bannerEl.innerHTML = '';
   }
 
-  const filtered = !filter ? allProducts : allProducts.filter(p=>
-    p.name.toLowerCase().includes(filter) ||
-    (p.model||'').toLowerCase().includes(filter) ||
-    (p.color||'').toLowerCase().includes(filter) ||
-    (p.size||'').toLowerCase().includes(filter) ||
-    (p.barcode||'').includes(filter));
+  // รองรับค้นหาหลายคำพร้อมกัน (คั่นด้วยช่องว่าง) โดยแต่ละคำจะไปจับคู่กับฟิลด์ไหนก็ได้ (ชื่อ/รุ่น/สี/เบอร์/บาร์โค้ด)
+  // เช่น "นันยาง ดำ" จะเจอสินค้าที่ชื่อมี "นันยาง" และสีมี "ดำ" แม้จะอยู่คนละฟิลด์กัน
+  const filterTokens = filter.split(/\s+/).filter(Boolean);
+  const filtered = filterTokens.length === 0 ? allProducts : allProducts.filter(p=>{
+    const haystack = [p.name, p.model, p.color, p.size, p.barcode].map(v=>(v||'').toLowerCase()).join(' ');
+    return filterTokens.every(tok => haystack.includes(tok));
+  });
   const el = document.getElementById('productList');
   if(filtered.length===0){ el.innerHTML = '<div class="empty">ยังไม่มีสินค้า</div>'; return; }
 
@@ -1010,18 +1095,21 @@ function renderProductList(){
         <div id="${groupId}" class="stock-group-body" style="display:${autoOpen?'block':'none'};">
           ${g.items.length > 1 ? `
           <div class="group-toolbar">
-            <div class="muted" style="margin-bottom:6px;">ตั้งราคาหลายเบอร์พร้อมกัน (เว้นช่วงว่าง = ใช้กับทุกเบอร์ในกลุ่มนี้)</div>
+            <div class="muted" style="margin-bottom:6px;">ตั้งราคา/สต็อกหลายเบอร์พร้อมกัน (เว้นช่วงว่าง = ใช้กับทุกเบอร์ในกลุ่มนี้)</div>
             <div class="btn-row" style="margin-bottom:8px;">
               <input type="text" id="grpRangeSpec_${gi}" placeholder="ช่วงเบอร์ เช่น 28-32 (เว้นว่างได้)">
             </div>
             <div class="btn-row" style="margin-bottom:8px;">
               <input type="number" id="grpRangeCost_${gi}" placeholder="ราคาทุนใหม่">
               <input type="number" id="grpRangePrice_${gi}" placeholder="ราคาขายใหม่">
-              <button type="button" class="btn btn-outline" style="flex:0 0 auto;" onclick="applyGroupRangePrice(${gi})">ใส่ราคา</button>
+            </div>
+            <div class="btn-row" style="margin-bottom:8px;">
+              <input type="number" id="grpRangeStock_${gi}" placeholder="จำนวนสต็อกใหม่">
+              <button type="button" class="btn btn-outline" style="flex:0 0 auto;" onclick="applyGroupRangePrice(${gi})">ใส่ค่า</button>
             </div>
             <div class="btn-row">
               <label style="display:flex;align-items:center;gap:6px;flex:1;font-weight:600;font-size:13px;color:var(--muted);text-transform:none;">
-                <input type="checkbox" style="width:auto;" onchange="toggleAllInGroup(${gi}, this.checked)"> เลือกทั้งหมด
+                <input type="checkbox" onchange="toggleAllInGroup(${gi}, this.checked)"> เลือกทั้งหมด
               </label>
               <button type="button" class="btn btn-outline" onclick="deleteSelectedInGroup(${gi})">ลบที่เลือก</button>
               <button type="button" class="btn btn-danger" onclick="deleteStockGroup(${gi})">ลบทั้งกลุ่ม</button>
@@ -1032,28 +1120,30 @@ function renderProductList(){
             <button type="button" class="btn btn-danger btn-full" onclick="deleteStockGroup(${gi})">ลบสินค้านี้</button>
           </div>
           `}
-          <table>
-            <thead><tr><th></th><th>เบอร์</th><th>ทุน</th><th>ขาย</th><th>กำไร</th><th>สต็อก</th><th></th></tr></thead>
-            <tbody>
-            ${sortedItems.map(p=>{
-              const margin = (p.price||0) - (p.costPrice||0);
-              const stockDisplay = (p.stock===null || p.stock===undefined) ? '<span class="muted">ไม่ระบุ</span>' : p.stock;
-              return `
-              <tr>
-                <td><input type="checkbox" class="stockchk_${gi}" data-id="${p.id}" style="width:auto;"></td>
-                <td>${p.size || '-'}${p.barcode ? '<br><span class="muted">'+p.barcode+'</span>' : '<br><span class="cell-warn">ไม่มีบาร์โค้ด</span>'}</td>
-                <td>${p.costPrice ? '฿'+p.costPrice : '<span class="cell-warn">ไม่มีทุน</span>'}</td>
-                <td>฿${p.price}</td>
-                <td>฿${margin.toFixed(2)}</td>
-                <td>${stockDisplay}</td>
-                <td class="row-actions">
-                  <button onclick="editProduct('${p.id}')">แก้ไข</button>
-                  <button onclick="deleteProduct('${p.id}')">ลบ</button>
-                </td>
-              </tr>`;
-            }).join('')}
-            </tbody>
-          </table>
+          ${sortedItems.map(p=>{
+            const margin = (p.price||0) - (p.costPrice||0);
+            const stockDisplay = (p.stock===null || p.stock===undefined) ? 'ไม่ระบุ' : p.stock;
+            return `
+            <div class="list-card">
+              <div class="sku-card-top">
+                <label class="sku-check">
+                  <input type="checkbox" class="stockchk_${gi}" data-id="${p.id}">
+                  <span>เบอร์ ${p.size || '-'}</span>
+                </label>
+                <div class="sku-card-actions">
+                  <button type="button" class="btn btn-outline btn-sm" onclick="editProduct('${p.id}')">แก้ไข</button>
+                  <button type="button" class="btn btn-danger btn-sm" onclick="deleteProduct('${p.id}')">ลบ</button>
+                </div>
+              </div>
+              <div class="sku-barcode-line">${p.barcode ? 'บาร์โค้ด: '+p.barcode : '<span class="cell-warn">ไม่มีบาร์โค้ด</span>'}</div>
+              <div class="sku-card-grid">
+                <div><div class="g-label">ทุน</div><strong>${p.costPrice ? '฿'+p.costPrice : '<span class="cell-warn">ไม่มี</span>'}</strong></div>
+                <div><div class="g-label">ขาย</div><strong>฿${p.price}</strong></div>
+                <div><div class="g-label">กำไร</div><strong>฿${margin.toFixed(2)}</strong></div>
+                <div><div class="g-label">สต็อก</div><strong>${stockDisplay}</strong></div>
+              </div>
+            </div>`;
+          }).join('')}
         </div>
       </div>
     `;
@@ -1309,7 +1399,7 @@ function renderSalesList(){
         <div class="muted">${s.items.map(i=>
           `${i.name} x${i.qty}` + (i.productId ? ` <a href="javascript:void(0)" onclick="openBulkAddFromProduct('${i.productId}')" style="color:var(--primary);font-weight:700;">+SKU</a>` : '')
         ).join(', ')}</div>
-        <div class="muted">กำไร ฿${(s.profit||0).toFixed(2)}</div>
+        <div class="muted">กำไร ฿${(s.profit||0).toFixed(2)} · ${s.seller || 'ไม่ระบุผู้ขาย'} · ${s.payment || 'เงินสด'}</div>
       </div>
       <div style="text-align:right;">
         <div class="num">฿${s.total.toFixed(2)}</div>
@@ -1343,12 +1433,32 @@ function renderDashboard(){
   }));
   const topProducts = Object.entries(productTotals).sort((a,b)=>b[1]-a[1]).slice(0,5);
 
+  // แยกยอดตามช่องทางชำระเงิน (กระทบยอดเงินสดในลิ้นชักกับยอดโอน)
+  const paymentTotals = {};
+  sales.forEach(s=>{
+    const pay = s.payment || 'เงินสด';
+    paymentTotals[pay] = (paymentTotals[pay]||0) + s.total;
+  });
+  const paymentEntries = Object.entries(paymentTotals);
+
+  // แยกยอดตามผู้ขาย (สำหรับกงสีที่มีหลายคนช่วยขาย)
+  const sellerTotals = {};
+  sales.forEach(s=>{
+    const seller = s.seller || 'ไม่ระบุ';
+    sellerTotals[seller] = (sellerTotals[seller]||0) + s.total;
+  });
+  const sellerEntries = Object.entries(sellerTotals).sort((a,b)=>b[1]-a[1]);
+
   document.getElementById('reportSummary').innerHTML = `
     <div class="cart-item"><div>ยอดขายรวม</div><strong class="num">฿${totalRevenue.toFixed(2)}</strong></div>
     <div class="cart-item"><div>ต้นทุนรวม</div><strong class="num">฿${totalCost.toFixed(2)}</strong></div>
     <div class="cart-item"><div>กำไรสุทธิ</div><strong class="num" style="color:var(--success);">฿${totalProfit.toFixed(2)}</strong></div>
     <div class="cart-item"><div>จำนวนบิล</div><strong class="num">${totalOrders}</strong></div>
     <div class="cart-item"><div>จำนวนชิ้นที่ขาย</div><strong class="num">${itemCount}</strong></div>
+    ${paymentEntries.length ? `<div style="margin-top:10px;"><div class="muted" style="margin-bottom:6px;">แยกตามช่องทางชำระเงิน</div>` +
+      paymentEntries.map(([pay,amt])=>`<div class="cart-item"><div>${pay}</div><span class="num">฿${amt.toFixed(2)}</span></div>`).join('') + `</div>` : ''}
+    ${sellerEntries.length ? `<div style="margin-top:10px;"><div class="muted" style="margin-bottom:6px;">แยกตามผู้ขาย</div>` +
+      sellerEntries.map(([seller,amt])=>`<div class="cart-item"><div>${seller}</div><span class="num">฿${amt.toFixed(2)}</span></div>`).join('') + `</div>` : ''}
     ${topProducts.length ? `<div style="margin-top:10px;"><div class="muted" style="margin-bottom:6px;">สินค้าขายดี</div>` +
       topProducts.map(([name,qty])=>`<div class="cart-item"><div>${name}</div><span class="num">${qty} ชิ้น</span></div>`).join('') + `</div>` : ''}
   `;
@@ -1356,11 +1466,12 @@ function renderDashboard(){
 function exportCSV(){
   const sales = loadSales();
   if(sales.length===0){ toast('ไม่มีข้อมูลให้ส่งออก'); return; }
-  let rows = [['วันที่เวลา','สินค้า','จำนวน','ทุนต่อชิ้น','ราคาต่อชิ้น','รวมรายการ','ต้นทุนบิล','กำไรบิล','รวมบิล']];
+  let rows = [['วันที่เวลา','ผู้ขาย','ชำระโดย','สินค้า','จำนวน','ทุนต่อชิ้น','ราคาต่อชิ้น','รวมรายการ','ต้นทุนบิล','กำไรบิล','รวมบิล']];
   sales.forEach(s=>{
     s.items.forEach(i=>{
       rows.push([
         new Date(s.timestamp).toLocaleString('th-TH'),
+        s.seller || '', s.payment || 'เงินสด',
         i.name, i.qty, i.costPrice||0, i.price, (i.qty*i.price).toFixed(2),
         (s.cost||0).toFixed(2), (s.profit||0).toFixed(2), s.total.toFixed(2)
       ]);
@@ -1381,6 +1492,86 @@ function wipeAllData(){
   cart = [];
   renderCart(); renderProductList(); renderSalesList(); renderDashboard();
   toast('ล้างข้อมูลแล้ว');
+}
+
+/* ============ สำรอง/กู้คืนข้อมูลเต็มรูปแบบ (JSON) ============
+   เผื่อทำหาย/เปลี่ยนเครื่อง/ล้าง cache เบราว์เซอร์ เพราะข้อมูลทั้งหมดอยู่ใน localStorage เครื่องเดียว */
+function exportBackupJSON(){
+  const backup = {
+    exportedAt: new Date().toISOString(),
+    products: loadProducts(),
+    sales: loadSales(),
+    staff: loadStaff()
+  };
+  const blob = new Blob([JSON.stringify(backup, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `pos_backup_${Date.now()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('สำรองข้อมูลเรียบร้อย');
+}
+function importBackupJSON(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ()=>{
+    try{
+      const data = JSON.parse(reader.result);
+      if(!data || !Array.isArray(data.products) || !Array.isArray(data.sales)){
+        toast('ไฟล์นี้ไม่ใช่ไฟล์สำรองข้อมูลของระบบนี้');
+        return;
+      }
+      if(!confirm(`พบสินค้า ${data.products.length} รายการ และยอดขาย ${data.sales.length} รายการในไฟล์นี้\nกู้คืนจะทับข้อมูลปัจจุบันทั้งหมด ต้องการดำเนินการต่อไหม?`)) return;
+      saveProducts(data.products);
+      saveSales(data.sales);
+      if(Array.isArray(data.staff)) saveStaff(data.staff);
+      cart = [];
+      renderCart(); renderProductList(); renderSalesList(); renderDashboard(); renderSellerOptions();
+      toast('กู้คืนข้อมูลสำเร็จ');
+    } catch(err){
+      toast('ไฟล์เสียหายหรือไม่ใช่ไฟล์ JSON ที่ถูกต้อง');
+    }
+    event.target.value = '';
+  };
+  reader.readAsText(file);
+}
+
+/* ============ PIN LOCK (กันคนอื่นเปิดดูข้อมูลถ้ามือถือถูกส่งต่อชั่วคราว) ============ */
+function saveAppPin(){
+  const val = document.getElementById('pinSetting').value.trim();
+  if(!val){ toast('กรอกรหัส PIN ก่อน หรือกด "ปิดการล็อก" ถ้าไม่ต้องการล็อก'); return; }
+  if(!/^\d{4,6}$/.test(val)){ toast('PIN ต้องเป็นตัวเลข 4-6 หลัก'); return; }
+  localStorage.setItem(DB_KEYS.pin, val);
+  sessionStorage.setItem('pos_unlocked', '1'); // ตั้งใหม่แล้วไม่ต้องล็อกตัวเองทันที
+  document.getElementById('pinSetting').value = '';
+  toast('ตั้งรหัส PIN แล้ว');
+}
+function clearAppPin(){
+  if(!localStorage.getItem(DB_KEYS.pin)){ toast('ยังไม่ได้ตั้ง PIN ไว้'); return; }
+  if(!confirm('ปิดการล็อก PIN ใช่ไหม?')) return;
+  localStorage.removeItem(DB_KEYS.pin);
+  document.getElementById('pinSetting').value = '';
+  toast('ปิดการล็อกแล้ว');
+}
+function checkLock(){
+  const pin = localStorage.getItem(DB_KEYS.pin);
+  if(pin && sessionStorage.getItem('pos_unlocked') !== '1'){
+    document.getElementById('lock-screen').style.display = 'flex';
+  }
+}
+function tryUnlock(){
+  const input = document.getElementById('lockPinInput');
+  const pin = localStorage.getItem(DB_KEYS.pin);
+  if(input.value === pin){
+    sessionStorage.setItem('pos_unlocked', '1');
+    document.getElementById('lock-screen').style.display = 'none';
+    input.value = '';
+  } else {
+    toast('รหัส PIN ไม่ถูกต้อง');
+    input.value = '';
+    input.focus();
+  }
 }
 
 /* ============ BARCODE SCANNER ============ */
@@ -1675,7 +1866,7 @@ function handleVoiceCommand(text){
     if(parsed){
       openConfirmSell(parsed.name, parsed.model, parsed.color, parsed.size, parsed.qty, parsed.price);
     } else {
-      toast('ฟังไม่เข้าใจ ลองพูดใหม่ หรือกรอกในช่อง "ขายด่วน" แทน');
+      toast('ฟังไม่เข้าใจ ลองพูดใหม่อีกครั้ง');
     }
     return;
   }
@@ -1718,7 +1909,7 @@ function voiceErrorMessage(err){
 function beginRecognition(){
   recognition = getRecognition();
   if(!recognition){
-    toast('เบราว์เซอร์นี้ไม่รองรับ Voice Command ใช้ช่อง "ขายด่วน" แทนได้');
+    toast('เบราว์เซอร์นี้ไม่รองรับ Voice Command ใช้การสแกนบาร์โค้ดหรือค้นหาสินค้าแทนได้');
     return;
   }
   document.getElementById('voice-modal').classList.add('open');
@@ -1744,7 +1935,7 @@ function beginRecognition(){
 function startVoice(){
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if(!SR){
-    toast('อุปกรณ์นี้ไม่รองรับ Voice Command ใช้ช่อง "ขายด่วน" แทนได้');
+    toast('อุปกรณ์นี้ไม่รองรับ Voice Command ใช้การสแกนบาร์โค้ดหรือค้นหาสินค้าแทนได้');
     return;
   }
   // iOS Safari ต้องขอสิทธิ์ไมโครโฟนผ่าน getUserMedia ก่อน ไม่งั้น SpeechRecognition มักไม่ทำงาน/ไม่ขึ้น prompt ให้
@@ -1767,6 +1958,8 @@ function stopVoice(){
 }
 
 /* ============ INIT ============ */
+checkLock();
+initSellerPaymentUI();
 renderCart();
 renderDashboard();
 </script>
