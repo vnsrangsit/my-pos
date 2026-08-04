@@ -2,7 +2,7 @@
 <html lang="th">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>รายการสต็อครองเท้า</title>
 <style>
   :root{
@@ -15,52 +15,55 @@
     --muted:#9b8790;
     --green:#3fae5c;
   }
-  *{box-sizing:border-box;}
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html{ touch-action:manipulation; }
   body{
     margin:0;
     font-family:'Segoe UI', Tahoma, sans-serif;
     background:var(--bg);
     color:var(--text);
+    -webkit-text-size-adjust:100%;
+    overscroll-behavior-y:contain;
   }
   header{
     background:linear-gradient(135deg,#ff8fb8,#ff6fa5);
     color:#fff;
-    padding:20px 16px;
+    padding:16px 14px;
     text-align:center;
     box-shadow:0 2px 8px rgba(0,0,0,0.1);
     position:sticky;
     top:0;
     z-index:10;
   }
-  header h1{margin:0 0 4px;font-size:1.4rem;}
-  header p{margin:0;font-size:0.85rem;opacity:0.9;}
+  header h1{margin:0 0 4px;font-size:1.2rem;}
+  header p{margin:0;font-size:0.78rem;opacity:0.9;}
   .toolbar{
     display:flex;
-    gap:10px;
+    gap:8px;
     flex-wrap:wrap;
     justify-content:center;
-    padding:14px 16px;
+    padding:10px 12px;
     background:#fff;
     border-bottom:1px solid var(--border);
     position:sticky;
-    top:78px;
+    top:70px;
     z-index:9;
   }
   .toolbar input[type="text"]{
-    padding:8px 12px;
+    padding:9px 12px;
     border-radius:20px;
     border:1px solid var(--border);
-    width:220px;
-    max-width:60vw;
-    font-size:0.9rem;
+    width:180px;
+    max-width:55vw;
+    font-size:16px;
   }
   .toolbar button{
-    padding:8px 16px;
+    padding:9px 14px;
     border-radius:20px;
     border:none;
     background:var(--pink);
     color:#fff;
-    font-size:0.85rem;
+    font-size:0.8rem;
     cursor:pointer;
   }
   .toolbar button.secondary{
@@ -68,16 +71,17 @@
     color:var(--pink-dark);
     border:1px solid var(--pink);
   }
-  .toolbar .summary{
-    font-size:0.85rem;
+  .summary-bar{
+    text-align:center;
+    font-size:0.78rem;
     color:var(--muted);
-    align-self:center;
+    padding:6px 0 2px;
   }
   .grid{
     display:grid;
-    grid-template-columns:repeat(auto-fill, minmax(210px, 1fr));
-    gap:16px;
-    padding:18px;
+    grid-template-columns:repeat(auto-fill, minmax(150px, 1fr));
+    gap:12px;
+    padding:12px;
     max-width:1400px;
     margin:0 auto;
   }
@@ -92,96 +96,154 @@
   }
   .card img{
     width:100%;
-    height:170px;
+    height:130px;
     object-fit:cover;
     background:#eee;
-    cursor:zoom-in;
   }
   .card .body{
-    padding:10px 12px 14px;
+    padding:8px 8px 10px;
     display:flex;
     flex-direction:column;
-    gap:8px;
+    gap:6px;
   }
   .code{
     font-weight:700;
-    font-size:1rem;
+    font-size:0.85rem;
     color:var(--pink-dark);
     text-align:center;
-  }
-  .field-label{
-    font-size:0.75rem;
-    color:var(--muted);
-    margin-bottom:2px;
   }
   .size-pills{
     display:flex;
     flex-wrap:wrap;
-    gap:6px;
+    gap:5px;
     justify-content:center;
   }
   .pill{
     position:relative;
-    width:34px;
-    height:34px;
+    width:30px;
+    height:30px;
     border-radius:50%;
     border:1px solid var(--border);
     background:#fff;
     color:var(--text);
-    font-size:0.85rem;
+    font-size:0.75rem;
     cursor:pointer;
+    padding:0;
   }
-  .pill.active{
-    border-color:var(--pink);
-    background:#fff0f6;
-    color:var(--pink-dark);
+  .pill.has-stock{
+    border-color:var(--green);
+    background:#eafbee;
+    color:#2c8a45;
+    font-weight:700;
   }
   .pill.has-stock::after{
     content:"";
     position:absolute;
     top:-2px;
     right:-2px;
-    width:9px;
-    height:9px;
+    width:8px;
+    height:8px;
     border-radius:50%;
     background:var(--green);
     border:1.5px solid #fff;
   }
-  .size-panel{
+
+  /* bottom sheet */
+  .sheet-backdrop{
     display:none;
+    position:fixed;
+    inset:0;
+    background:rgba(0,0,0,0.45);
+    z-index:200;
+  }
+  .sheet-backdrop.open{ display:block; }
+  .sheet{
+    position:fixed;
+    left:0; right:0; bottom:0;
+    background:#fff;
+    border-radius:20px 20px 0 0;
+    padding:18px 20px calc(20px + env(safe-area-inset-bottom));
+    z-index:201;
+    transform:translateY(100%);
+    transition:transform 0.25s ease;
+    box-shadow:0 -4px 20px rgba(0,0,0,0.15);
+  }
+  .sheet-backdrop.open .sheet{ transform:translateY(0); }
+  .sheet .handle{
+    width:40px;
+    height:4px;
+    border-radius:2px;
+    background:var(--border);
+    margin:0 auto 14px;
+  }
+  .sheet .sheet-title{
+    text-align:center;
+    font-size:1.1rem;
+    font-weight:700;
+    color:var(--pink-dark);
+    margin-bottom:2px;
+  }
+  .sheet .sheet-sub{
+    text-align:center;
+    font-size:0.8rem;
+    color:var(--muted);
+    margin-bottom:16px;
+  }
+  .sheet .stepper{
+    display:flex;
     align-items:center;
     justify-content:center;
-    gap:8px;
-    background:#fdf1f6;
-    border:1px solid var(--border);
-    border-radius:8px;
-    padding:6px 8px;
+    gap:18px;
+    margin-bottom:20px;
   }
-  .size-panel.open{ display:flex; }
-  .size-panel .panel-label{
-    font-size:0.85rem;
-    font-weight:600;
+  .sheet .stepper button{
+    width:52px;
+    height:52px;
+    border-radius:50%;
+    border:none;
+    background:#fdeaf1;
     color:var(--pink-dark);
-    white-space:nowrap;
+    font-size:1.6rem;
+    line-height:1;
+    cursor:pointer;
   }
-  .size-panel input[type="number"]{
-    width:70px;
-    padding:5px 6px;
-    border-radius:6px;
-    border:1px solid var(--border);
-    font-size:0.9rem;
+  .sheet .stepper button:active{ background:var(--pink); color:#fff; }
+  .sheet .stepper input{
+    width:90px;
     text-align:center;
+    padding:10px 4px;
+    border-radius:12px;
+    border:1px solid var(--border);
+    font-size:20px;
+    font-weight:700;
   }
-  .panels-wrap{
+  .sheet .sheet-actions{
     display:flex;
-    flex-direction:column;
-    gap:6px;
+    gap:10px;
   }
+  .sheet .sheet-actions button{
+    flex:1;
+    padding:14px;
+    border-radius:14px;
+    border:none;
+    font-size:1rem;
+    font-weight:600;
+    cursor:pointer;
+  }
+  .sheet .btn-save{
+    background:var(--pink);
+    color:#fff;
+  }
+  .sheet .btn-clear{
+    background:#f4eef1;
+    color:var(--muted);
+  }
+
   footer{
     text-align:center;
-    padding:24px;
+    padding:20px;
     color:var(--muted);
-    font-size:0.8rem;
+    font-size:0.75rem;
   }
   .lightbox{
     display:none;
@@ -205,19 +267,36 @@
 
 <header>
   <h1>รายการสต็อครองเท้า</h1>
-  <p>กดเบอร์ที่ต้องการ (25-35) แล้วกรอกจำนวนสต็อค — จุดเขียวแปลว่ามีสต็อคแล้ว</p>
+  <p>แตะเบอร์ที่ต้องการเพื่อใส่จำนวนสต็อค</p>
 </header>
 
 <div class="toolbar">
   <input type="text" id="searchBox" placeholder="ค้นหารหัสรุ่น...">
-  <button id="exportBtn">ดาวน์โหลด CSV</button>
-  <button class="secondary" id="resetBtn">ล้างข้อมูลทั้งหมด</button>
-  <span class="summary" id="summary"></span>
+  <button id="exportBtn">CSV</button>
+  <button class="secondary" id="resetBtn">ล้างข้อมูล</button>
 </div>
+<div class="summary-bar" id="summary"></div>
 
 <div class="grid" id="grid"></div>
 
 <div class="lightbox" id="lightbox"><img id="lightboxImg" src=""></div>
+
+<div class="sheet-backdrop" id="sheetBackdrop">
+  <div class="sheet" id="sheet">
+    <div class="handle"></div>
+    <div class="sheet-title" id="sheetTitle">รหัสรุ่น</div>
+    <div class="sheet-sub" id="sheetSub">เบอร์ 28</div>
+    <div class="stepper">
+      <button type="button" id="minusBtn">−</button>
+      <input type="number" id="sheetInput" inputmode="numeric" pattern="[0-9]*" value="0">
+      <button type="button" id="plusBtn">+</button>
+    </div>
+    <div class="sheet-actions">
+      <button type="button" class="btn-clear" id="clearBtn">ล้างเป็น 0</button>
+      <button type="button" class="btn-save" id="saveBtn">เสร็จสิ้น</button>
+    </div>
+  </div>
+</div>
 
 <footer>ทำโดย Claude · ข้อมูลเก็บไว้ในเบราว์เซอร์เครื่องนี้เท่านั้น</footer>
 
@@ -246,7 +325,6 @@ function saveData(data){
 
 let data = loadData();
 codes.forEach(c=>{
-  // shape: { sizes: { "25": 0, "26": 0, ... "35": 0 } }
   if(!data[c] || typeof data[c] !== 'object' || !data[c].sizes){
     data[c] = { sizes: {} };
   }
@@ -268,6 +346,53 @@ function updateSummary(){
   summary.textContent = `รวม ${codes.length} รุ่น · สต็อครวม ${totalStock} คู่`;
 }
 
+// ---- bottom sheet logic ----
+const sheetBackdrop = document.getElementById('sheetBackdrop');
+const sheetTitle = document.getElementById('sheetTitle');
+const sheetSub = document.getElementById('sheetSub');
+const sheetInput = document.getElementById('sheetInput');
+let activeCode = null, activeSize = null, activePill = null;
+
+function openSheet(code, size, pillEl){
+  activeCode = code; activeSize = size; activePill = pillEl;
+  sheetTitle.textContent = code;
+  sheetSub.textContent = 'เบอร์ ' + size;
+  sheetInput.value = data[code].sizes[size] || 0;
+  sheetBackdrop.classList.add('open');
+}
+function closeSheet(){
+  sheetBackdrop.classList.remove('open');
+  activeCode = null; activeSize = null; activePill = null;
+}
+function commitSheet(){
+  if(activeCode === null) return;
+  const v = Math.max(0, parseInt(sheetInput.value)||0);
+  data[activeCode].sizes[activeSize] = v;
+  saveData(data);
+  if(activePill) activePill.classList.toggle('has-stock', v > 0);
+  updateSummary();
+}
+
+document.getElementById('minusBtn').onclick = ()=>{
+  sheetInput.value = Math.max(0, (parseInt(sheetInput.value)||0) - 1);
+};
+document.getElementById('plusBtn').onclick = ()=>{
+  sheetInput.value = (parseInt(sheetInput.value)||0) + 1;
+};
+document.getElementById('clearBtn').onclick = ()=>{
+  sheetInput.value = 0;
+};
+document.getElementById('saveBtn').onclick = ()=>{
+  commitSheet();
+  closeSheet();
+};
+sheetBackdrop.addEventListener('click', (e)=>{
+  if(e.target === sheetBackdrop){
+    commitSheet();
+    closeSheet();
+  }
+});
+
 function render(filter=""){
   grid.innerHTML = "";
   const f = filter.trim().toLowerCase();
@@ -281,7 +406,7 @@ function render(filter=""){
     img.src = code + ".JPG";
     img.alt = code;
     img.loading = "lazy";
-    img.onerror = function(){ this.src = ""; this.style.background="#f2e3ea"; this.alt="ไม่พบรูป"; };
+    img.onerror = function(){ this.style.background="#f2e3ea"; };
     img.onclick = ()=>{
       document.getElementById('lightboxImg').src = img.src;
       document.getElementById('lightbox').classList.add('open');
@@ -296,16 +421,8 @@ function render(filter=""){
     codeEl.textContent = code;
     body.appendChild(codeEl);
 
-    const label = document.createElement('div');
-    label.className = 'field-label';
-    label.textContent = 'เบอร์ (กดเพื่อกรอกสต็อค)';
-    body.appendChild(label);
-
     const pillRow = document.createElement('div');
     pillRow.className = 'size-pills';
-
-    const panelsWrap = document.createElement('div');
-    panelsWrap.className = 'panels-wrap';
 
     SIZES.forEach(sz=>{
       const pill = document.createElement('button');
@@ -313,42 +430,11 @@ function render(filter=""){
       pill.className = 'pill';
       pill.textContent = sz;
       if((parseInt(data[code].sizes[sz])||0) > 0) pill.classList.add('has-stock');
-
-      const panel = document.createElement('div');
-      panel.className = 'size-panel';
-
-      const panelLabel = document.createElement('span');
-      panelLabel.className = 'panel-label';
-      panelLabel.textContent = 'เบอร์ ' + sz + ':';
-
-      const stockInput = document.createElement('input');
-      stockInput.type = 'number';
-      stockInput.min = '0';
-      stockInput.value = data[code].sizes[sz];
-      stockInput.oninput = ()=>{
-        const v = parseInt(stockInput.value)||0;
-        data[code].sizes[sz] = v;
-        saveData(data);
-        pill.classList.toggle('has-stock', v > 0);
-        updateSummary();
-      };
-
-      panel.appendChild(panelLabel);
-      panel.appendChild(stockInput);
-
-      pill.onclick = ()=>{
-        const isOpen = panel.classList.toggle('open');
-        pill.classList.toggle('active', isOpen);
-        if(isOpen) stockInput.focus();
-      };
-
+      pill.onclick = ()=> openSheet(code, sz, pill);
       pillRow.appendChild(pill);
-      panelsWrap.appendChild(panel);
     });
 
     body.appendChild(pillRow);
-    body.appendChild(panelsWrap);
-
     card.appendChild(body);
     grid.appendChild(card);
   });
