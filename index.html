@@ -112,6 +112,17 @@
     color:var(--pink-dark);
     text-align:center;
   }
+  .meta{
+    font-size:0.65rem;
+    color:var(--muted);
+    text-align:center;
+    line-height:1.3;
+    margin-top:-4px;
+  }
+  .meta .brand{
+    font-weight:600;
+    color:#b96f8c;
+  }
   .size-pills{
     display:flex;
     flex-wrap:wrap;
@@ -275,7 +286,7 @@
 
 <div class="toolbar">
   <input type="text" id="searchBox" placeholder="ค้นหารหัสรุ่น...">
-  <button id="exportBtn">CSV</button>
+  <button id="exportBtn">Export Shopee CSV</button>
   <button class="secondary" id="resetBtn">ล้างข้อมูล</button>
 </div>
 <div class="summary-bar" id="summary"></div>
@@ -310,6 +321,39 @@ const codes = [
   "CD-11","CD-22","CD-88","CD-99","CF-2564","CF-2566","CK-2",
   "PC-2218","PC-2219","PN-885","PN-995","SF-222","SM-4","SP-2","SP-6529","SP-6530"
 ];
+
+// brand + pattern + color info per code (ไม่มีโลโก้บนกล่อง = Chappy)
+const META = {
+  "CF-2566":  { brand:"Chappy", pattern:"Frozen",                          color:"ขาว" },
+  "SF-222":   { brand:"Chappy", pattern:"Sofia the First",                 color:"ขาว" },
+  "CF-2564":  { brand:"Chappy", pattern:"Frozen",                          color:"ขาว" },
+  "41G99B1":  { brand:"ADDA",   pattern:"Cinderella",                      color:"ขาว" },
+  "PN-995":   { brand:"Chappy", pattern:"My Little Pony",                  color:"ขาว" },
+  "PC-2219":  { brand:"Chappy", pattern:"Cinderella",                      color:"ขาว" },
+  "41G97C1":  { brand:"ADDA",   pattern:"Tinker Bell",                     color:"ขาว" },
+  "41G94C1":  { brand:"ADDA",   pattern:"My Little Pony",                  color:"ขาว" },
+  "41C18B1":  { brand:"ADDA",   pattern:"Tinker Bell",                     color:"ดำ" },
+  "41C12B1":  { brand:"ADDA",   pattern:"Tinker Bell / Fairies",           color:"ดำ" },
+  "41A19B1":  { brand:"ADDA",   pattern:"Avengers (Iron Man)",             color:"ดำ" },
+  "SP-6529":  { brand:"Chappy", pattern:"Spider-Man",                      color:"ดำ" },
+  "CK-2":     { brand:"Chappy", pattern:"Demon Slayer",                    color:"ขาว" },
+  "41N18B1":  { brand:"ADDA",   pattern:"Spider-Man: No Way Home",         color:"ขาว" },
+  "SP-6530":  { brand:"Chappy", pattern:"Spider-Man",                      color:"ขาว" },
+  "41N08-C1": { brand:"ADDA",   pattern:"Ben 10",                          color:"ขาว" },
+  "CD-11":    { brand:"Chappy", pattern:"Demon Slayer",                    color:"ดำ" },
+  "CD-88":    { brand:"Chappy", pattern:"Demon Slayer",                    color:"ดำ" },
+  "41A18B1":  { brand:"ADDA",   pattern:"Spider-Man: No Way Home",         color:"ดำ" },
+  "PC-2218":  { brand:"Chappy", pattern:"Cinderella",                      color:"ดำ" },
+  "CD-22":    { brand:"Chappy", pattern:"Demon Slayer",                    color:"ขาว" },
+  "CD-99":    { brand:"Chappy", pattern:"Demon Slayer",                    color:"ขาว" },
+  "SP-2":     { brand:"Chappy", pattern:"Spider-Man",                      color:"ขาว" },
+  "SM-4":     { brand:"Chappy", pattern:"Amazing Spider-Man",              color:"ขาว" },
+  "41N09C1":  { brand:"ADDA",   pattern:"Pokemon",                         color:"ขาว" },
+  "41N19C1":  { brand:"ADDA",   pattern:"Avengers (Iron Man)",             color:"ขาว" },
+  "41A16B1":  { brand:"ADDA",   pattern:"Spidey and His Amazing Friends",  color:"ดำ" },
+  "41C20B1":  { brand:"ADDA",   pattern:"Cinderella",                      color:"ดำ" },
+  "PN-885":   { brand:"Chappy", pattern:"My Little Pony",                  color:"ดำ" }
+};
 
 // fixed size range every model can have
 const SIZES = [];
@@ -426,7 +470,7 @@ function render(filter=""){
     card.className = 'card';
 
     const img = document.createElement('img');
-    img.src = code + ".JPG";
+    img.src = '../' + code + ".JPG";
     img.alt = code;
     img.loading = "lazy";
     img.onerror = function(){ this.style.background="#f2e3ea"; };
@@ -443,6 +487,14 @@ function render(filter=""){
     codeEl.className = 'code';
     codeEl.textContent = code;
     body.appendChild(codeEl);
+
+    const m = META[code];
+    if(m){
+      const metaEl = document.createElement('div');
+      metaEl.className = 'meta';
+      metaEl.innerHTML = `<span class="brand">${m.brand}</span> · ${m.pattern}`;
+      body.appendChild(metaEl);
+    }
 
     const pillRow = document.createElement('div');
     pillRow.className = 'size-pills';
@@ -466,19 +518,86 @@ function render(filter=""){
 
 searchBox.oninput = ()=> render(searchBox.value);
 
+function pad2(n){ return String(n).padStart(2,'0'); }
+function fmtDate(d){ return d.getFullYear() + '-' + pad2(d.getMonth()+1) + '-' + pad2(d.getDate()); }
+function csvEscape(v){
+  if(v === null || v === undefined) v = '';
+  v = String(v);
+  if(/[",\n]/.test(v)) v = '"' + v.replace(/"/g,'""') + '"';
+  return v;
+}
+
+const SHOPEE_HEADERS = [
+  "หมวดหมู่สินค้า","ชื่อสินค้า","รายละเอียดสินค้า",
+  "จำนวนสินค้าสูงสุดที่ซื้อได้","จำนวนสินค้าสูงสุดที่ซื้อได้ - เวลาเริ่มต้น",
+  "จำนวนสินค้าสูงสุดที่ซื้อได้ - ระยะเวลา (วัน)","จำนวนสินค้าสูงสุดที่ซื้อได้ - วันที่สิ้นสุด",
+  "จำนวนการซื้อขั้นต่ำ","Parent SKU","เลขอ้างอิงตัวเลือกสินค้า",
+  "ชื่อตัวเลือก 1","ตัวเลือก 1","ภาพตัวเลือก","ชื่อตัวเลือก 2","ตัวเลือก 2",
+  "ราคา","คลังสินค้า","เลข SKU","แบบฟอร์มตารางขนาดสินค้า","รูปภาพตารางขนาดสินค้า",
+  "GTIN","ภาพปก","รูปภาพ 1","รูปภาพ 2","รูปภาพ 3","รูปภาพ 4","รูปภาพ 5",
+  "รูปภาพ 6","รูปภาพ 7","รูปภาพ 8","น้ำหนัก","ความยาว","ความกว้าง","ความสูง",
+  "Standard Delivery - ส่งธรรมดาในประเทศ","ระยะเวลาเตรียมพัสดุสำหรับสินค้าพรีออเดอร์","เหตุผล"
+];
+
 document.getElementById('exportBtn').onclick = ()=>{
-  let csv = "รหัสรุ่น,เบอร์,จำนวนสต็อค\n";
-  codes.forEach(c=>{
-    SIZES.forEach(sz=>{
-      const v = parseInt(data[c].sizes[sz])||0;
-      if(v > 0) csv += `${c},${sz},${v}\n`;
+  const today = new Date();
+  const start = new Date(today); start.setDate(start.getDate()+1);
+  const end = new Date(start); end.setDate(end.getDate()+365);
+  const startStr = fmtDate(start), endStr = fmtDate(end);
+
+  const rows = [SHOPEE_HEADERS];
+
+  codes.forEach(code=>{
+    const m = META[code];
+    if(!m) return;
+    const sizesWithStock = SIZES.filter(sz => (parseInt(data[code].sizes[sz])||0) > 0);
+    if(sizesWithStock.length === 0) return;
+
+    const colorRef = m.color === 'ดำ' ? 'BK-01' : 'WH-01';
+    const productName = `รองเท้านักเรียนเด็ก ${m.brand} ${code} ${m.pattern} ${m.color} เบอร์ 25-35`;
+
+    sizesWithStock.forEach((sz)=>{
+      const stock = data[code].sizes[sz];
+      rows.push([
+        "",                              // หมวดหมู่สินค้า (เว้นว่างเสมอ)
+        productName,                     // ชื่อสินค้า
+        productName,                     // รายละเอียดสินค้า
+        10,                              // จำนวนสินค้าสูงสุดที่ซื้อได้
+        startStr,                        // เวลาเริ่มต้น
+        365,                             // ระยะเวลา (วัน)
+        endStr,                          // วันที่สิ้นสุด
+        1,                               // จำนวนการซื้อขั้นต่ำ
+        code,                            // Parent SKU
+        colorRef,                        // เลขอ้างอิงตัวเลือกสินค้า
+        "สี",                            // ชื่อตัวเลือก 1
+        m.color,                         // ตัวเลือก 1
+        "",                              // ภาพตัวเลือก
+        "ไซส์",                          // ชื่อตัวเลือก 2
+        String(sz),                      // ตัวเลือก 2
+        180,                             // ราคา
+        stock,                           // คลังสินค้า
+        "",                              // เลข SKU
+        "", "",                          // แบบฟอร์มตารางขนาดสินค้า, รูปภาพตารางขนาดสินค้า
+        "",                              // GTIN
+        "",                              // ภาพปก
+        "", "", "", "", "", "", "", "",  // รูปภาพ 1-8
+        1,                               // น้ำหนัก
+        20,                              // ความยาว
+        15,                              // ความกว้าง
+        15,                              // ความสูง
+        "เปิด",                          // Standard Delivery
+        "",                              // ระยะเวลาเตรียมพัสดุ
+        ""                               // เหตุผล
+      ]);
     });
   });
-  const blob = new Blob(["﻿"+csv], {type:"text/csv;charset=utf-8;"});
+
+  const csvContent = rows.map(r => r.map(csvEscape).join(',')).join('\n');
+  const blob = new Blob(["﻿"+csvContent], {type:"text/csv;charset=utf-8;"});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = "สต็อครองเท้า.csv";
+  a.download = "shopee_mass_upload.csv";
   a.click();
   URL.revokeObjectURL(url);
 };
