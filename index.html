@@ -470,7 +470,7 @@ function render(filter=""){
     card.className = 'card';
 
     const img = document.createElement('img');
-    img.src = '../' + code + ".JPG";
+    img.src = code + ".JPG";
     img.alt = code;
     img.loading = "lazy";
     img.onerror = function(){ this.style.background="#f2e3ea"; };
