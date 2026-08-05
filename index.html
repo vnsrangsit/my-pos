@@ -540,7 +540,7 @@ function buildShopeeRows(){
     const sizesWithStock = SIZES.filter(sz => (parseInt(data[code].sizes[sz])||0) > 0);
     if(sizesWithStock.length === 0) return;
 
-    const colorRef = m.color === 'ดำ' ? 'BK-01' : 'WH-01';
+    const colorRef = code + (m.color === 'ดำ' ? '-BK' : '-WH');
     const productName = `รองเท้านักเรียนเด็ก ${m.brand} ${code} ${m.pattern} ${m.color} เบอร์ 25-35`;
 
     sizesWithStock.forEach((sz)=>{
