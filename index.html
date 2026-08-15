@@ -510,31 +510,39 @@
     <div class="card">
       <h3>รายการสินค้าทั้งหมด</h3>
       <div id="stockAlertBanner"></div>
-      <div class="field" style="margin-bottom:12px;">
-        <label>เตือนสต็อกต่ำเมื่อเหลือ ≤ (คู่)</label>
-        <input type="number" id="lowStockThresholdInput" min="0" step="1" value="3" style="max-width:120px;" onchange="saveLowStockThreshold(this.value); renderOutOfStockBanner(); toast('ตั้งเกณฑ์แจ้งเตือนสต็อกต่ำแล้ว');">
-      </div>
-      <div class="btn-row" style="margin-bottom:12px;">
-        <button class="btn btn-success btn-full" onclick="openStockTxModal()">📋 บันทึกรายการสต็อก (รับเข้า/ขาย/คืน/เสีย/ปรับยอด)</button>
-      </div>
-      <div class="btn-row" style="margin-bottom:12px;">
-        <button class="btn btn-outline btn-full" onclick="undoLastStockTx()">↩️ ยกเลิกรายการสต็อกล่าสุด (เผื่อกดพลาด)</button>
-      </div>
-      <div class="btn-row" style="margin-bottom:12px;">
-        <button class="btn btn-outline" onclick="openBulkAdd()">เพิ่มหลายสี/เบอร์พร้อมกัน (SKU)</button>
-        <button class="btn btn-outline" onclick="exportStockCSV()">ส่งออกสต็อก CSV</button>
-      </div>
-      <div class="btn-row" style="margin-bottom:12px;">
-        <button class="btn btn-outline btn-full" onclick="exportStockTxCSV()">ส่งออกประวัติสต็อกทั้งหมด CSV</button>
-      </div>
-      <div class="btn-row" style="margin-bottom:12px;">
-        <button class="btn btn-outline btn-full" onclick="openCleanupTool()">🧹 จัดระเบียบชื่อสินค้า (แยกหมวดหมู่/แบรนด์/รหัส/รุ่นออกจากชื่อยาวๆ)</button>
-      </div>
       <div class="btn-row" style="margin-bottom:12px;">
         <button class="btn btn-primary btn-full" onclick="document.getElementById('importExcelFile').click()">นำเข้าสินค้าจากไฟล์ Excel (Shopee)</button>
       </div>
       <input type="file" id="importExcelFile" accept=".xlsx,.xls" style="display:none;" onchange="handleImportExcelFile(event)">
-      <input type="text" id="productFilter" placeholder="ค้นหาสินค้า..." style="margin-bottom:0;" oninput="renderProductList()">
+
+      <div class="collapse-header" data-collapse-toggle="collapseStockTools" onclick="toggleCollapse('collapseStockTools')">
+        <h3>เครื่องมือเพิ่มเติม</h3>
+        <span class="collapse-arrow">▾</span>
+      </div>
+      <div id="collapseStockTools" class="collapse-body" style="display:none;">
+        <div class="field" style="margin-bottom:12px;">
+          <label>เตือนสต็อกต่ำเมื่อเหลือ ≤ (คู่)</label>
+          <input type="number" id="lowStockThresholdInput" min="0" step="1" value="3" style="max-width:120px;" onchange="saveLowStockThreshold(this.value); renderOutOfStockBanner(); toast('ตั้งเกณฑ์แจ้งเตือนสต็อกต่ำแล้ว');">
+        </div>
+        <div class="btn-row" style="margin-bottom:12px;">
+          <button class="btn btn-success btn-full" onclick="openStockTxModal()">📋 บันทึกรายการสต็อก (รับเข้า/ขาย/คืน/เสีย/ปรับยอด)</button>
+        </div>
+        <div class="btn-row" style="margin-bottom:12px;">
+          <button class="btn btn-outline btn-full" onclick="undoLastStockTx()">↩️ ยกเลิกรายการสต็อกล่าสุด (เผื่อกดพลาด)</button>
+        </div>
+        <div class="btn-row" style="margin-bottom:12px;">
+          <button class="btn btn-outline" onclick="openBulkAdd()">เพิ่มหลายสี/เบอร์พร้อมกัน (SKU)</button>
+          <button class="btn btn-outline" onclick="exportStockCSV()">ส่งออกสต็อก CSV</button>
+        </div>
+        <div class="btn-row" style="margin-bottom:12px;">
+          <button class="btn btn-outline btn-full" onclick="exportStockTxCSV()">ส่งออกประวัติสต็อกทั้งหมด CSV</button>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-outline btn-full" onclick="openCleanupTool()">🧹 จัดระเบียบชื่อสินค้า (แยกหมวดหมู่/แบรนด์/รหัส/รุ่นออกจากชื่อยาวๆ)</button>
+        </div>
+      </div>
+
+      <input type="text" id="productFilter" placeholder="ค้นหาสินค้า..." style="margin-top:14px;margin-bottom:0;" oninput="renderProductList()">
     </div>
     <div id="productList"></div>
   </section>
@@ -566,41 +574,47 @@
     </div>
 
     <div class="card">
-      <h3>ความเคลื่อนไหวสต็อก</h3>
-      <div class="muted" style="font-size:12px;margin-bottom:8px;">ใช้ช่วงเวลาเดียวกับ "สรุปตามช่วงเวลา" ด้านบน</div>
-      <div id="stockMovementReport"></div>
-    </div>
-
-    <div class="card">
-      <h3>สำรอง/กู้คืนข้อมูล</h3>
-      <div class="muted" style="margin-bottom:12px;">ข้อมูลทั้งหมดอยู่ในเครื่องนี้เท่านั้น ควรสำรองเป็นไฟล์เก็บไว้เป็นระยะ (เช่น ส่งไฟล์ให้ตัวเองทาง LINE เก็บไว้)</div>
-      <div class="btn-row">
-        <button class="btn btn-outline" onclick="exportBackupJSON()">สำรองข้อมูล (JSON)</button>
-        <button class="btn btn-outline" onclick="document.getElementById('restoreFile').click()">กู้คืนข้อมูล</button>
+      <div class="collapse-header" data-collapse-toggle="collapseStockMovement" onclick="toggleCollapse('collapseStockMovement')">
+        <h3>ความเคลื่อนไหวสต็อก</h3>
+        <span class="collapse-arrow">▾</span>
       </div>
-      <input type="file" id="restoreFile" accept="application/json" style="display:none;" onchange="importBackupJSON(event)">
-    </div>
-
-    <div class="card">
-      <h3>ซิงก์ข้อมูลขึ้นคลาวด์ (Supabase)</h3>
-      <div id="syncSettingsCard"></div>
-    </div>
-
-    <div class="card">
-      <h3>ความปลอดภัย</h3>
-      <div class="muted" style="margin-bottom:12px;">ตั้งรหัส PIN กันคนอื่นเปิดดูข้อมูลร้านถ้ามือถือเครื่องนี้ถูกส่งต่อให้คนอื่นใช้ชั่วคราว (ไม่บังคับ)</div>
-      <div class="field">
-        <label>ตั้ง/เปลี่ยนรหัส PIN (4-6 หลัก)</label>
-        <input type="password" inputmode="numeric" pattern="[0-9]*" id="pinSetting" placeholder="เว้นว่าง = ไม่ล็อก" maxlength="6">
-      </div>
-      <div class="btn-row">
-        <button class="btn btn-danger" onclick="clearAppPin()">ปิดการล็อก</button>
-        <button class="btn btn-primary" onclick="saveAppPin()">บันทึก PIN</button>
+      <div id="collapseStockMovement" class="collapse-body" style="display:none;">
+        <div class="muted" style="font-size:12px;margin-bottom:8px;">ใช้ช่วงเวลาเดียวกับ "สรุปตามช่วงเวลา" ด้านบน</div>
+        <div id="stockMovementReport"></div>
       </div>
     </div>
 
     <div class="card">
-      <button class="btn btn-danger btn-full" onclick="wipeAllData()">ล้างข้อมูลทั้งหมด</button>
+      <div class="collapse-header" data-collapse-toggle="collapseDashSettings" onclick="toggleCollapse('collapseDashSettings')">
+        <h3>ตั้งค่าเพิ่มเติม (สำรอง/ซิงก์/ความปลอดภัย)</h3>
+        <span class="collapse-arrow">▾</span>
+      </div>
+      <div id="collapseDashSettings" class="collapse-body" style="display:none;">
+
+        <h3 style="margin-top:0;">สำรอง/กู้คืนข้อมูล</h3>
+        <div class="muted" style="margin-bottom:12px;">ข้อมูลทั้งหมดอยู่ในเครื่องนี้เท่านั้น ควรสำรองเป็นไฟล์เก็บไว้เป็นระยะ (เช่น ส่งไฟล์ให้ตัวเองทาง LINE เก็บไว้)</div>
+        <div class="btn-row" style="margin-bottom:16px;">
+          <button class="btn btn-outline" onclick="exportBackupJSON()">สำรองข้อมูล (JSON)</button>
+          <button class="btn btn-outline" onclick="document.getElementById('restoreFile').click()">กู้คืนข้อมูล</button>
+        </div>
+        <input type="file" id="restoreFile" accept="application/json" style="display:none;" onchange="importBackupJSON(event)">
+
+        <h3>ซิงก์ข้อมูลขึ้นคลาวด์ (Supabase)</h3>
+        <div id="syncSettingsCard" style="margin-bottom:16px;"></div>
+
+        <h3>ความปลอดภัย</h3>
+        <div class="muted" style="margin-bottom:12px;">ตั้งรหัส PIN กันคนอื่นเปิดดูข้อมูลร้านถ้ามือถือเครื่องนี้ถูกส่งต่อให้คนอื่นใช้ชั่วคราว (ไม่บังคับ)</div>
+        <div class="field">
+          <label>ตั้ง/เปลี่ยนรหัส PIN (4-6 หลัก)</label>
+          <input type="password" inputmode="numeric" pattern="[0-9]*" id="pinSetting" placeholder="เว้นว่าง = ไม่ล็อก" maxlength="6">
+        </div>
+        <div class="btn-row" style="margin-bottom:16px;">
+          <button class="btn btn-danger" onclick="clearAppPin()">ปิดการล็อก</button>
+          <button class="btn btn-primary" onclick="saveAppPin()">บันทึก PIN</button>
+        </div>
+
+        <button class="btn btn-danger btn-full" onclick="wipeAllData()">ล้างข้อมูลทั้งหมด</button>
+      </div>
     </div>
   </section>
 
@@ -3695,9 +3709,12 @@ function renderDashboard(){
   const totalOrders = sales.length;
   const itemCount = sales.reduce((sum,s)=>sum + s.items.reduce((a,i)=>a+i.qty,0), 0);
 
+  // ตัด "เบอร์..." ท้ายชื่อออกก่อนรวมยอด ไม่งั้นสินค้าเดียวกันแต่ต่างเบอร์ (เช่นขาย 3 คู่ คนละเบอร์) จะถูกนับแยกเป็นคนละแถว
+  // ทำให้ยอดขายจริงดูน้อยกว่าความจริงในรายงาน "สินค้าขายดี" (ตัวเลขสรุปรวมด้านบนถูกต้องอยู่แล้ว ไม่กระทบ)
   const productTotals = {};
   sales.forEach(s=>s.items.forEach(i=>{
-    productTotals[i.name] = (productTotals[i.name]||0) + i.qty;
+    const groupName = i.name.replace(/\s*เบอร์\s*\S+(?:\s*[-–]\s*\S+)?\s*$/, '').trim() || i.name;
+    productTotals[groupName] = (productTotals[groupName]||0) + i.qty;
   }));
   const topProducts = Object.entries(productTotals).sort((a,b)=>b[1]-a[1]).slice(0,5);
 
@@ -3770,9 +3787,6 @@ function renderStockMovementReport(range){
 
   el.innerHTML = `
     ${Object.keys(TX_TYPES).map(t => `<div class="cart-item"><div><span class="tx-type-badge tx-type-${t}">${TX_TYPES[t].label}</span></div><span class="num">${typeTotals[t]} ${BASE_UNIT}</span></div>`).join('')}
-    <div style="margin-top:10px;"><div class="muted" style="margin-bottom:6px;">รายการทั้งหมด</div>
-      <div class="cart-item"><div>จำนวนรายการที่บันทึก</div><strong class="num">${txs.length}</strong></div>
-    </div>
     ${topMoved.length ? `<div style="margin-top:10px;"><div class="muted" style="margin-bottom:6px;">สินค้าที่เคลื่อนไหวมากสุด</div>` +
       topMoved.map(m=>`<div class="cart-item"><div>${m.name}${m.color?' สี'+m.color:''}${m.size?' เบอร์'+m.size:''} (${m.count} รายการ)</div><span class="num" style="color:${m.net<0?'var(--danger)':'var(--success)'};">${m.net>0?'+':''}${m.net} ${BASE_UNIT}</span></div>`).join('') + `</div>` : ''}
   `;
