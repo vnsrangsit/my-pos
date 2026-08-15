@@ -1084,7 +1084,12 @@ async function runSyncOp(op){
   // ก่อนจะล็อกอิน Supabase สำเร็จ (เช่น ตอนเปิดแอปครั้งแรกมีการสร้างพนักงานเริ่มต้นอัตโนมัติ) ถ้าใช้ owner_id
   // ที่บันทึกไว้ตอน enqueue จะได้ค่า null ติดไปตลอด ทั้งที่ตอนส่งจริงมี currentOwnerId ที่ถูกต้องแล้ว
   if(op.action === 'upsert'){
-    const { error } = await supabaseClient.from(op.table).upsert({ ...op.row, owner_id: currentOwnerId });
+    // ตาราง staff มี unique constraint ที่ (owner_id, name) ไม่ใช่แค่ id — ถ้าอุปกรณ์/เบราว์เซอร์ใหม่สร้างชื่อพนักงาน
+    // เริ่มต้น "เจ้าของร้าน" ขึ้นมาเอง (ก่อนจะทันดึงข้อมูลจากคลาวด์) จะได้ id ใหม่ที่ไม่ตรงกับแถวเดิมที่มีชื่อนี้อยู่แล้ว
+    // ถ้า upsert อิง id เฉยๆ จะชนกับ unique(owner_id,name) เกิด 409 ค้างคิวทุกอย่างที่ตามมาไปตลอดกาล
+    // จึงต้องอิง (owner_id, name) เป็นตัวจับคู่แทน เพื่อ "อัปเดตทับ" แถวเดิมแทนที่จะพยายามสร้างแถวใหม่ซ้ำชื่อ
+    const upsertOpts = op.table === 'staff' ? { onConflict: 'owner_id,name' } : undefined;
+    const { error } = await supabaseClient.from(op.table).upsert({ ...op.row, owner_id: currentOwnerId }, upsertOpts);
     if(error) throw error;
   } else if(op.action === 'delete'){
     const { error } = await supabaseClient.from(op.table).delete().eq('id', op.id);
@@ -1100,19 +1105,39 @@ async function runSyncOp(op){
   }
 }
 // ส่งงานในคิวทีละอย่างตามลำดับเดิม (กันข้อมูลสลับลำดับ) หยุดทันทีที่เจอปัญหา แล้วลองใหม่รอบหน้า (ไม่ทิ้งงานที่เหลือ)
+// นับจำนวนครั้งที่แต่ละงาน (เทียบด้วยเนื้อหางานเอง) ล้มเหลวติดต่อกัน กันปัญหา "งานเดียวพังแล้วบล็อกคิวทั้งหมดไปตลอดกาล"
+// (เช่นบั๊ก unique constraint ชนกันที่เจอมาก่อนหน้านี้ — ลองซ้ำเท่าไหร่ก็ error เดิม ค้างรายการหลังจากนี้ไม่ให้ส่งเลย)
+const SYNC_FAIL_COUNT_KEY = 'pos_sync_fail_counts';
+function loadSyncFailCounts(){ try{ return JSON.parse(localStorage.getItem(SYNC_FAIL_COUNT_KEY) || '{}'); }catch(e){ return {}; } }
+function saveSyncFailCounts(m){ localStorage.setItem(SYNC_FAIL_COUNT_KEY, JSON.stringify(m)); }
+const SYNC_MAX_RETRY_BEFORE_SKIP = 3;
+
 async function flushSyncQueue(){
   if(!supabaseClient || !currentOwnerId){ syncStatus = 'not-logged-in'; updateSyncIndicator(); return; }
   if(syncFlushing) return;
   syncFlushing = true;
   syncStatus = 'syncing'; updateSyncIndicator();
   let q = loadSyncQueue();
+  const failCounts = loadSyncFailCounts();
   while(q.length){
+    const sig = JSON.stringify(q[0]);
     try{
       await runSyncOp(q[0]);
       q.shift();
       saveSyncQueue(q);
+      if(failCounts[sig]){ delete failCounts[sig]; saveSyncFailCounts(failCounts); }
     }catch(e){
-      console.error('ซิงก์ล้มเหลว จะลองใหม่รอบหน้า:', q[0], e);
+      console.error('ซิงก์ล้มเหลว:', q[0], e);
+      failCounts[sig] = (failCounts[sig]||0) + 1;
+      saveSyncFailCounts(failCounts);
+      if(failCounts[sig] >= SYNC_MAX_RETRY_BEFORE_SKIP){
+        // ลองซ้ำครบ 3 ครั้งแล้วยัง error เดิมทุกครั้ง แปลว่าไม่ใช่ปัญหาเน็ตชั่วคราวแน่ๆ ข้ามรายการนี้ไปเลย
+        // เพื่อไม่ให้รายการอื่นที่ถูกต้องซึ่งเข้าคิวตามมาทีหลัง (เช่น บิลขาย) ค้างรอไปด้วยตลอดกาล
+        console.warn('ข้ามรายการนี้ถาวร (ลองซ้ำครบแล้วยังล้มเหลว):', q[0]);
+        delete failCounts[sig]; saveSyncFailCounts(failCounts);
+        q.shift(); saveSyncQueue(q);
+        continue;
+      }
       syncStatus = 'error'; updateSyncIndicator();
       syncFlushing = false;
       return;
