@@ -861,6 +861,31 @@
   </div>
 </div>
 
+<!-- ป้าย login เด้งเตือนทันทีที่เปิดเว็บถ้ายังไม่เชื่อมต่อ Supabase (หาไม่เจอตอนซ่อนอยู่ในดรอปดาวน์) -->
+<!-- คลิกนอกกล่องหรือกด "ข้ามไปก่อน" = ใช้แอปแบบยังไม่ซิงก์ต่อได้เลย ไม่บังคับ (แอปทำงานได้แม้ไม่ login) -->
+<div id="login-gate-overlay" class="sheet-overlay" onclick="if(event.target===this)skipLoginGate();">
+  <div class="sheet" style="max-width:420px;">
+    <div class="sheet-handle"></div>
+    <div class="sheet-header">
+      <h3>เชื่อมต่อ Supabase</h3>
+      <button type="button" class="sheet-close" onclick="skipLoginGate()">✕</button>
+    </div>
+    <div class="sheet-body">
+      <div class="muted" style="margin-bottom:12px;">ล็อกอินเพื่อสำรอง/ซิงก์ข้อมูลขึ้นคลาวด์ — ไม่ login ก็ใช้แอปได้ตามปกติ แค่ยังไม่ซิงก์เท่านั้น</div>
+      <div class="field"><label>อีเมล</label><input type="email" id="gateEmail" placeholder="you@example.com"></div>
+      <div class="field"><label>รหัสผ่าน</label><input type="password" id="gatePassword"></div>
+      <div class="field" style="display:flex;align-items:center;gap:8px;">
+        <input type="checkbox" id="gateRemember" checked style="width:auto;">
+        <label for="gateRemember" style="margin:0;">จำรหัสผ่านไว้ในเครื่องนี้ (ครั้งต่อไปไม่ต้องกรอกซ้ำ)</label>
+      </div>
+    </div>
+    <div class="sheet-footer" style="display:flex;flex-direction:column;gap:8px;">
+      <button type="button" class="btn btn-primary btn-full" onclick="handleLoginGateForm()">เชื่อมต่อ Supabase</button>
+      <button type="button" class="btn btn-outline btn-full" onclick="skipLoginGate()">ข้ามไปก่อน (ใช้แบบยังไม่ซิงก์)</button>
+    </div>
+  </div>
+</div>
+
 <!-- จัดระเบียบชื่อสินค้า: แยกชื่อยาวๆ ที่อัดหมวดหมู่/แบรนด์/รหัส/รุ่นไว้ในช่องเดียว ออกเป็นฟิลด์ที่ถูกต้อง -->
 <div id="cleanup-sheet-overlay" class="sheet-overlay" onclick="if(event.target===this)closeCleanupTool();">
   <div class="sheet" style="max-width:640px;">
@@ -887,7 +912,8 @@
 <script>
 /* ============ DATA LAYER (localStorage) ============ */
 const DB_KEYS = { products: 'pos_products', sales: 'pos_sales', staff: 'pos_staff', lastSeller: 'pos_last_seller', lastPayment: 'pos_last_payment', lastChannel: 'pos_last_channel', pin: 'pos_pin',
-  aliases: 'pos_product_aliases', stockTx: 'pos_stock_transactions', dataVersion: 'pos_data_version', lowStockThreshold: 'pos_low_stock_threshold' };
+  aliases: 'pos_product_aliases', stockTx: 'pos_stock_transactions', dataVersion: 'pos_data_version', lowStockThreshold: 'pos_low_stock_threshold',
+  savedSyncEmail: 'pos_saved_sync_email', savedSyncPassword: 'pos_saved_sync_pw' };
 
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 
@@ -1213,6 +1239,21 @@ async function forcePushAllToSupabase(){
   toast(skippedCount === 0 ? `ส่งข้อมูลทั้งหมดขึ้นคลาวด์สำเร็จ (${ops.length} รายการ)` : `ส่งสำเร็จบางส่วน ยังมี ${skippedCount} รายการที่ผิดพลาดซ้ำๆ ลองดู Console เพื่อดูรายละเอียด`);
 }
 
+function getSavedSyncCredentials(){
+  const email = localStorage.getItem(DB_KEYS.savedSyncEmail);
+  const password = localStorage.getItem(DB_KEYS.savedSyncPassword);
+  if(email && password) return { email, password };
+  return null;
+}
+function saveSyncCredentials(email, password){
+  // เก็บไว้เฉพาะในเครื่องนี้เท่านั้น (localStorage) ไม่ส่งไปที่ไหนอื่นนอกจากใช้ล็อกอินเข้า Supabase เอง
+  localStorage.setItem(DB_KEYS.savedSyncEmail, email);
+  localStorage.setItem(DB_KEYS.savedSyncPassword, password);
+}
+function clearSavedSyncCredentials(){
+  localStorage.removeItem(DB_KEYS.savedSyncEmail);
+  localStorage.removeItem(DB_KEYS.savedSyncPassword);
+}
 async function initSupabaseSession(){
   if(!supabaseClient) return;
   const { data } = await supabaseClient.auth.getSession();
@@ -1228,21 +1269,34 @@ async function initSupabaseSession(){
       await pullFromSupabaseAndRefresh();
     }
     flushSyncQueue();
+  } else {
+    // ไม่มี session ค้างอยู่เลย (เช่น เครื่อง/เบราว์เซอร์นี้เพิ่งเปิดครั้งแรก หรือ session หมดอายุ)
+    // แต่ถ้าเคย login แล้วเลือก "จำรหัสผ่านไว้ในเครื่อง" ไว้ก่อนหน้านี้ ให้ล็อกอินอัตโนมัติแทนการให้กรอกซ้ำ
+    const saved = getSavedSyncCredentials();
+    if(saved){
+      await signInSupabase(saved.email, saved.password, { silent: true });
+    }
   }
 }
-async function signInSupabase(email, password){
+async function signInSupabase(email, password, opts){
+  opts = opts || {};
   if(!supabaseClient) { toast('โหลด Supabase ไม่สำเร็จ ตรวจสอบอินเทอร์เน็ต'); return; }
   const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
-  if(error){ toast('ล็อกอินไม่สำเร็จ: ' + error.message); return; }
+  if(error){
+    if(!opts.silent) toast('ล็อกอินไม่สำเร็จ: ' + error.message);
+    else { clearSavedSyncCredentials(); renderSyncSettingsCard(); } // รหัสที่จำไว้ใช้ไม่ได้แล้ว (เช่นเปลี่ยนรหัสผ่าน) เลิกจำแล้วให้กรอกใหม่
+    return;
+  }
   currentOwnerId = data.user.id;
   syncStatus = 'idle';
   updateSyncIndicator();
-  toast('เชื่อมต่อ Supabase สำเร็จ กำลังดึงข้อมูล...');
+  renderSyncSettingsCard();
+  if(!opts.silent) toast('เชื่อมต่อ Supabase สำเร็จ กำลังดึงข้อมูล...');
   // อุปกรณ์นี้ยังไม่เคยมีข้อมูล (localStorage ว่าง) -> ดึงข้อมูลของร้านจากคลาวด์ลงมาแสดงทันที
   // (ถ้าเครื่องนี้มีข้อมูลอยู่แล้ว เช่น เครื่อง Mac หลักที่เคย push ขึ้นไปก่อนหน้านี้ จะไม่ทับ ให้ใช้ปุ่ม "ดึงข้อมูลล่าสุด" เองถ้าต้องการ)
   if(loadProducts().length === 0 && loadSales().length === 0){
     const ok = await pullFromSupabaseAndRefresh();
-    toast(ok ? 'ดึงข้อมูลจากคลาวด์เรียบร้อย' : 'เชื่อมต่อสำเร็จ แต่ดึงข้อมูลไม่สำเร็จ ลองกด "ดึงข้อมูลล่าสุด" อีกครั้ง');
+    if(!opts.silent) toast(ok ? 'ดึงข้อมูลจากคลาวด์เรียบร้อย' : 'เชื่อมต่อสำเร็จ แต่ดึงข้อมูลไม่สำเร็จ ลองกด "ดึงข้อมูลล่าสุด" อีกครั้ง');
   }
   flushSyncQueue();
 }
@@ -1256,14 +1310,45 @@ async function signOutSupabase(){
   if(supabaseClient) await supabaseClient.auth.signOut();
   currentOwnerId = null;
   syncStatus = 'not-logged-in';
+  clearSavedSyncCredentials(); // ออกจากระบบแบบตั้งใจ = เลิกจำรหัสผ่านในเครื่องนี้ด้วย จะได้ไม่ auto login กลับเข้ามาเอง
   updateSyncIndicator();
+  renderSyncSettingsCard();
   toast('ออกจากระบบซิงก์ Supabase แล้ว (ข้อมูลในเครื่องยังอยู่ครบ)');
 }
 function handleSyncLoginForm(){
   const email = (document.getElementById('syncEmail')||{}).value || '';
   const password = (document.getElementById('syncPassword')||{}).value || '';
   if(!email || !password){ toast('กรอกอีเมล/รหัสผ่านให้ครบ'); return; }
+  const remember = (document.getElementById('syncRememberDevice')||{}).checked;
+  if(remember) saveSyncCredentials(email.trim(), password); else clearSavedSyncCredentials();
   signInSupabase(email.trim(), password);
+}
+
+/* ============ LOGIN GATE (เด้งเตือนให้ login ทันทีที่เปิดเว็บ ถ้ายังไม่เชื่อมต่อ) ============ */
+function maybeShowLoginGate(){
+  if(!currentOwnerId) openLoginGate();
+}
+function openLoginGate(){
+  const el = document.getElementById('login-gate-overlay');
+  if(!el) return;
+  el.classList.add('open');
+}
+function closeLoginGate(){
+  const el = document.getElementById('login-gate-overlay');
+  if(el) el.classList.remove('open');
+}
+function skipLoginGate(){
+  closeLoginGate();
+}
+function handleLoginGateForm(){
+  const email = (document.getElementById('gateEmail')||{}).value || '';
+  const password = (document.getElementById('gatePassword')||{}).value || '';
+  if(!email || !password){ toast('กรอกอีเมล/รหัสผ่านให้ครบ'); return; }
+  const remember = (document.getElementById('gateRemember')||{}).checked;
+  if(remember) saveSyncCredentials(email.trim(), password); else clearSavedSyncCredentials();
+  signInSupabase(email.trim(), password).then(() => {
+    if(currentOwnerId) closeLoginGate();
+  });
 }
 function renderSyncSettingsCard(){
   const el = document.getElementById('syncSettingsCard');
@@ -1282,6 +1367,10 @@ function renderSyncSettingsCard(){
       <div class="muted" style="margin-bottom:12px;">ยังไม่เชื่อมต่อ — แอปยังใช้งานได้ปกติทุกอย่าง แค่ยังไม่สำรองขึ้นคลาวด์ ล็อกอินด้วยบัญชีเจ้าของร้านที่ตั้งไว้ใน Supabase</div>
       <div class="field"><label>อีเมล</label><input type="email" id="syncEmail" placeholder="you@example.com"></div>
       <div class="field"><label>รหัสผ่าน</label><input type="password" id="syncPassword"></div>
+      <div class="field" style="display:flex;align-items:center;gap:8px;">
+        <input type="checkbox" id="syncRememberDevice" checked style="width:auto;">
+        <label for="syncRememberDevice" style="margin:0;">จำรหัสผ่านไว้ในเครื่องนี้ (ครั้งต่อไปไม่ต้องกรอกซ้ำ)</label>
+      </div>
       <button class="btn btn-primary btn-full" onclick="handleSyncLoginForm()">เชื่อมต่อ Supabase</button>`;
   }
 }
@@ -4459,7 +4548,7 @@ initSellerPaymentUI();
 renderCart();
 renderDashboard();
 renderOutOfStockBanner();
-initSupabaseSession();
+initSupabaseSession().then(maybeShowLoginGate);
 setInterval(flushSyncQueue, 20000); // ลองส่งงานที่ค้างในคิวซ้ำทุก 20 วิ เผื่อเน็ตหลุดแล้วกลับมา
 window.addEventListener('online', flushSyncQueue);
 </script>
