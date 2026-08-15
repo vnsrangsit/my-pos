@@ -347,24 +347,24 @@
         <div class="btn-row">
           <div class="field" style="flex:1;">
             <label>หมวดหมู่ (ไม่บังคับ)</label>
-            <input type="text" id="pCategory" placeholder="เช่น รองเท้านักเรียนเด็ก">
+            <input type="text" id="pCategory" placeholder="เช่น รองเท้านักเรียนเด็ก" oninput="autoFillProductName()">
           </div>
           <div class="field" style="flex:1;">
             <label>ยี่ห้อ (ไม่บังคับ)</label>
-            <input type="text" id="pBrand" placeholder="เช่น Chappy">
+            <input type="text" id="pBrand" placeholder="เช่น Chappy" oninput="autoFillProductName()">
           </div>
         </div>
         <div class="field">
           <label>รหัส (ไม่บังคับ)</label>
-          <input type="text" id="pCode" placeholder="เช่น PC-2218">
+          <input type="text" id="pCode" placeholder="เช่น PC-2218" oninput="autoFillProductName()">
         </div>
         <div class="field">
-          <label>ชื่อสินค้า</label>
+          <label>ชื่อสินค้า (เติมให้อัตโนมัติจากหมวดหมู่+ยี่ห้อ+รหัส+รุ่น แก้เองได้)</label>
           <input type="text" id="pName" placeholder="เช่น นันยาง">
         </div>
         <div class="field">
           <label>รุ่น (ไม่บังคับ)</label>
-          <input type="text" id="pModel" placeholder="เช่น Cinderella">
+          <input type="text" id="pModel" placeholder="เช่น Cinderella" oninput="autoFillProductName()">
         </div>
         <div class="btn-row">
           <div class="field" style="flex:1;">
@@ -718,12 +718,12 @@
     <h3>เพิ่มหลายสี/เบอร์พร้อมกัน (SKU)</h3>
     <div class="confirm-sub">เพิ่มสีได้ทีละสี ส่วนเบอร์พิมพ์เป็นช่วงได้ (เช่น 28-48) แล้วตั้งราคาแยกตามเบอร์ทีหลังได้</div>
     <div class="btn-row">
-      <div class="field" style="flex:1;"><label>หมวดหมู่ (ไม่บังคับ)</label><input type="text" id="bkCategory" placeholder="เช่น รองเท้านักเรียนเด็ก"></div>
-      <div class="field" style="flex:1;"><label>ยี่ห้อ (ไม่บังคับ)</label><input type="text" id="bkBrand" placeholder="เช่น ADDA"></div>
+      <div class="field" style="flex:1;"><label>หมวดหมู่ (ไม่บังคับ)</label><input type="text" id="bkCategory" placeholder="เช่น รองเท้านักเรียนเด็ก" oninput="autoFillBulkName(); updateBulkPreview();"></div>
+      <div class="field" style="flex:1;"><label>ยี่ห้อ (ไม่บังคับ)</label><input type="text" id="bkBrand" placeholder="เช่น ADDA" oninput="autoFillBulkName(); updateBulkPreview();"></div>
     </div>
-    <div class="field"><label>รหัส (ไม่บังคับ)</label><input type="text" id="bkCode" placeholder="เช่น PC-2218"></div>
-    <div class="field"><label>ชื่อสินค้า</label><input type="text" id="bkName" placeholder="เช่น นันยาง" oninput="updateBulkPreview()"></div>
-    <div class="field"><label>รุ่น (ไม่บังคับ)</label><input type="text" id="bkModel" placeholder="เช่น รุ่น A" oninput="updateBulkPreview()"></div>
+    <div class="field"><label>รหัส (ไม่บังคับ)</label><input type="text" id="bkCode" placeholder="เช่น PC-2218" oninput="autoFillBulkName(); updateBulkPreview();"></div>
+    <div class="field"><label>ชื่อสินค้า (เติมให้อัตโนมัติจากหมวดหมู่+ยี่ห้อ+รหัส+รุ่น แก้เองได้)</label><input type="text" id="bkName" placeholder="เช่น นันยาง" oninput="updateBulkPreview()"></div>
+    <div class="field"><label>รุ่น (ไม่บังคับ)</label><input type="text" id="bkModel" placeholder="เช่น รุ่น A" oninput="autoFillBulkName(); updateBulkPreview();"></div>
     <div class="field">
       <label>สี (ไม่บังคับ)</label>
       <div id="bkColorList"></div>
@@ -2363,6 +2363,28 @@ function resetProductForm(){
   document.getElementById('pCost').value = '';
   document.getElementById('pPrice').value = '';
   document.getElementById('pStock').value = '';
+  pNameLastAuto = '';
+}
+// รวมหมวดหมู่+ยี่ห้อ+รหัส+รุ่น เป็นชื่อสินค้าให้อัตโนมัติ ตามรูปแบบร้าน [หมวดหมู่] [ยี่ห้อ] [รหัส] [รุ่น]
+// (ใช้ตัวเดียวกับที่แยกชื่อตอนนำเข้า Excel/จัดระเบียบชื่อ กลับด้านกัน)
+function composeAutoProductName(category, brand, code, model){
+  return [category, brand, code, model].map(s => (s||'').trim()).filter(Boolean).join(' ');
+}
+// เก็บค่าชื่อล่าสุดที่ระบบเติมให้อัตโนมัติ ไว้เทียบว่าผู้ใช้พิมพ์ชื่อเองทับหรือยัง
+// (' manual' = สถานะพิเศษที่ไม่มีทางตรงกับชื่อจริง ใช้บอกว่า "ผู้ใช้แก้เองแล้ว หยุดเติมอัตโนมัติ")
+let pNameLastAuto = '';
+function autoFillProductName(){
+  const category = document.getElementById('pCategory').value;
+  const brand = document.getElementById('pBrand').value;
+  const code = document.getElementById('pCode').value;
+  const model = document.getElementById('pModel').value;
+  const nameEl = document.getElementById('pName');
+  const composed = composeAutoProductName(category, brand, code, model);
+  // เติมให้เฉพาะตอนช่องชื่อว่างอยู่ หรือยังตรงกับที่ระบบเคยเติมให้ครั้งก่อน (แปลว่าผู้ใช้ยังไม่ได้แก้ชื่อเอง)
+  if(nameEl.value.trim() === '' || nameEl.value === pNameLastAuto){
+    nameEl.value = composed;
+    pNameLastAuto = composed;
+  }
 }
 
 /* ============ จัดระเบียบชื่อสินค้า (แยกชื่อยาวๆ ที่อัดหมวดหมู่/แบรนด์/รหัส/รุ่นไว้ช่องเดียว ออกเป็นฟิลด์ที่ถูกต้อง) ============
@@ -2510,6 +2532,10 @@ function editProduct(id){
   document.getElementById('pCost').value = p.costPrice || '';
   document.getElementById('pPrice').value = p.price;
   document.getElementById('pStock').value = (p.stock===null || p.stock===undefined) ? '' : p.stock;
+  // ถ้าชื่อเดิมตรงกับที่ระบบจะเติมให้อัตโนมัติพอดี (สินค้านี้เคยสร้างแบบเติมชื่ออัตโนมัติ) ให้ auto-fill ทำงานต่อได้เลยตอนแก้หมวดหมู่/ยี่ห้อ/รหัส
+  // แต่ถ้าชื่อถูกแก้เป็นอย่างอื่นเองมาก่อน (เช่น พิมพ์ชื่อเต็มจากไฟล์ Excel) จะไม่เขียนทับชื่อที่ตั้งเองไว้
+  const autoGuess = composeAutoProductName(p.category, p.brand, p.code, p.model);
+  pNameLastAuto = (autoGuess === (p.name || '').trim()) ? autoGuess : ' manual';
   switchTab('tab-sell');
   expandCollapse('collapseAddProduct');
   setTimeout(()=>{
@@ -3074,7 +3100,22 @@ function openBulkAdd(){
   document.getElementById('bkSizeTable').innerHTML = '';
   document.getElementById('bkPreview').textContent = '';
   resetColorRows();
+  bkNameLastAuto = '';
   document.getElementById('bulk-modal').classList.add('open');
+}
+// เติมช่อง "ชื่อสินค้า" ในโมดัลเพิ่มหลายสี/เบอร์ อัตโนมัติจากหมวดหมู่+ยี่ห้อ+รหัส+รุ่น (เหมือนฟอร์มเพิ่ม/แก้ไขสินค้า)
+let bkNameLastAuto = '';
+function autoFillBulkName(){
+  const category = document.getElementById('bkCategory').value;
+  const brand = document.getElementById('bkBrand').value;
+  const code = document.getElementById('bkCode').value;
+  const model = document.getElementById('bkModel').value;
+  const nameEl = document.getElementById('bkName');
+  const composed = composeAutoProductName(category, brand, code, model);
+  if(nameEl.value.trim() === '' || nameEl.value === bkNameLastAuto){
+    nameEl.value = composed;
+    bkNameLastAuto = composed;
+  }
 }
 // เปิด modal เพิ่ม SKU พร้อมเติมชื่อ/รุ่น/สี/ราคาจากสินค้าที่เคยขายแล้ว (ใช้จากหน้ารายการขาย)
 function openBulkAddFromProduct(productId){
@@ -3086,6 +3127,10 @@ function openBulkAddFromProduct(productId){
   document.getElementById('bkCode').value = p.code || '';
   document.getElementById('bkName').value = p.name || '';
   document.getElementById('bkModel').value = p.model || '';
+  {
+    const autoGuess = composeAutoProductName(p.category, p.brand, p.code, p.model);
+    bkNameLastAuto = (autoGuess === (p.name || '').trim()) ? autoGuess : ' manual';
+  }
   document.getElementById('bkCost').value = p.costPrice || '';
   document.getElementById('bkPrice').value = p.price || '';
   if(p.color){
