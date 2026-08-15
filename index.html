@@ -908,6 +908,9 @@ const supabaseClient = (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY)
 let currentOwnerId = null; // ตั้งค่าตอนล็อกอิน Supabase สำเร็จ (auth.uid()) ใช้เป็น owner_id ของทุกแถวที่ส่งขึ้น
 let syncStatus = 'not-logged-in'; // not-logged-in | idle | syncing | error
 let syncFlushing = false;
+// ถ้ามีคำขอ flush เข้ามาซ้อนระหว่างที่กำลัง flush อยู่แล้ว (เช่น 1 บิลขายกระตุ้น diffAndEnqueue หลายตารางติดกัน
+// products/sales/stock_transactions) ต้องไม่ทิ้งคำขอนั้นไปเฉยๆ ไม่งั้นรายการที่เพิ่งเข้าคิวอาจไม่ถูกส่งจนกว่าจะครบรอบ 20 วิ
+let syncFlushAgainRequested = false;
 
 function loadSyncQueue(){ try{ return JSON.parse(localStorage.getItem(SYNC_QUEUE_KEY) || '[]'); }catch(e){ return []; } }
 function saveSyncQueue(q){ localStorage.setItem(SYNC_QUEUE_KEY, JSON.stringify(q)); }
@@ -1108,43 +1111,106 @@ async function runSyncOp(op){
 // นับจำนวนครั้งที่แต่ละงาน (เทียบด้วยเนื้อหางานเอง) ล้มเหลวติดต่อกัน กันปัญหา "งานเดียวพังแล้วบล็อกคิวทั้งหมดไปตลอดกาล"
 // (เช่นบั๊ก unique constraint ชนกันที่เจอมาก่อนหน้านี้ — ลองซ้ำเท่าไหร่ก็ error เดิม ค้างรายการหลังจากนี้ไม่ให้ส่งเลย)
 const SYNC_FAIL_COUNT_KEY = 'pos_sync_fail_counts';
+const SYNC_SKIPPED_KEY = 'pos_sync_skipped'; // งานที่ลองซ้ำครบแล้วยังล้มเหลว "ย้ายมาเก็บไว้ที่นี่" แทนการทิ้งเงียบๆ กันข้อมูลหาย
 function loadSyncFailCounts(){ try{ return JSON.parse(localStorage.getItem(SYNC_FAIL_COUNT_KEY) || '{}'); }catch(e){ return {}; } }
 function saveSyncFailCounts(m){ localStorage.setItem(SYNC_FAIL_COUNT_KEY, JSON.stringify(m)); }
+function loadSyncSkipped(){ try{ return JSON.parse(localStorage.getItem(SYNC_SKIPPED_KEY) || '[]'); }catch(e){ return []; } }
+function saveSyncSkipped(list){ localStorage.setItem(SYNC_SKIPPED_KEY, JSON.stringify(list)); }
 const SYNC_MAX_RETRY_BEFORE_SKIP = 3;
 
 async function flushSyncQueue(){
   if(!supabaseClient || !currentOwnerId){ syncStatus = 'not-logged-in'; updateSyncIndicator(); return; }
-  if(syncFlushing) return;
+  if(syncFlushing){
+    // มี flush กำลังทำงานอยู่แล้ว — อย่าทิ้งคำขอนี้ไปเฉยๆ (เช่น 1 บิลขายเรียก diffAndEnqueue ติดกันหลายตาราง
+    // แต่ละครั้งเรียก flushSyncQueue() ของตัวเอง) ให้ตั้งธงไว้ว่าต้องวนรอบใหม่อีกครั้งหลังรอบปัจจุบันจบ
+    // เพื่อให้แน่ใจว่ารายการที่เพิ่งเข้าคิวมาระหว่างนี้จะถูกหยิบไปส่งด้วย ไม่ใช่รอ 20 วิของรอบถัดไป
+    syncFlushAgainRequested = true;
+    return;
+  }
   syncFlushing = true;
   syncStatus = 'syncing'; updateSyncIndicator();
-  let q = loadSyncQueue();
   const failCounts = loadSyncFailCounts();
-  while(q.length){
-    const sig = JSON.stringify(q[0]);
+  // สำคัญ: อ่านคิวสดใหม่จาก localStorage ทุกครั้งก่อนจะตัดหัวคิว/บันทึกทับ (ไม่ใช้สำเนาที่ค้างไว้ตั้งแต่ต้นฟังก์ชัน)
+  // กันปัญหา "รายการใหม่ที่เพิ่งเข้าคิวระหว่างที่ฟังก์ชันนี้กำลัง await อยู่ ถูกเขียนทับหายไปเงียบๆ"
+  // ซึ่งเป็นสาเหตุจริงที่เจอ: บิลขายหายจากคลาวด์ทั้งที่คิวว่างและไม่มี error ให้เห็นเลย
+  while(true){
+    const q = loadSyncQueue();
+    if(q.length === 0) break;
+    const head = q[0];
+    const sig = JSON.stringify(head);
     try{
-      await runSyncOp(q[0]);
-      q.shift();
-      saveSyncQueue(q);
+      await runSyncOp(head);
+      const q2 = loadSyncQueue();
+      // ตัดออกเฉพาะตัวที่เพิ่งส่งสำเร็จ (ควรยังเป็นตัวหน้าสุดอยู่ เพราะมีแค่ flush เดียวที่ทำงานจริงในเวลาเดียวกัน)
+      if(q2.length && JSON.stringify(q2[0]) === sig) q2.shift();
+      saveSyncQueue(q2);
       if(failCounts[sig]){ delete failCounts[sig]; saveSyncFailCounts(failCounts); }
     }catch(e){
-      console.error('ซิงก์ล้มเหลว:', q[0], e);
+      console.error('ซิงก์ล้มเหลว:', head, e);
       failCounts[sig] = (failCounts[sig]||0) + 1;
       saveSyncFailCounts(failCounts);
       if(failCounts[sig] >= SYNC_MAX_RETRY_BEFORE_SKIP){
-        // ลองซ้ำครบ 3 ครั้งแล้วยัง error เดิมทุกครั้ง แปลว่าไม่ใช่ปัญหาเน็ตชั่วคราวแน่ๆ ข้ามรายการนี้ไปเลย
+        // ลองซ้ำครบ 3 ครั้งแล้วยัง error เดิมทุกครั้ง แปลว่าไม่ใช่ปัญหาเน็ตชั่วคราวแน่ๆ ย้ายออกจากคิวหลัก
         // เพื่อไม่ให้รายการอื่นที่ถูกต้องซึ่งเข้าคิวตามมาทีหลัง (เช่น บิลขาย) ค้างรอไปด้วยตลอดกาล
-        console.warn('ข้ามรายการนี้ถาวร (ลองซ้ำครบแล้วยังล้มเหลว):', q[0]);
+        // แต่ "เก็บไว้" ใน SYNC_SKIPPED_KEY ไม่ทิ้งเงียบๆ เผื่อจริงๆ แล้วเป็นข้อมูลจริงที่ต้องกู้คืน (ไม่ใช่ปัญหาข้อมูลเสีย)
+        console.warn('ย้ายรายการนี้ออกจากคิว (ลองซ้ำครบแล้วยังล้มเหลว) ไปเก็บไว้ที่ pos_sync_skipped:', head);
+        const skipped = loadSyncSkipped();
+        skipped.push({ op: head, lastError: (e && e.message) || String(e), skippedAt: new Date().toISOString() });
+        saveSyncSkipped(skipped);
         delete failCounts[sig]; saveSyncFailCounts(failCounts);
-        q.shift(); saveSyncQueue(q);
+        const q3 = loadSyncQueue();
+        if(q3.length && JSON.stringify(q3[0]) === sig) q3.shift();
+        saveSyncQueue(q3);
         continue;
       }
       syncStatus = 'error'; updateSyncIndicator();
       syncFlushing = false;
+      if(syncFlushAgainRequested){ syncFlushAgainRequested = false; flushSyncQueue(); }
       return;
     }
   }
   syncFlushing = false;
-  syncStatus = 'idle'; updateSyncIndicator();
+  if(syncFlushAgainRequested){
+    // มีคำขอ flush ซ้อนเข้ามาระหว่างรอบนี้ — วนใหม่อีกรอบทันที เผื่อมีรายการที่เพิ่งเข้าคิวมาระหว่างนั้น
+    syncFlushAgainRequested = false;
+    await flushSyncQueue();
+    return;
+  }
+  syncStatus = loadSyncSkipped().length > 0 ? 'error' : 'idle';
+  updateSyncIndicator();
+}
+// ลองส่งรายการที่เคย "ย้ายออกจากคิว" (เพราะพังซ้ำ 3 ครั้ง) อีกครั้ง — ใช้ตอนแก้ต้นเหตุแล้ว (เช่นอัปเดตแอปเป็นเวอร์ชันใหม่)
+async function retrySkippedSync(){
+  const skipped = loadSyncSkipped();
+  if(skipped.length === 0){ toast('ไม่มีรายการที่ค้างอยู่'); return; }
+  saveSyncSkipped([]);
+  const q = loadSyncQueue();
+  q.unshift(...skipped.map(s => s.op)); // เอากลับไปไว้หน้าคิว ให้ลำดับใกล้เคียงของเดิมที่สุด
+  saveSyncQueue(q);
+  toast(`นำ ${skipped.length} รายการกลับเข้าคิว กำลังลองส่งใหม่...`);
+  await flushSyncQueue();
+}
+// ส่งข้อมูล "ทั้งหมด" ที่มีอยู่ในเครื่องนี้ขึ้น Supabase ใหม่อีกครั้งแบบไม่สนใจว่าเคยซิงก์ไปแล้วหรือยัง (ใช้ upsert จึงไม่ทำข้อมูลซ้ำ)
+// ใช้กู้สถานการณ์กรณีบางรายการหลุด/ไม่ได้ขึ้นคลาวด์ไปด้วยสาเหตุใดก็ตาม (เช่นบั๊กคิวค้างที่เจอมาก่อนหน้านี้) โดยไม่ต้องมานั่งหาว่ารายการไหนหาย
+async function forcePushAllToSupabase(){
+  if(!supabaseClient || !currentOwnerId){ toast('ยังไม่ได้เชื่อมต่อ Supabase'); return; }
+  if(!confirm('ส่งข้อมูลสินค้า/ยอดขาย/สต็อก/พนักงานทั้งหมดในเครื่องนี้ขึ้น Supabase ใหม่อีกครั้งใช่ไหม?\n(ปลอดภัย ไม่ทำให้ข้อมูลซ้ำซ้อน แค่อัปเดตให้คลาวด์ตรงกับเครื่องนี้)')) return;
+  toast('กำลังส่งข้อมูลทั้งหมดขึ้นคลาวด์ อาจใช้เวลาสักครู่...');
+  const ops = [];
+  loadProducts().forEach(p => ops.push({ table:'products', action:'upsert', row: toProductRow(p) }));
+  loadAliases().forEach(a => ops.push({ table:'product_aliases', action:'upsert', row: toAliasRow(a) }));
+  loadStockTransactions().forEach(t => ops.push({ table:'stock_transactions', action:'upsert', row: toStockTxRow(t) }));
+  loadSales().forEach(s => {
+    ops.push({ table:'sales', action:'upsert', row: toSaleRow(s) });
+    ops.push({ table:'sale_items', action:'replace_for_sale', saleId: s.id, rows: (s.items||[]).map((it,idx)=>toSaleItemRow(s.id,it,idx)) });
+  });
+  loadStaff().forEach(name => ops.push({ table:'staff', action:'upsert', row: toStaffRow(name) }));
+  const q = loadSyncQueue();
+  q.push(...ops);
+  saveSyncQueue(q);
+  await flushSyncQueue();
+  const skippedCount = loadSyncSkipped().length;
+  toast(skippedCount === 0 ? `ส่งข้อมูลทั้งหมดขึ้นคลาวด์สำเร็จ (${ops.length} รายการ)` : `ส่งสำเร็จบางส่วน ยังมี ${skippedCount} รายการที่ผิดพลาดซ้ำๆ ลองดู Console เพื่อดูรายละเอียด`);
 }
 
 async function initSupabaseSession(){
@@ -1203,10 +1269,13 @@ function renderSyncSettingsCard(){
   const el = document.getElementById('syncSettingsCard');
   if(!el) return;
   const pending = loadSyncQueue().length;
+  const skipped = loadSyncSkipped().length;
   if(currentOwnerId){
     el.innerHTML = `
       <div class="muted" style="margin-bottom:12px;">เชื่อมต่อ Supabase อยู่ ✅ ${pending>0 ? `(ค้างส่ง ${pending} รายการ กำลังส่งอัตโนมัติ)` : '(ข้อมูลล่าสุดแล้ว)'}</div>
+      ${skipped>0 ? `<div class="muted" style="margin-bottom:12px;color:var(--danger);">⚠️ มี ${skipped} รายการที่ส่งขึ้นคลาวด์ไม่สำเร็จซ้ำๆ (ข้อมูลในเครื่องนี้ยังอยู่ครบ แค่ยังไม่ขึ้นคลาวด์) — <a href="javascript:void(0)" onclick="retrySkippedSync()" style="color:var(--danger);font-weight:700;">ลองส่งใหม่</a></div>` : ''}
       <button class="btn btn-outline" style="margin-bottom:8px;" onclick="manualPullFromSupabase()">ดึงข้อมูลล่าสุดจากคลาวด์มาที่เครื่องนี้</button>
+      <button class="btn btn-outline" style="margin-bottom:8px;" onclick="forcePushAllToSupabase()">ส่งข้อมูลทั้งหมดในเครื่องนี้ขึ้นคลาวด์ใหม่ (กู้ข้อมูลที่ค้าง)</button>
       <button class="btn btn-outline" onclick="signOutSupabase()">ออกจากระบบซิงก์</button>`;
   } else {
     el.innerHTML = `
