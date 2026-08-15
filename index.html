@@ -946,6 +946,83 @@ function toStaffRow(name){
   return { id: getStaffId(name), owner_id: currentOwnerId, name };
 }
 
+// ---------- แปลงกลับจากแถวตาราง Supabase (snake_case) เป็น field เดิมในเว็บแอป (camelCase) ----------
+// ใช้ตอน "ดึงข้อมูล" ลงมาที่เครื่อง/เบราว์เซอร์ใหม่ที่ยังไม่เคยมีข้อมูลนี้ใน localStorage มาก่อน (เช่น เปิดเว็บครั้งแรกจากมือถือ/เว็บ GitHub Pages)
+function fromProductRow(r){
+  return { id: r.id, category: r.category || '', brand: r.brand || '', code: r.code || '', name: r.name || '',
+    model: r.model || '', color: r.color || '', size: r.size || '', barcode: r.barcode || '', sku: r.sku || '',
+    costPrice: r.cost_price || 0, price: r.price || 0, stock: (r.stock === null || r.stock === undefined) ? null : r.stock };
+}
+function fromAliasRow(r){
+  return { id: r.id, familyKey: r.family_key, alias: r.alias, createdAt: r.created_at };
+}
+function fromStockTxRow(r){
+  return { id: r.id, productId: r.product_id || null, sku: r.sku || '', brand: r.brand || '', code: r.code || '',
+    name: r.name || '', color: r.color || '', size: r.size || '', type: r.type,
+    inputQuantity: r.input_quantity, inputUnit: r.input_unit, baseQuantity: r.base_quantity, baseUnit: r.base_unit || 'คู่',
+    stockBefore: r.stock_before, stockAfter: r.stock_after, note: r.note || '', timestamp: r.created_at };
+}
+function fromSaleRow(r, items){
+  return { id: r.id, timestamp: r.created_at, total: r.total, cost: r.cost || 0, profit: r.profit || 0,
+    seller: r.seller || '', payment: r.payment || 'เงินสด', channel: r.channel || 'หน้าร้าน',
+    items: (items||[]).map(it => ({ productId: it.product_id || null, name: it.name, price: it.price, costPrice: it.cost_price || 0, qty: it.qty })) };
+}
+
+// ---------- ดึงข้อมูลทั้งหมดของร้าน (owner_id ปัจจุบัน) จาก Supabase ลงมาไว้ในเครื่อง/เบราว์เซอร์นี้ ----------
+// ใช้ตอนล็อกอินครั้งแรกบนอุปกรณ์ที่ localStorage ยังว่างอยู่ (เช่น เปิดเว็บผ่าน GitHub Pages/มือถือเป็นครั้งแรก)
+// เขียนตรงลง localStorage โดยไม่ผ่าน save*() ทั่วไป เพื่อไม่ให้เกิดการ diff แล้วส่งข้อมูลที่เพิ่งดึงมานี้ย้อนกลับขึ้นไปซ้ำอีกรอบ
+async function pullFromSupabase(){
+  if(!supabaseClient || !currentOwnerId) return false;
+  try{
+    const [productsRes, aliasesRes, txRes, salesRes, itemsRes, staffRes] = await Promise.all([
+      supabaseClient.from('products').select('*').eq('owner_id', currentOwnerId),
+      supabaseClient.from('product_aliases').select('*').eq('owner_id', currentOwnerId),
+      supabaseClient.from('stock_transactions').select('*').eq('owner_id', currentOwnerId),
+      supabaseClient.from('sales').select('*').eq('owner_id', currentOwnerId),
+      supabaseClient.from('sale_items').select('*').eq('owner_id', currentOwnerId),
+      supabaseClient.from('staff').select('*').eq('owner_id', currentOwnerId),
+    ]);
+    const errors = [productsRes, aliasesRes, txRes, salesRes, itemsRes, staffRes].map(r=>r.error).filter(Boolean);
+    if(errors.length){ console.error('ดึงข้อมูลจากคลาวด์ล้มเหลว:', errors); return false; }
+
+    const itemsBySale = {};
+    (itemsRes.data||[]).forEach(it=>{ (itemsBySale[it.sale_id] = itemsBySale[it.sale_id] || []).push(it); });
+
+    const products = (productsRes.data||[]).map(fromProductRow);
+    const aliases = (aliasesRes.data||[]).map(fromAliasRow);
+    const stockTx = (txRes.data||[]).map(fromStockTxRow);
+    const sales = (salesRes.data||[]).map(r => fromSaleRow(r, itemsBySale[r.id]));
+    const staffNames = (staffRes.data||[]).map(r=>r.name);
+
+    localStorage.setItem(DB_KEYS.products, JSON.stringify(products));
+    localStorage.setItem(DB_KEYS.aliases, JSON.stringify(aliases));
+    localStorage.setItem(DB_KEYS.stockTx, JSON.stringify(stockTx));
+    localStorage.setItem(DB_KEYS.sales, JSON.stringify(sales));
+    localStorage.setItem(DB_KEYS.staff, JSON.stringify(staffNames));
+    // เก็บ id ของพนักงานที่ดึงมา ไว้ใช้ตอน sync ชื่อนี้กลับขึ้นไปในอนาคต (กันสร้าง id ใหม่ซ้ำ)
+    const idMap = JSON.parse(localStorage.getItem(STAFF_ID_MAP_KEY) || '{}');
+    (staffRes.data||[]).forEach(r=>{ idMap[r.name] = r.id; });
+    localStorage.setItem(STAFF_ID_MAP_KEY, JSON.stringify(idMap));
+
+    return true;
+  }catch(e){
+    console.error('ดึงข้อมูลจากคลาวด์ล้มเหลว:', e);
+    return false;
+  }
+}
+// เรียกใช้หลังล็อกอินสำเร็จ + รีเฟรชหน้าจอทุกส่วนที่เกี่ยวข้อง
+async function pullFromSupabaseAndRefresh(){
+  const ok = await pullFromSupabase();
+  if(ok){
+    renderSellerOptions();
+    if(typeof renderProductList === 'function') renderProductList();
+    if(typeof renderDashboard === 'function') renderDashboard();
+    if(typeof renderSalesList === 'function') renderSalesList();
+    if(typeof renderOutOfStockBanner === 'function') renderOutOfStockBanner();
+  }
+  return ok;
+}
+
 // ---------- diff รายการเก่า/ใหม่ (โดย key ที่กำหนด) แล้วสร้างงาน sync: upsert แถวที่เพิ่ม/เปลี่ยน + ลบแถวที่หายไป ----------
 function diffAndEnqueue(table, oldList, newList, keyFn, toRow){
   const oldMap = new Map(oldList.map(x => [keyFn(x), x]));
@@ -1039,7 +1116,14 @@ async function initSupabaseSession(){
     syncStatus = 'idle';
   }
   updateSyncIndicator();
-  if(currentOwnerId) flushSyncQueue();
+  if(currentOwnerId){
+    // อุปกรณ์/เบราว์เซอร์ใหม่ที่ยังไม่เคยมีข้อมูลใน localStorage เลย (เช่น เพิ่งเปิดผ่าน GitHub Pages/มือถือครั้งแรก
+    // แต่เคย login ค้างไว้จาก session ก่อนหน้า) ให้ดึงข้อมูลจากคลาวด์ลงมาก่อน แล้วค่อยเริ่ม flush คิว (เผื่อมีของค้างจากเครื่องนี้)
+    if(loadProducts().length === 0 && loadSales().length === 0){
+      await pullFromSupabaseAndRefresh();
+    }
+    flushSyncQueue();
+  }
 }
 async function signInSupabase(email, password){
   if(!supabaseClient) { toast('โหลด Supabase ไม่สำเร็จ ตรวจสอบอินเทอร์เน็ต'); return; }
@@ -1048,8 +1132,20 @@ async function signInSupabase(email, password){
   currentOwnerId = data.user.id;
   syncStatus = 'idle';
   updateSyncIndicator();
-  toast('เชื่อมต่อ Supabase สำเร็จ');
+  toast('เชื่อมต่อ Supabase สำเร็จ กำลังดึงข้อมูล...');
+  // อุปกรณ์นี้ยังไม่เคยมีข้อมูล (localStorage ว่าง) -> ดึงข้อมูลของร้านจากคลาวด์ลงมาแสดงทันที
+  // (ถ้าเครื่องนี้มีข้อมูลอยู่แล้ว เช่น เครื่อง Mac หลักที่เคย push ขึ้นไปก่อนหน้านี้ จะไม่ทับ ให้ใช้ปุ่ม "ดึงข้อมูลล่าสุด" เองถ้าต้องการ)
+  if(loadProducts().length === 0 && loadSales().length === 0){
+    const ok = await pullFromSupabaseAndRefresh();
+    toast(ok ? 'ดึงข้อมูลจากคลาวด์เรียบร้อย' : 'เชื่อมต่อสำเร็จ แต่ดึงข้อมูลไม่สำเร็จ ลองกด "ดึงข้อมูลล่าสุด" อีกครั้ง');
+  }
   flushSyncQueue();
+}
+async function manualPullFromSupabase(){
+  if(!confirm('ดึงข้อมูลล่าสุดจาก Supabase มาทับข้อมูลสินค้า/ยอดขายในเครื่องนี้ใช่ไหม? (ใช้เมื่อเครื่องนี้ข้อมูลไม่ตรงกับเครื่องอื่น)')) return;
+  toast('กำลังดึงข้อมูล...');
+  const ok = await pullFromSupabaseAndRefresh();
+  toast(ok ? 'ดึงข้อมูลจากคลาวด์เรียบร้อย' : 'ดึงข้อมูลไม่สำเร็จ ลองใหม่อีกครั้ง');
 }
 async function signOutSupabase(){
   if(supabaseClient) await supabaseClient.auth.signOut();
@@ -1071,6 +1167,7 @@ function renderSyncSettingsCard(){
   if(currentOwnerId){
     el.innerHTML = `
       <div class="muted" style="margin-bottom:12px;">เชื่อมต่อ Supabase อยู่ ✅ ${pending>0 ? `(ค้างส่ง ${pending} รายการ กำลังส่งอัตโนมัติ)` : '(ข้อมูลล่าสุดแล้ว)'}</div>
+      <button class="btn btn-outline" style="margin-bottom:8px;" onclick="manualPullFromSupabase()">ดึงข้อมูลล่าสุดจากคลาวด์มาที่เครื่องนี้</button>
       <button class="btn btn-outline" onclick="signOutSupabase()">ออกจากระบบซิงก์</button>`;
   } else {
     el.innerHTML = `
