@@ -528,13 +528,7 @@
           <button class="btn btn-success btn-full" onclick="openStockTxModal()">📋 บันทึกรายการสต็อก (รับเข้า/ขาย/คืน/เสีย/ปรับยอด)</button>
         </div>
         <div class="btn-row" style="margin-bottom:12px;">
-          <button class="btn btn-outline btn-full" onclick="undoLastStockTx()">↩️ ยกเลิกรายการสต็อกล่าสุด (เผื่อกดพลาด)</button>
-        </div>
-        <div class="btn-row" style="margin-bottom:12px;">
-          <button class="btn btn-outline btn-full" onclick="undoLastBatchEdit()">↩️ ยกเลิกการ "แก้ไขหลายเบอร์พร้อมกัน" ครั้งล่าสุด</button>
-        </div>
-        <div class="btn-row" style="margin-bottom:12px;">
-          <button class="btn btn-outline btn-full" onclick="openRestoreDeletedModal()">🗑️ สินค้าที่ถูกลบ (กู้คืนได้)</button>
+          <button class="btn btn-outline btn-full" onclick="openAllTxHistory()">📜 ประวัติสต็อกทั้งหมด (แก้ไข/กู้คืนได้)</button>
         </div>
         <div class="btn-row" style="margin-bottom:12px;">
           <button class="btn btn-outline" onclick="openBulkAdd()">เพิ่มหลายสี/เบอร์พร้อมกัน (SKU)</button>
@@ -833,6 +827,9 @@
     <div class="sheet-header">
       <h3 id="txHistoryTitle">ประวัติสต็อก</h3>
       <button type="button" class="sheet-close" onclick="closeTxHistory()">✕</button>
+    </div>
+    <div id="txHistoryFilterWrap" style="display:none;padding:0 16px 10px;">
+      <input type="text" id="txHistoryFilter" placeholder="ค้นหา (ชื่อ/แบรนด์/รหัส/SKU/สี/เบอร์)..." oninput="renderAllTxHistoryBody()">
     </div>
     <div class="sheet-body" id="txHistoryBody"></div>
   </div>
@@ -1417,9 +1414,16 @@ function renderSyncSettingsCard(){
     el.innerHTML = `
       <div class="muted" style="margin-bottom:12px;">เชื่อมต่อ Supabase อยู่ ✅ ${pending>0 ? `(ค้างส่ง ${pending} รายการ กำลังส่งอัตโนมัติ)` : '(ข้อมูลล่าสุดแล้ว)'}</div>
       ${skipped>0 ? `<div class="muted" style="margin-bottom:12px;color:var(--danger);">⚠️ มี ${skipped} รายการที่ส่งขึ้นคลาวด์ไม่สำเร็จซ้ำๆ (ข้อมูลในเครื่องนี้ยังอยู่ครบ แค่ยังไม่ขึ้นคลาวด์) — <a href="javascript:void(0)" onclick="retrySkippedSync()" style="color:var(--danger);font-weight:700;">ลองส่งใหม่</a></div>` : ''}
-      <button class="btn btn-outline" style="margin-bottom:8px;" onclick="manualPullFromSupabase()">ดึงข้อมูลล่าสุดจากคลาวด์มาที่เครื่องนี้</button>
-      <button class="btn btn-outline" style="margin-bottom:8px;" onclick="forcePushAllToSupabase()">ส่งข้อมูลทั้งหมดในเครื่องนี้ขึ้นคลาวด์ใหม่ (กู้ข้อมูลที่ค้าง)</button>
-      <button class="btn btn-outline" onclick="signOutSupabase()">ออกจากระบบซิงก์</button>`;
+      <div class="muted" style="margin-bottom:12px;font-size:12px;">ปกติแอปดึงข้อมูลล่าสุดจากคลาวด์ให้อัตโนมัติทุกครั้งที่เปิดแล้ว ไม่ต้องกดอะไรเอง — ปุ่มด้านล่างนี้ไว้ใช้เฉพาะตอนแก้ปัญหาซิงก์เท่านั้น</div>
+      <div class="collapse-header" data-collapse-toggle="collapseSyncAdvanced" onclick="toggleCollapse('collapseSyncAdvanced')">
+        <h3 style="font-size:14px;">ขั้นสูง / แก้ปัญหา</h3>
+        <span class="collapse-arrow">▾</span>
+      </div>
+      <div id="collapseSyncAdvanced" class="collapse-body" style="display:none;">
+        <button class="btn btn-outline" style="margin-bottom:8px;" onclick="manualPullFromSupabase()">ดึงข้อมูลล่าสุดจากคลาวด์มาที่เครื่องนี้</button>
+        <button class="btn btn-outline" style="margin-bottom:8px;" onclick="forcePushAllToSupabase()">ส่งข้อมูลทั้งหมดในเครื่องนี้ขึ้นคลาวด์ใหม่ (กู้ข้อมูลที่ค้าง)</button>
+        <button class="btn btn-outline" onclick="signOutSupabase()">ออกจากระบบซิงก์</button>
+      </div>`;
   } else {
     el.innerHTML = `
       <div class="muted" style="margin-bottom:12px;">ยังไม่เชื่อมต่อ — แอปยังใช้งานได้ปกติทุกอย่าง แค่ยังไม่สำรองขึ้นคลาวด์ ล็อกอินด้วยบัญชีเจ้าของร้านที่ตั้งไว้ใน Supabase</div>
@@ -3821,38 +3825,170 @@ function renderStockTxFooter(){
   `;
 }
 
-/* ============ ประวัติการเคลื่อนไหวสต็อกของสินค้า 1 SKU ============ */
+/* ============ ประวัติการเคลื่อนไหวสต็อก — ดูได้ทั้งแบบต่อ SKU และแบบรวมทุกสินค้า (รวมสินค้าที่ถูกลบไปแล้วด้วย) ============
+   แต่ละรายการมีปุ่มแก้ไข/ยกเลิกของตัวเองตามประเภท (แทนปุ่มเครื่องมือรวมแบบเดิม เช่น "ยกเลิกรายการล่าสุด"
+   "ยกเลิกการแก้ไขหลายเบอร์" "กู้คืนสินค้าที่ถูกลบ" ซึ่งรวมศูนย์ไว้ที่นี่ที่เดียวแทน ทำทีละรายการได้ตรงจุดกว่า) */
 let lastTxHistoryProductId = null;
+let txHistoryMode = 'product'; // 'product' = ดูของ SKU เดียว | 'all' = ดูรวมทุกสินค้า
 function openTxHistory(productId){
   lastTxHistoryProductId = productId;
+  txHistoryMode = 'product';
+  document.getElementById('txHistoryFilterWrap').style.display = 'none';
   const p = loadProducts().find(pp=>pp.id===productId);
   document.getElementById('txHistoryTitle').textContent = p
     ? `ประวัติสต็อก: ${composeDisplayName(p.name, p.model, p.color, p.size)}`
     : 'ประวัติสต็อก';
   const txs = loadStockTransactions().filter(t=>t.productId===productId).slice().reverse();
+  renderTxHistoryBodyFromList(txs, 'ยังไม่มีประวัติการเคลื่อนไหวสต็อก');
+  document.getElementById('tx-history-sheet-overlay').classList.add('open');
+}
+const TX_HISTORY_ALL_LIMIT = 300;
+function openAllTxHistory(){
+  lastTxHistoryProductId = null;
+  txHistoryMode = 'all';
+  document.getElementById('txHistoryFilterWrap').style.display = '';
+  document.getElementById('txHistoryFilter').value = '';
+  document.getElementById('txHistoryTitle').textContent = 'ประวัติสต็อกทั้งหมด';
+  renderAllTxHistoryBody();
+  document.getElementById('tx-history-sheet-overlay').classList.add('open');
+}
+// ค้นหา/กรองประวัติทั้งหมด — จำเป็นเพราะรายการอาจมีเป็นร้อยเป็นพัน และรวมสินค้าที่ถูกลบไปแล้ว (หาไม่เจอในหน้ารายการสินค้าปกติ)
+// จึงต้องพิมพ์ค้นหาชื่อ/แบรนด์/รหัส/สี/เบอร์ เพื่อไล่หารายการที่ต้องการแก้ไข/กู้คืนได้
+function renderAllTxHistoryBody(){
+  const q = (document.getElementById('txHistoryFilter').value || '').trim().toLowerCase();
+  let txs = loadStockTransactions().slice().reverse();
+  if(q){
+    txs = txs.filter(t => [t.name, t.brand, t.code, t.sku, t.color, t.size].some(v => (v||'').toLowerCase().includes(q)));
+  }
+  const total = txs.length;
+  const limited = txs.slice(0, TX_HISTORY_ALL_LIMIT);
+  const prefixHtml = total > limited.length
+    ? `<div class="muted" style="font-size:12px;margin-bottom:8px;">แสดง ${limited.length} รายการล่าสุดจากทั้งหมด ${total} รายการ — พิมพ์ค้นหาด้านบนเพื่อกรองหารายการเก่ากว่านี้</div>`
+    : '';
+  renderTxHistoryBodyFromList(limited, q ? 'ไม่พบรายการที่ตรงกับคำค้นนี้' : 'ยังไม่มีประวัติการเคลื่อนไหวสต็อก', prefixHtml);
+}
+function renderTxHistoryBodyFromList(txs, emptyMsg, prefixHtml){
   const body = document.getElementById('txHistoryBody');
   if(txs.length === 0){
-    body.innerHTML = '<div class="empty">ยังไม่มีประวัติการเคลื่อนไหวสต็อก</div>';
-  } else {
-    body.innerHTML = txs.map(t=>`
-      <div class="tx-row">
-        <div>
-          <span class="tx-type-badge tx-type-${t.type}">${(TX_TYPES[t.type]||{}).label || t.type}</span>
-          <div class="muted" style="font-size:12px;margin-top:4px;">${new Date(t.timestamp).toLocaleString('th-TH')}</div>
-          ${t.note ? `<div class="muted" style="font-size:12px;">${displayTxNote(t.note)}</div>` : ''}
-          ${t.type==='PURCHASE' ? `<button type="button" onclick="openEditPurchaseTx('${t.id}')" style="background:none;border:none;color:var(--primary);font-size:12px;padding:0;margin-top:4px;">แก้ไข/ยกเลิก</button>` : ''}
-        </div>
-        <div style="text-align:right;">
-          <div class="num">${t.stockBefore} → ${t.stockAfter} ${t.baseUnit}</div>
-          <div class="muted" style="font-size:12px;">${t.inputQuantity} ${t.inputUnit}</div>
-        </div>
-      </div>
-    `).join('');
+    body.innerHTML = (prefixHtml||'') + `<div class="empty">${emptyMsg}</div>`;
+    return;
   }
-  document.getElementById('tx-history-sheet-overlay').classList.add('open');
+  body.innerHTML = (prefixHtml||'') + txs.map(t => buildTxRowHtml(t)).join('');
+}
+function buildTxRowHtml(t){
+  return `
+    <div class="tx-row">
+      <div>
+        <span class="tx-type-badge tx-type-${t.type}">${(TX_TYPES[t.type]||{}).label || t.type}</span>
+        <div class="muted" style="font-size:12px;margin-top:4px;">${composeDisplayName(t.name, '', t.color, t.size)}${(t.brand||t.code) ? ' · '+[t.brand,t.code].filter(Boolean).join(' ') : ''}</div>
+        <div class="muted" style="font-size:12px;">${new Date(t.timestamp).toLocaleString('th-TH')}</div>
+        ${t.note ? `<div class="muted" style="font-size:12px;">${displayTxNote(t.note)}</div>` : ''}
+        <div style="margin-top:4px;">${txRowActionsHtml(t)}</div>
+      </div>
+      <div style="text-align:right;">
+        <div class="num">${t.stockBefore} → ${t.stockAfter} ${t.baseUnit}</div>
+        <div class="muted" style="font-size:12px;">${t.inputQuantity} ${t.inputUnit}</div>
+      </div>
+    </div>
+  `;
+}
+// ปุ่ม แก้ไข/ยกเลิก ของแต่ละรายการ — ต่างกันตามประเภทรายการ (บางประเภท เช่น ขาย/คืน/ของเสีย ผูกกับบิลขายอยู่แล้ว
+// มีปุ่มแก้ไข/ลบของตัวเองในหน้ารายการขาย จึงไม่ต้องมีปุ่มซ้ำตรงนี้ กันแก้ไขสต็อกสวนทางกับบิลขายจนข้อมูลไม่ตรงกัน)
+function txRowActionsHtml(t){
+  const btnStyle = "background:none;border:none;color:var(--primary);font-size:12px;padding:0;margin-right:14px;";
+  const dangerStyle = "background:none;border:none;color:var(--danger);font-size:12px;padding:0;";
+  if(t.type === 'PURCHASE'){
+    return `<button type="button" onclick="openEditPurchaseTx('${t.id}')" style="${btnStyle}">แก้ไข/ยกเลิก</button>`;
+  }
+  if(t.type === 'ADJUSTMENT'){
+    return `<button type="button" onclick="openEditAdjustmentTx('${t.id}')" style="${btnStyle}">แก้ไข</button>`
+      + `<button type="button" onclick="cancelAdjustmentTxById('${t.id}')" style="${dangerStyle}">ยกเลิก (ย้อนกลับ)</button>`;
+  }
+  if(t.type === 'DELETED'){
+    return `<button type="button" onclick="openEditDeletedTx('${t.id}')" style="${btnStyle}">แก้ไขจำนวนแล้วกู้คืน</button>`
+      + `<button type="button" onclick="undoDeletedTx('${t.id}')" style="${dangerStyle}">ยกเลิกการลบ (กู้คืน)</button>`;
+  }
+  return '';
+}
+// รีเฟรชหน้าประวัติที่เปิดอยู่ตอนนี้ ให้ตรงกับโหมดที่กำลังดู (ต่อ SKU หรือรวมทั้งหมด) หลังจากแก้ไข/ยกเลิก/กู้คืนรายการใดๆ
+function refreshTxHistoryView(){
+  if(txHistoryMode === 'all') renderAllTxHistoryBody();
+  else if(lastTxHistoryProductId) openTxHistory(lastTxHistoryProductId);
 }
 function closeTxHistory(){
   document.getElementById('tx-history-sheet-overlay').classList.remove('open');
+}
+
+/* ============ แก้ไข/ยกเลิกรายการปรับสต็อก (ADJUSTMENT) ที่บันทึกไปแล้ว ทีละรายการ ============
+   ครอบคลุมเคสที่เคยใช้ปุ่มรวม "ยกเลิกรายการสต็อกล่าสุด" / "ยกเลิกการแก้ไขหลายเบอร์พร้อมกัน" เดิม
+   แต่ตอนนี้ทำได้ตรงจุดกว่า — เลือกยกเลิก/แก้ไขได้ทีละรายการจากประวัติ ไม่ต้องเป็นรายการล่าสุดสุดเท่านั้น */
+function openEditAdjustmentTx(txId){
+  const tx = loadStockTransactions().find(t=>t.id===txId);
+  if(!tx) return;
+  const products = loadProducts();
+  const p = products.find(pp=>pp.id===tx.productId);
+  if(!p){ toast('ไม่พบสินค้านี้แล้ว (อาจถูกลบไปแล้ว)'); return; }
+  if(p.stock !== tx.stockAfter){
+    if(!confirm('สต็อกของสินค้านี้ถูกแก้ไขทับไปหลังจากรายการนี้แล้ว การแก้ไขย้อนหลังอาจทำให้สต็อกปัจจุบันคลาดเคลื่อน ต้องการแก้ไขต่อไหม?')) return;
+  }
+  const displayName = composeDisplayName(tx.name, '', tx.color, tx.size);
+  const val = prompt(`${displayName}\nแก้ไขยอดสต็อก "หลัง" รายการนี้เป็นเท่าไหร่ (${BASE_UNIT})? (เดิม: ${tx.stockAfter})`, tx.stockAfter);
+  if(val === null) return;
+  const newStockAfter = parseInt(val);
+  if(isNaN(newStockAfter) || newStockAfter < 0){ toast('กรุณากรอกตัวเลขที่ถูกต้อง'); return; }
+  const txs = loadStockTransactions();
+  const t = txs.find(x=>x.id===txId);
+  const delta = newStockAfter - t.stockAfter;
+  p.stock = Math.max(0, (typeof p.stock === 'number' ? p.stock : 0) + delta);
+  t.stockAfter = newStockAfter;
+  t.baseQuantity = newStockAfter;
+  t.inputQuantity = newStockAfter;
+  t.note = displayTxNote(t.note || '') + (t.note ? ' ' : '') + `(แก้ไขยอดหลังรายการนี้เป็น ${newStockAfter} ${BASE_UNIT})`;
+  saveProducts(products);
+  saveStockTransactions(txs);
+  refreshTxHistoryView();
+  renderProductList(); renderDashboard(); renderOutOfStockBanner();
+  toast('แก้ไขรายการแล้ว');
+}
+function cancelAdjustmentTxById(txId){
+  const txs = loadStockTransactions();
+  const tx = txs.find(t=>t.id===txId);
+  if(!tx) return;
+  const products = loadProducts();
+  const p = products.find(pp=>pp.id===tx.productId);
+  if(!p){ toast('ไม่พบสินค้านี้แล้ว (อาจถูกลบไปแล้ว)'); return; }
+  if(p.stock !== tx.stockAfter){
+    if(!confirm('สต็อกของสินค้านี้ถูกแก้ไขทับไปหลังจากรายการนี้แล้ว การย้อนกลับตอนนี้อาจทำให้สต็อกปัจจุบันคลาดเคลื่อน ต้องการยกเลิกต่อไหม?')) return;
+  } else if(!confirm(`ยกเลิกรายการนี้ใช่ไหม? จะปรับสต็อกกลับเป็น ${tx.stockBefore} ${BASE_UNIT} (บันทึกเป็นรายการแก้ไขใหม่ ไม่ลบประวัติเดิมทิ้ง)`)){
+    return;
+  }
+  recordStockTransaction(products, tx.productId, 'ADJUSTMENT', tx.stockBefore, BASE_UNIT,
+    `ยกเลิกรายการปรับสต็อกเมื่อ ${new Date(tx.timestamp).toLocaleString('th-TH')}`, { setAbsolute: true });
+  saveProducts(products);
+  refreshTxHistoryView();
+  renderProductList(); renderDashboard(); renderOutOfStockBanner();
+  toast(`ยกเลิกแล้ว สต็อกกลับเป็น ${tx.stockBefore} ${BASE_UNIT}`);
+}
+// แก้ไข/ยกเลิกการลบสินค้า (DELETED) ได้ตรงจากประวัติเลย — เดิมต้องเปิดหน้าต่าง "สินค้าที่ถูกลบ" แยกต่างหาก
+function undoDeletedTx(txId){
+  const t = loadStockTransactions().find(x => x.id === txId && x.type === 'DELETED');
+  if(!t) return;
+  if(loadProducts().find(p => p.id === t.productId)){ toast('สินค้านี้มีอยู่แล้ว ไม่ต้องกู้คืนซ้ำ'); return; }
+  if(!confirm(`ยกเลิกการลบ "${composeDisplayName(t.name,'',t.color,t.size)}" และกู้คืนสต็อกกลับเป็น ${t.stockBefore} ${BASE_UNIT} ใช่ไหม?`)) return;
+  restoreDeletedProduct(t.productId);
+  refreshTxHistoryView();
+}
+function openEditDeletedTx(txId){
+  const t = loadStockTransactions().find(x => x.id === txId && x.type === 'DELETED');
+  if(!t) return;
+  if(loadProducts().find(p => p.id === t.productId)){ toast('สินค้านี้มีอยู่แล้ว ไม่ต้องกู้คืนซ้ำ'); return; }
+  const displayName = composeDisplayName(t.name, '', t.color, t.size);
+  const val = prompt(`กู้คืน "${displayName}" ด้วยจำนวนสต็อกเท่าไหร่ (${BASE_UNIT})? (ค่าที่บันทึกไว้ก่อนลบ: ${t.stockBefore})`, t.stockBefore);
+  if(val === null) return;
+  const qty = parseInt(val);
+  if(isNaN(qty) || qty < 0){ toast('กรุณากรอกตัวเลขที่ถูกต้อง'); return; }
+  restoreDeletedProduct(t.productId, qty);
+  refreshTxHistoryView();
 }
 
 /* ============ แก้ไข/ยกเลิกรายการรับเข้าสินค้า (ซื้อเข้า) ที่บันทึกไปแล้ว ============ */
@@ -4365,19 +4501,26 @@ function renderRestoreDeletedModalList(){
       </div>
     </div>`).join('');
 }
-function restoreDeletedProduct(productId){
+// qtyOverride (ไม่บังคับ): ใช้ตอนกู้คืนพร้อมแก้ไขจำนวนใหม่จากหน้าประวัติ (openEditDeletedTx) — ถ้าไม่ระบุ ใช้สต็อกล่าสุดก่อนลบตามที่บันทึกไว้
+function restoreDeletedProduct(productId, qtyOverride){
   const txs = loadStockTransactions();
   const t = txs.slice().reverse().find(x => x.type === 'DELETED' && x.productId === productId);
   if(!t){ toast('ไม่พบข้อมูลสินค้านี้ในประวัติ'); return; }
   const products = loadProducts();
-  if(products.find(p => p.id === productId)){ toast('สินค้านี้มีอยู่แล้ว ไม่ต้องกู้คืนซ้ำ'); renderRestoreDeletedModalList(); return; }
+  if(products.find(p => p.id === productId)){
+    toast('สินค้านี้มีอยู่แล้ว ไม่ต้องกู้คืนซ้ำ');
+    if(document.getElementById('restoreDeletedFilter')) renderRestoreDeletedModalList();
+    return;
+  }
+  const qty = (typeof qtyOverride === 'number' && !isNaN(qtyOverride)) ? qtyOverride : t.stockBefore;
   const restored = { id: productId, category:'', brand: t.brand||'', code: t.code||'', name: t.name||'', model:'', color: t.color||'', size: t.size||'', barcode:'', sku: t.sku||'', costPrice:0, price:0, stock: null };
   products.push(restored);
-  recordStockTransaction(products, productId, 'ADJUSTMENT', t.stockBefore, BASE_UNIT, 'กู้คืนสินค้าที่ถูกลบ (สต็อกล่าสุดก่อนลบ)', { setAbsolute: true });
+  recordStockTransaction(products, productId, 'ADJUSTMENT', qty, BASE_UNIT,
+    qtyOverride !== undefined ? 'กู้คืนสินค้าที่ถูกลบ (แก้ไขจำนวนใหม่ตอนกู้คืน)' : 'กู้คืนสินค้าที่ถูกลบ (สต็อกล่าสุดก่อนลบ)', { setAbsolute: true });
   saveProducts(products);
   renderProductList();
-  renderRestoreDeletedModalList();
-  toast(`กู้คืน "${nameWithSpec(restored)}" แล้ว (สต็อก ${t.stockBefore}) — อย่าลืมกรอกราคา/หมวดหมู่/รุ่นใหม่`);
+  if(document.getElementById('restoreDeletedFilter')) renderRestoreDeletedModalList();
+  toast(`กู้คืน "${nameWithSpec(restored)}" แล้ว (สต็อก ${qty}) — อย่าลืมกรอกราคา/หมวดหมู่/รุ่นใหม่`);
 }
 function restoreAllFilteredDeleted(){
   const items = getFilteredRestorableDeleted();
