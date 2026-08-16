@@ -231,6 +231,11 @@
   .stock-val-out{color:var(--danger);}
   .stock-val-low{color:#C7861A;}
   .sku-barcode-line{font-size:12px;color:var(--muted);margin:-4px 0 10px;}
+  /* ปุ่ม +/- ปรับสต็อกทีละ 1 บนการ์ดสินค้าโดยตรง ไม่ต้องเปิด prompt/ใช้คีย์บอร์ด */
+  .stock-stepper{display:flex;align-items:center;justify-content:center;gap:4px;}
+  .stock-step-btn{width:26px;height:26px;flex:none;border-radius:8px;border:1px solid var(--border);background:var(--card);font-size:16px;line-height:1;font-weight:700;color:var(--primary);cursor:pointer;padding:0;}
+  .stock-step-btn:active{background:var(--fill);}
+  .stock-step-input{width:44px;text-align:center;font-weight:700;font-size:14px;border:1px solid var(--border);border-radius:8px;padding:4px 2px;background:var(--card);color:inherit;}
 
   /* ===== Alias (ชื่อเรียกอื่นของสินค้า) — จัดการในหน้าสต็อกได้เลย ไม่ต้องมีหน้า Dictionary แยก ===== */
   .alias-row{background:var(--fill);border-radius:12px;padding:10px 12px;margin-bottom:12px;}
@@ -2621,6 +2626,33 @@ function quickEditStock(id){
   renderProductList();
   toast(`แก้ไขสต็อกแล้ว: ${newQty} ${BASE_UNIT}`);
 }
+// ปุ่ม +/- ปรับสต็อกทีละ 1 คู่ ตรงจากการ์ดสินค้าในหน้าสต็อก ไม่ต้องเปิด prompt/ใช้คีย์บอร์ดเลย (แทนที่ปุ่ม "แก้ไขสต็อก" เดิม)
+function adjustStockStep(id, delta){
+  const products = loadProducts();
+  const p = products.find(x=>x.id===id);
+  if(!p) return;
+  const current = (typeof p.stock === 'number') ? p.stock : 0;
+  const newQty = Math.max(0, current + delta);
+  recordStockTransaction(products, id, 'ADJUSTMENT', newQty, BASE_UNIT, 'ปรับสต็อกทีละ 1 จากหน้าสต็อค', { setAbsolute: true });
+  saveProducts(products);
+  renderProductList();
+}
+// พิมพ์เลขใหม่ตรงๆ ในช่องกลางของตัวปรับสต็อก +/- ได้เลย (เผื่อต้องเปลี่ยนเยอะ เช่น หลังนับสต็อกจริงแล้วต่างจากเดิมมาก)
+function setStockValueDirect(id, value){
+  const products = loadProducts();
+  const p = products.find(x=>x.id===id);
+  if(!p) return;
+  const trimmed = String(value).trim();
+  const newQty = parseInt(trimmed, 10);
+  if(trimmed === '' || isNaN(newQty) || newQty < 0){
+    toast('กรุณากรอกจำนวนเป็นตัวเลข 0 ขึ้นไป');
+    renderProductList(); // รีเซ็ตช่องกลับเป็นค่าเดิม เพราะค่าที่พิมพ์ไม่ถูกต้อง
+    return;
+  }
+  recordStockTransaction(products, id, 'ADJUSTMENT', newQty, BASE_UNIT, 'แก้ไขจำนวนสต็อกจากหน้าสต็อคโดยตรง', { setAbsolute: true });
+  saveProducts(products);
+  renderProductList();
+}
 // จัดกลุ่มสินค้าเป็น ชื่อ > รุ่น > สี ให้รายการสต็อกไม่ยาว (ยุบไว้เป็นค่าเริ่มต้น กดเพื่อดูแต่ละเบอร์)
 function groupProducts(products){
   const groups = {};
@@ -2943,12 +2975,26 @@ function renderSkuCardHtml(p, gi){
   // สีเตือนตามระดับสต็อก: หมด (0) = แดง, ใกล้หมด (1-3) = ส้ม, ปกติ = สีเดิม (ไม่ระบุ = สีเดิมเช่นกัน)
   const stockCardClass = tracked ? (p.stock <= 0 ? 'stock-out' : (p.stock <= 3 ? 'stock-low' : 'stock-ok')) : '';
   const stockValClass = tracked ? (p.stock <= 0 ? 'stock-val-out' : (p.stock <= 3 ? 'stock-val-low' : '')) : '';
+  // ปุ่ม +/- ปรับสต็อกทีละ 1 ได้ทันทีจากการ์ด ไม่ต้องเปิด prompt/ใช้คีย์บอร์ด สำหรับปรับเล็กน้อย (เช่นเผื่อขายตกหล่น/ของเสีย 1 คู่)
+  // ส่วนช่องตัวเลขตรงกลางยังพิมพ์ใหม่ได้เองตามปกติ ถ้าต้องเปลี่ยนเยอะ (เช่น หลังนับสต็อกจริงแล้วต่างจากเดิมมาก)
+  const stockStepperHtml = tracked ? `
+    <div class="stock-stepper">
+      <button type="button" class="stock-step-btn" onclick="adjustStockStep('${p.id}',-1)" aria-label="ลด 1">−</button>
+      <input type="number" inputmode="numeric" class="stock-step-input ${stockValClass}" value="${p.stock}" min="0" step="1"
+        onclick="event.stopPropagation()"
+        onchange="setStockValueDirect('${p.id}', this.value)">
+      <button type="button" class="stock-step-btn" onclick="adjustStockStep('${p.id}',1)" aria-label="เพิ่ม 1">+</button>
+    </div>
+    ${p.stock<=0 ? '<div class="cell-warn" style="font-size:11px;margin-top:2px;">⚠️ หมดสต็อก</div>' : ''}
+  ` : `
+    <strong>ไม่ระบุ</strong>
+    <button type="button" class="btn-link" style="font-size:11px;padding:0;display:block;" onclick="setStockValueDirect('${p.id}', 0)">เริ่มนับสต็อก</button>
+  `;
   return `
     <div class="list-card ${stockCardClass}">
       <div class="sku-card-top">
         <span class="sku-check">เบอร์ ${p.size || '-'}</span>
         <div class="sku-card-actions">
-          <button type="button" class="btn btn-outline btn-sm" onclick="quickEditStock('${p.id}')">แก้ไขสต็อก</button>
           <button type="button" class="btn btn-outline btn-sm" onclick="openTxHistory('${p.id}')">ประวัติ</button>
           <button type="button" class="btn btn-outline btn-sm" onclick="editProduct('${p.id}')">แก้ไข</button>
           <button type="button" class="btn btn-danger btn-sm" onclick="deleteProduct('${p.id}')">ลบ</button>
@@ -2959,7 +3005,7 @@ function renderSkuCardHtml(p, gi){
         <div><div class="g-label">ทุน</div><strong>${p.costPrice ? '฿'+p.costPrice : '<span class="cell-warn">ไม่มี</span>'}</strong></div>
         <div><div class="g-label">ขาย</div><strong>฿${p.price}</strong></div>
         <div><div class="g-label">กำไร</div><strong>฿${margin.toFixed(2)}</strong></div>
-        <div><div class="g-label">สต็อก</div><strong class="${stockValClass}">${stockDisplay}${tracked && p.stock<=0 ? ' ⚠️' : ''}</strong></div>
+        <div><div class="g-label">สต็อก</div>${stockStepperHtml}</div>
       </div>
     </div>`;
 }
