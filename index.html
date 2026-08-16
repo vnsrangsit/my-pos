@@ -1233,7 +1233,12 @@ async function flushSyncQueue(){
       }
       syncStatus = 'error'; updateSyncIndicator();
       syncFlushing = false;
-      if(syncFlushAgainRequested){ syncFlushAgainRequested = false; flushSyncQueue(); }
+      if(syncFlushAgainRequested){ syncFlushAgainRequested = false; flushSyncQueue(); return; }
+      // สำคัญ: เดิมโค้ดจะหยุดค้างตรงนี้ไปเฉยๆ รอให้มีการบันทึกข้อมูลใหม่หรือผู้ใช้กดปุ่มเองถึงจะลองใหม่อีกครั้ง
+      // ทำให้ถ้ารายการแรกสุดในคิวติด error ต่อเนื่อง (เช่น เน็ตสะดุดชั่วคราว หรือรอ retry ครบ 3 ครั้งเพื่อข้าม)
+      // รายการที่เหลือทั้งหมดที่อยู่ข้างหลัง "ไม่มีปัญหาอะไรเลย" จะค้างรอไปด้วยแบบไม่มีกำหนด (เจอจริง: ค้าง 600+ รายการ
+      // นานหลายชั่วโมงเพราะไม่มีใครกดอะไรเลยหลังจากนั้น) จึงต้องลองใหม่เองอัตโนมัติหลังจากรอสักครู่ ไม่ต้องรอผู้ใช้กดปุ่ม
+      setTimeout(()=>{ flushSyncQueue(); }, 5000);
       return;
     }
   }
