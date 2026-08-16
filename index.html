@@ -263,6 +263,11 @@
 </head>
 <body>
 
+<!-- รายการหมวดหมู่/ยี่ห้อที่เคยกรอกไว้ก่อนหน้า ใช้เป็นตัวเลือกช่วยพิมพ์ (autocomplete) กันกรอกผิด/สะกดไม่ตรงกัน
+     ใช้ <input list="..."> มาตรฐานเบราว์เซอร์ (ไม่ใช่ dropdown บังคับเลือก) ยังพิมพ์ค่าใหม่เองได้ตามปกติ -->
+<datalist id="categoryDatalist"></datalist>
+<datalist id="brandDatalist"></datalist>
+
 <div id="lock-screen" class="lock-screen">
   <div class="lock-card">
     <h3>ใส่รหัส PIN</h3>
@@ -347,11 +352,11 @@
         <div class="btn-row">
           <div class="field" style="flex:1;">
             <label>หมวดหมู่ (ไม่บังคับ)</label>
-            <input type="text" id="pCategory" placeholder="เช่น รองเท้านักเรียนเด็ก" oninput="autoFillProductName()">
+            <input type="text" id="pCategory" list="categoryDatalist" placeholder="เช่น รองเท้านักเรียนเด็ก" oninput="autoFillProductName()">
           </div>
           <div class="field" style="flex:1;">
             <label>ยี่ห้อ (ไม่บังคับ)</label>
-            <input type="text" id="pBrand" placeholder="เช่น Chappy" oninput="autoFillProductName()">
+            <input type="text" id="pBrand" list="brandDatalist" placeholder="เช่น Chappy" oninput="autoFillProductName()">
           </div>
         </div>
         <div class="field">
@@ -715,8 +720,8 @@
     <h3>เพิ่มหลายสี/เบอร์พร้อมกัน (SKU)</h3>
     <div class="confirm-sub">เพิ่มสีได้ทีละสี ส่วนเบอร์พิมพ์เป็นช่วงได้ (เช่น 28-48) แล้วตั้งราคาแยกตามเบอร์ทีหลังได้</div>
     <div class="btn-row">
-      <div class="field" style="flex:1;"><label>หมวดหมู่ (ไม่บังคับ)</label><input type="text" id="bkCategory" placeholder="เช่น รองเท้านักเรียนเด็ก" oninput="autoFillBulkName(); updateBulkPreview();"></div>
-      <div class="field" style="flex:1;"><label>ยี่ห้อ (ไม่บังคับ)</label><input type="text" id="bkBrand" placeholder="เช่น ADDA" oninput="autoFillBulkName(); updateBulkPreview();"></div>
+      <div class="field" style="flex:1;"><label>หมวดหมู่ (ไม่บังคับ)</label><input type="text" id="bkCategory" list="categoryDatalist" placeholder="เช่น รองเท้านักเรียนเด็ก" oninput="autoFillBulkName(); updateBulkPreview();"></div>
+      <div class="field" style="flex:1;"><label>ยี่ห้อ (ไม่บังคับ)</label><input type="text" id="bkBrand" list="brandDatalist" placeholder="เช่น ADDA" oninput="autoFillBulkName(); updateBulkPreview();"></div>
     </div>
     <div class="field"><label>รหัส (ไม่บังคับ)</label><input type="text" id="bkCode" placeholder="เช่น PC-2218" oninput="autoFillBulkName(); updateBulkPreview();"></div>
     <div class="field"><label>ชื่อสินค้า (เติมให้อัตโนมัติจากหมวดหมู่+ยี่ห้อ+รหัส+รุ่น แก้เองได้)</label><input type="text" id="bkName" placeholder="เช่น นันยาง" oninput="updateBulkPreview()"></div>
@@ -2737,7 +2742,19 @@ function batchDeleteGroup(){
   closeBatchSheet();
   deleteStockGroup(groupIndex);
 }
+// อัปเดตตัวเลือก autocomplete ของช่องหมวดหมู่/ยี่ห้อ จากค่าที่เคยกรอกไว้จริงในสินค้าทั้งหมด (ไม่ต้องพิมพ์ซ้ำ/กันสะกดผิด)
+// เรียกจาก renderProductList() ทุกครั้งที่ข้อมูลสินค้าเปลี่ยน (เพิ่ม/แก้ไข/ลบ/นำเข้า/ดึงจากคลาวด์) จะได้ตัวเลือกอัปเดตเสมอ
+function refreshCategoryBrandDatalists(){
+  const products = loadProducts();
+  const categories = [...new Set(products.map(p => (p.category||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'th'));
+  const brands = [...new Set(products.map(p => (p.brand||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'th'));
+  const catEl = document.getElementById('categoryDatalist');
+  const brandEl = document.getElementById('brandDatalist');
+  if(catEl) catEl.innerHTML = categories.map(c => `<option value="${escapeAttr(c)}">`).join('');
+  if(brandEl) brandEl.innerHTML = brands.map(b => `<option value="${escapeAttr(b)}">`).join('');
+}
 function renderProductList(){
+  refreshCategoryBrandDatalists();
   const filter = (document.getElementById('productFilter').value || '').toLowerCase();
   const allProducts = loadProducts();
   renderOutOfStockBanner(); // อัปเดตแบนเนอร์เตือนของหมดในหน้าแรกทุกครั้งที่สต็อกเปลี่ยน
@@ -3780,8 +3797,8 @@ function renderStockTxCreateNewHtml(){
     <div class="list-card">
       <div style="font-weight:700;margin-bottom:8px;">สร้างสินค้าใหม่</div>
       <div class="btn-row">
-        <div class="field" style="flex:1;"><label>หมวดหมู่</label><input type="text" id="stocktxNewCategory" placeholder="ไม่บังคับ"></div>
-        <div class="field" style="flex:1;"><label>ยี่ห้อ</label><input type="text" id="stocktxNewBrand" placeholder="ไม่บังคับ"></div>
+        <div class="field" style="flex:1;"><label>หมวดหมู่</label><input type="text" id="stocktxNewCategory" list="categoryDatalist" placeholder="ไม่บังคับ"></div>
+        <div class="field" style="flex:1;"><label>ยี่ห้อ</label><input type="text" id="stocktxNewBrand" list="brandDatalist" placeholder="ไม่บังคับ"></div>
       </div>
       <div class="btn-row">
         <div class="field" style="flex:1;"><label>รหัส</label><input type="text" id="stocktxNewCode" placeholder="ไม่บังคับ"></div>
@@ -5032,6 +5049,7 @@ initSellerPaymentUI();
 renderCart();
 renderDashboard();
 renderOutOfStockBanner();
+refreshCategoryBrandDatalists();
 initSupabaseSession().then(maybeShowLoginGate);
 setInterval(flushSyncQueue, 20000); // ลองส่งงานที่ค้างในคิวซ้ำทุก 20 วิ เผื่อเน็ตหลุดแล้วกลับมา
 window.addEventListener('online', flushSyncQueue);
