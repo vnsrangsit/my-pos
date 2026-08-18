@@ -231,6 +231,17 @@
   .stock-val-out{color:var(--danger);}
   .stock-val-low{color:#C7861A;}
   .sku-barcode-line{font-size:12px;color:var(--muted);margin:-4px 0 10px;}
+  .sku-thumb{width:36px;height:36px;object-fit:cover;border-radius:8px;border:1px solid var(--border);flex:none;margin-right:2px;cursor:zoom-in;display:block;}
+  .sku-thumb-wrap{position:relative;flex:none;margin-right:2px;line-height:0;}
+  .sku-thumb-wrap .sku-thumb{margin-right:0;}
+  .sku-thumb-empty{width:36px;height:36px;border-radius:8px;border:1px dashed var(--border);background:var(--card, #f3f3f3);flex:none;}
+  .sku-thumb-cam{position:absolute;bottom:-6px;right:-6px;width:20px;height:20px;border-radius:50%;background:#1E293B;color:#fff;border:2px solid #fff;font-size:11px;line-height:1;display:flex;align-items:center;justify-content:center;padding:0;cursor:pointer;}
+  .variant-image-row{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+  .variant-thumb{width:48px;height:48px;object-fit:cover;border-radius:10px;border:1px solid var(--border);flex:none;cursor:zoom-in;display:block;}
+  .variant-thumb-empty{width:48px;height:48px;border-radius:10px;border:1px dashed var(--border);background:var(--card, #f3f3f3);flex:none;}
+  #image-lightbox{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:70;display:none;align-items:center;justify-content:center;padding:24px;}
+  #image-lightbox.open{display:flex;}
+  #image-lightbox img{max-width:100%;max-height:100%;border-radius:12px;}
   /* ปุ่ม +/- ปรับสต็อกทีละ 1 บนการ์ดสินค้าโดยตรง ไม่ต้องเปิด prompt/ใช้คีย์บอร์ด */
   .stock-stepper{display:flex;align-items:center;justify-content:center;gap:4px;}
   .stock-step-btn{width:26px;height:26px;flex:none;border-radius:8px;border:1px solid var(--border);background:var(--card);font-size:16px;line-height:1;font-weight:700;color:var(--primary);cursor:pointer;padding:0;}
@@ -410,6 +421,16 @@
         <div class="field">
           <label>จำนวนสต็อก (เว้นว่าง = ไม่ติดตามสต็อก)</label>
           <input type="number" id="pStock" placeholder="เว้นว่างได้">
+        </div>
+        <div class="field">
+          <label>รูปสินค้า (ไม่บังคับ — รูปเดียวกันจะใช้ร่วมกันทุกเบอร์ของ รุ่น+สี นี้)</label>
+          <div class="btn-row" style="align-items:center;">
+            <img id="pImagePreview" style="display:none;width:56px;height:56px;object-fit:cover;border-radius:10px;border:1px solid var(--border);flex:none;">
+            <button type="button" class="btn btn-outline" style="flex:1;" onclick="document.getElementById('pImageFile').click()">ถ่าย/เลือกรูป</button>
+            <button type="button" class="btn-link" id="pImageRemoveBtn" style="display:none;flex:none;" onclick="removeProductImage()">ลบรูป</button>
+          </div>
+          <input type="file" id="pImageFile" accept="image/*" capture="environment" style="display:none;" onchange="handleProductImageSelect(event)">
+          <div class="muted" id="pImageStatus" style="font-size:11px;margin-top:4px;"></div>
         </div>
         <div class="quick-links-row" style="margin-top:4px;">
           <button type="button" class="btn-link" onclick="resetProductForm()">ล้างฟอร์ม</button>
@@ -792,6 +813,14 @@
   </div>
 </div>
 
+<!-- ดูรูปสินค้าขนาดเต็ม (แตะรูปเล็กในการ์ดสต็อกเพื่อเปิด) -->
+<div id="image-lightbox" onclick="closeImageLightbox()">
+  <img id="imageLightboxImg" src="" alt="">
+</div>
+
+<!-- ถ่าย/เปลี่ยนรูปสินค้าไวๆ จากไอคอนกล้องเล็กๆ บนการ์ดสต็อกโดยตรง ไม่ต้องเปิดหน้าแก้ไข -->
+<input type="file" id="quickImageFile" accept="image/*" capture="environment" style="display:none;" onchange="handleQuickImageSelect(event)">
+
 <!-- Batch Edit Bottom Sheet (ตั้งราคา/สต็อกหลายเบอร์ + ลบ) -->
 <div id="batch-sheet-overlay" class="sheet-overlay" onclick="if(event.target===this)closeBatchSheet();">
   <div class="sheet">
@@ -1027,7 +1056,7 @@ function toProductRow(p){
   return { id: p.id, owner_id: currentOwnerId, category: p.category || null, brand: p.brand || null, code: p.code || null,
     name: p.name, model: p.model || null, color: p.color || null, size: p.size || null, barcode: p.barcode || null,
     sku: p.sku || null, cost_price: p.costPrice || 0, price: p.price || 0,
-    stock: (p.stock === null || p.stock === undefined) ? null : p.stock };
+    stock: (p.stock === null || p.stock === undefined) ? null : p.stock, image_url: p.image || null };
 }
 function toAliasRow(a){
   return { id: a.id, owner_id: currentOwnerId, family_key: a.familyKey, alias: a.alias, created_at: a.createdAt || new Date().toISOString() };
@@ -1060,7 +1089,8 @@ function toStaffRow(name){
 function fromProductRow(r){
   return { id: r.id, category: r.category || '', brand: r.brand || '', code: r.code || '', name: r.name || '',
     model: r.model || '', color: r.color || '', size: r.size || '', barcode: r.barcode || '', sku: r.sku || '',
-    costPrice: r.cost_price || 0, price: r.price || 0, stock: (r.stock === null || r.stock === undefined) ? null : r.stock };
+    costPrice: r.cost_price || 0, price: r.price || 0, stock: (r.stock === null || r.stock === undefined) ? null : r.stock,
+    image: r.image_url || '' };
 }
 function fromAliasRow(r){
   return { id: r.id, familyKey: r.family_key, alias: r.alias, createdAt: r.created_at };
@@ -2423,6 +2453,120 @@ function confirmSell(){
 }
 
 /* ============ STOCK TAB ============ */
+/* ============ รูปสินค้า (1 รูปต่อ 1 รุ่น+สี ใช้ร่วมกันทุกเบอร์ กันต้องถ่ายซ้ำทีละเบอร์) ============
+   เก็บไฟล์จริงไว้บน Supabase Storage (bucket "product-images") ไม่ฝังเป็น base64 ในตาราง products
+   เพื่อไม่ให้ทุกครั้งที่ดึงข้อมูลสินค้าทั้งหมดจากคลาวด์ (ตอนเปิดแอป/ล็อกอิน) หนักขึ้นเรื่อยๆ ตามจำนวนรูป
+   ในเครื่อง/products เก็บแค่ URL รูป (field "image") — ต้องล็อกอินซิงก์อยู่ก่อนถึงจะอัปโหลดรูปได้ */
+const PRODUCT_IMAGE_BUCKET = 'product-images';
+let pendingProductImageBlob = null;
+let pendingProductImageRemoved = false;
+function sanitizeImageKeyPart(s){
+  return String(s||'').trim().replace(/[^a-zA-Z0-9ก-๙]+/g, '_').replace(/^_+|_+$/g, '') || 'x';
+}
+function productImageStorageKey(brand, code, color){
+  return `${sanitizeImageKeyPart(brand)}_${sanitizeImageKeyPart(code)}_${sanitizeImageKeyPart(color)}.jpg`;
+}
+// ย่อ/บีบอัดรูปก่อนอัปโหลด (จำกัดด้านยาวสุด + คุณภาพ JPEG) กันไฟล์ใหญ่เกินจำเป็นสำหรับแค่ดูระบุตัวสินค้า
+function compressImageToBlob(file, maxDim, quality){
+  return new Promise((resolve, reject)=>{
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = ()=>{
+      let { width, height } = img;
+      if(width > maxDim || height > maxDim){
+        const scale = maxDim / Math.max(width, height);
+        width = Math.round(width * scale);
+        height = Math.round(height * scale);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width; canvas.height = height;
+      canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+      canvas.toBlob(blob=>{
+        URL.revokeObjectURL(url);
+        if(blob) resolve(blob); else reject(new Error('บีบอัดรูปไม่สำเร็จ'));
+      }, 'image/jpeg', quality);
+    };
+    img.onerror = ()=>{ URL.revokeObjectURL(url); reject(new Error('เปิดไฟล์รูปไม่สำเร็จ')); };
+    img.src = url;
+  });
+}
+function handleProductImageSelect(event){
+  const file = event.target.files[0];
+  event.target.value = '';
+  if(!file) return;
+  compressImageToBlob(file, 480, 0.72).then(blob=>{
+    pendingProductImageBlob = blob;
+    pendingProductImageRemoved = false;
+    const preview = document.getElementById('pImagePreview');
+    preview.src = URL.createObjectURL(blob);
+    preview.style.display = '';
+    document.getElementById('pImageRemoveBtn').style.display = '';
+    document.getElementById('pImageStatus').textContent = 'เลือกรูปแล้ว จะอัปโหลดตอนกดบันทึกสินค้า';
+  }).catch(err=>{
+    toast('เลือกรูปไม่สำเร็จ: ' + (err && err.message ? err.message : err));
+  });
+}
+function removeProductImage(){
+  pendingProductImageBlob = null;
+  pendingProductImageRemoved = true;
+  document.getElementById('pImagePreview').style.display = 'none';
+  document.getElementById('pImageRemoveBtn').style.display = 'none';
+  document.getElementById('pImageStatus').textContent = 'จะลบรูปของ รุ่น+สี นี้ตอนกดบันทึก';
+}
+// อัปโหลดรูปขึ้น Supabase Storage แล้วคืน URL สาธารณะ — ต้องล็อกอินซิงก์อยู่ก่อน ไม่งั้นอัปโหลดไม่ได้ (คืน null)
+async function uploadProductImage(blob, brand, code, color){
+  if(!supabaseClient || !currentOwnerId) return null;
+  try{
+    const key = `${currentOwnerId}/${productImageStorageKey(brand, code, color)}`;
+    const { error } = await supabaseClient.storage.from(PRODUCT_IMAGE_BUCKET).upload(key, blob, { upsert: true, contentType: 'image/jpeg' });
+    if(error) throw error;
+    const { data } = supabaseClient.storage.from(PRODUCT_IMAGE_BUCKET).getPublicUrl(key);
+    return (data && data.publicUrl) ? (data.publicUrl + '?v=' + Date.now()) : null;
+  }catch(e){
+    console.error('อัปโหลดรูปสินค้าล้มเหลว:', e);
+    return null;
+  }
+}
+// ใส่ URL รูปเดียวกันให้ทุกสินค้าที่ รุ่น+สี ตรงกัน (ทุกเบอร์) ไม่ใช่แค่ตัวที่กำลังบันทึกอยู่
+function applyImageUrlToFamily(products, brand, code, color, imageUrl){
+  const b = (brand||'').trim(), c = (code||'').trim(), col = (color||'').trim();
+  products.forEach(p=>{
+    if((p.brand||'').trim()===b && (p.code||'').trim()===c && (p.color||'').trim()===col){
+      p.image = imageUrl || '';
+    }
+  });
+}
+// ถ่าย/เปลี่ยนรูปไวๆ จากไอคอนกล้องเล็กๆ บนการ์ดสต็อกโดยตรง (ไม่ต้องเปิดหน้าแก้ไขสินค้า)
+// อัปโหลดเสร็จแล้วรีเฟรชรายการอยู่ที่เดิม ไม่พาออกจากหน้าสต็อก
+let quickImageTargetId = null;
+function quickPickProductImage(id){
+  quickImageTargetId = id;
+  document.getElementById('quickImageFile').click();
+}
+function handleQuickImageSelect(event){
+  const file = event.target.files[0];
+  event.target.value = '';
+  const id = quickImageTargetId;
+  quickImageTargetId = null;
+  if(!file || !id) return;
+  compressImageToBlob(file, 480, 0.72).then(async blob=>{
+    const products = loadProducts();
+    const p = products.find(x=>x.id===id);
+    if(!p) return;
+    toast('กำลังอัปโหลดรูป...');
+    const imageUrl = await uploadProductImage(blob, p.brand, p.code, p.color);
+    if(imageUrl === null){
+      toast('อัปโหลดรูปไม่สำเร็จ (เช็คว่าล็อกอินซิงก์อยู่หรือยัง แล้วลองใหม่)');
+      return;
+    }
+    applyImageUrlToFamily(products, p.brand, p.code, p.color, imageUrl);
+    saveProducts(products);
+    renderProductList();
+    toast('อัปเดตรูปแล้ว');
+  }).catch(err=>{
+    toast('เลือกรูปไม่สำเร็จ: ' + (err && err.message ? err.message : err));
+  });
+}
 function resetProductForm(){
   document.getElementById('editProductId').value = '';
   document.getElementById('pCategory').value = '';
@@ -2438,6 +2582,11 @@ function resetProductForm(){
   document.getElementById('pPrice').value = '';
   document.getElementById('pStock').value = '';
   pNameLastAuto = '';
+  pendingProductImageBlob = null;
+  pendingProductImageRemoved = false;
+  document.getElementById('pImagePreview').style.display = 'none';
+  document.getElementById('pImageRemoveBtn').style.display = 'none';
+  document.getElementById('pImageStatus').textContent = '';
 }
 // รวมหมวดหมู่+ยี่ห้อ+รหัส+รุ่น เป็นชื่อสินค้าให้อัตโนมัติ ตามรูปแบบร้าน [หมวดหมู่] [ยี่ห้อ] [รหัส] [รุ่น]
 // (ใช้ตัวเดียวกับที่แยกชื่อตอนนำเข้า Excel/จัดระเบียบชื่อ กลับด้านกัน)
@@ -2545,7 +2694,7 @@ function applyCleanupTool(){
   renderProductList();
 }
 
-function saveProduct(){
+async function saveProduct(){
   const category = document.getElementById('pCategory').value.trim();
   const brand = document.getElementById('pBrand').value.trim();
   const code = document.getElementById('pCode').value.trim();
@@ -2560,6 +2709,18 @@ function saveProduct(){
   const stockRaw = document.getElementById('pStock').value;
   const stock = stockRaw === '' ? null : (parseInt(stockRaw) || 0);
   if(!name){ toast('กรุณากรอกชื่อสินค้า'); return; }
+
+  // ถ้าเลือก/ลบรูปไว้ ให้จัดการก่อน (ต้องรออัปโหลดเสร็จก่อนค่อยบันทึกสินค้าต่อ)
+  let imageUrl; // undefined = ไม่ได้แตะรูปเลย (คงรูปเดิมของ รุ่น+สี นี้ไว้), '' = ลบรูป, string = รูปใหม่
+  if(pendingProductImageBlob){
+    imageUrl = await uploadProductImage(pendingProductImageBlob, brand, code, color);
+    if(imageUrl === null){
+      toast('บันทึกสินค้าแล้ว แต่อัปโหลดรูปไม่สำเร็จ (เช็คว่าล็อกอินซิงก์อยู่หรือยัง แล้วลองอัปโหลดรูปใหม่อีกครั้ง)');
+      imageUrl = undefined;
+    }
+  } else if(pendingProductImageRemoved){
+    imageUrl = '';
+  }
 
   const editId = document.getElementById('editProductId').value;
   let products = loadProducts();
@@ -2577,15 +2738,16 @@ function saveProduct(){
     }
     toast('แก้ไขสินค้าแล้ว');
   } else {
-    const newProduct = { id: uid(), category, brand, code, name, model, color, size, barcode, sku, costPrice, price, stock: null };
+    const newProduct = { id: uid(), category, brand, code, name, model, color, size, barcode, sku, costPrice, price, stock: null, image: '' };
     products.push(newProduct);
     if(typeof stock === 'number'){
       recordStockTransaction(products, newProduct.id, 'ADJUSTMENT', stock, BASE_UNIT, 'สต็อกเริ่มต้นตอนเพิ่มสินค้า', { setAbsolute: true });
     } else {
-      newProduct.stock = stock; // null = ไม่ติดตามสต็อก
+      newProduct.stock = stock; // null = ไม่ระบุสต็อก
     }
     toast('เพิ่มสินค้าแล้ว');
   }
+  if(imageUrl !== undefined) applyImageUrlToFamily(products, brand, code, color, imageUrl);
   saveProducts(products);
   resetProductForm();
   renderProductList();
@@ -2606,6 +2768,20 @@ function editProduct(id){
   document.getElementById('pCost').value = p.costPrice || '';
   document.getElementById('pPrice').value = p.price;
   document.getElementById('pStock').value = (p.stock===null || p.stock===undefined) ? '' : p.stock;
+  // แสดงรูปเดิมของ รุ่น+สี นี้ไว้ก่อน (ถ้ามี) — ยังไม่ถือว่าผู้ใช้แตะรูป จนกว่าจะเลือก/ลบรูปใหม่เอง
+  pendingProductImageBlob = null;
+  pendingProductImageRemoved = false;
+  const pImagePreview = document.getElementById('pImagePreview');
+  if(p.image){
+    pImagePreview.src = p.image;
+    pImagePreview.style.display = '';
+    document.getElementById('pImageRemoveBtn').style.display = '';
+    document.getElementById('pImageStatus').textContent = '';
+  } else {
+    pImagePreview.style.display = 'none';
+    document.getElementById('pImageRemoveBtn').style.display = 'none';
+    document.getElementById('pImageStatus').textContent = '';
+  }
   // ถ้าชื่อเดิมตรงกับที่ระบบจะเติมให้อัตโนมัติพอดี (สินค้านี้เคยสร้างแบบเติมชื่ออัตโนมัติ) ให้ auto-fill ทำงานต่อได้เลยตอนแก้หมวดหมู่/ยี่ห้อ/รหัส
   // แต่ถ้าชื่อถูกแก้เป็นอย่างอื่นเองมาก่อน (เช่น พิมพ์ชื่อเต็มจากไฟล์ Excel) จะไม่เขียนทับชื่อที่ตั้งเองไว้
   const autoGuess = composeAutoProductName(p.category, p.brand, p.code, p.model);
@@ -3026,10 +3202,26 @@ function renderSkuCardHtml(p, gi){
       </div>
     </div>`;
 }
+// แถวรูปสินค้าของ "รุ่น+สี" นี้ทั้งกลุ่ม (แสดง/อัปโหลดครั้งเดียว ใช้ร่วมกันทุกเบอร์ ไม่ต้องมีไอคอนกล้องซ้ำทีละเบอร์)
+function renderVariantImageRowHtml(g){
+  const rep = (g.items && g.items[0]) || {};
+  const thumbHtml = rep.image
+    ? `<img src="${escapeAttr(rep.image)}" alt="" class="variant-thumb" onclick="event.stopPropagation();openImageLightbox('${escapeAttr(rep.image)}')">`
+    : `<div class="variant-thumb variant-thumb-empty"></div>`;
+  return `
+    <div class="variant-image-row" onclick="event.stopPropagation();">
+      <div class="sku-thumb-wrap">
+        ${thumbHtml}
+        <button type="button" class="sku-thumb-cam" title="ถ่าย/เปลี่ยนรูป (ใช้ร่วมกันทุกเบอร์ของรุ่น+สีนี้)" onclick="event.stopPropagation();quickPickProductImage('${rep.id}')">📷</button>
+      </div>
+      <span class="muted" style="font-size:12px;">รูปนี้ใช้ร่วมกันทุกเบอร์ของรุ่น/สีนี้</span>
+    </div>`;
+}
 // เรนเดอร์เนื้อหาของ 1 กลุ่มรุ่น/สี (ปุ่มจัดการหลายเบอร์แบบ bottom sheet + เลือกเบอร์ด้วย chip แทนที่จะโชว์ทุกเบอร์พร้อมกัน)
 // ใช้ทั้งตอนแสดงตรงๆ (มีรุ่นเดียว) และตอนเลือกจาก chip รุ่น/สี
 function renderVariantBody(g, gi){
   const sortedItems = getSortedGroupItems(g);
+  const imageRowHtml = renderVariantImageRowHtml(g);
   const actionsHtml = g.items.length > 1 ? `
     <div class="stock-actions-row">
       <button type="button" class="btn-link" onclick="openBatchSheet(${gi})">จัดการหลายเบอร์พร้อมกัน</button>
@@ -3042,7 +3234,7 @@ function renderVariantBody(g, gi){
   `;
 
   if(sortedItems.length <= 1){
-    return actionsHtml + sortedItems.map(p=>renderSkuCardHtml(p, gi)).join('');
+    return imageRowHtml + actionsHtml + sortedItems.map(p=>renderSkuCardHtml(p, gi)).join('');
   }
 
   // มีหลายเบอร์ในกลุ่มนี้ -> ใช้ chip แนวนอนปัดเลือกทีละเบอร์แทนที่จะโชว์ทุกเบอร์พร้อมกัน (กดง่ายกว่า dropdown บนมือถือ)
@@ -3050,7 +3242,7 @@ function renderVariantBody(g, gi){
     const color = VARIANT_DOT_COLORS[pi % VARIANT_DOT_COLORS.length];
     return `<button type="button" class="chip variant-dot" data-pi="${pi}" style="background:${color};" onclick="selectSkuChip(${gi}, ${pi})">${p.size || '-'}</button>`;
   }).join('');
-  return actionsHtml + `
+  return imageRowHtml + actionsHtml + `
     <div class="chip-row" id="sizeChips_${gi}">${chipsHtml}</div>
     <div id="skuDetail_${gi}"></div>
   `;
@@ -3345,6 +3537,13 @@ let importParsedRows = [];
 function escapeAttr(s){
   return String(s===null||s===undefined ? '' : s)
     .replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function openImageLightbox(url){
+  document.getElementById('imageLightboxImg').src = url;
+  document.getElementById('image-lightbox').classList.add('open');
+}
+function closeImageLightbox(){
+  document.getElementById('image-lightbox').classList.remove('open');
 }
 function toNumOrNull(v){
   if(v===undefined || v===null || v==='') return null;
