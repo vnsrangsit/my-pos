@@ -94,8 +94,8 @@
   #scanner-modal.open,#voice-modal.open{display:flex;}
   #reader{width:90vw;max-width:400px;background:#000;border-radius:20px;overflow:hidden;}
   .modal-close{margin-top:18px;}
-  #confirm-modal, #bulk-modal, #import-modal{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:55;display:none;align-items:center;justify-content:center;padding:16px;overflow-y:auto;backdrop-filter:blur(2px);}
-  #confirm-modal.open, #bulk-modal.open, #import-modal.open{display:flex;}
+  #confirm-modal, #bulk-modal, #import-modal, #import-orders-modal{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:55;display:none;align-items:center;justify-content:center;padding:16px;overflow-y:auto;backdrop-filter:blur(2px);}
+  #confirm-modal.open, #bulk-modal.open, #import-modal.open, #import-orders-modal.open{display:flex;}
   .import-row{background:var(--fill);border-radius:12px;padding:12px;margin-bottom:8px;transition:opacity .15s;}
   .import-row .field{margin-bottom:8px;}
   .import-row .field:last-child{margin-bottom:0;}
@@ -524,6 +524,10 @@
         <button class="btn btn-primary btn-full" onclick="document.getElementById('importExcelFile').click()">นำเข้าสินค้าจากไฟล์ Excel (Shopee)</button>
       </div>
       <input type="file" id="importExcelFile" accept=".xlsx,.xls" style="display:none;" onchange="handleImportExcelFile(event)">
+      <div class="btn-row" style="margin-bottom:12px;">
+        <button class="btn btn-outline btn-full" onclick="document.getElementById('importOrdersExcelFile').click()">นำเข้ายอดขายจากไฟล์คำสั่งซื้อ Excel (Shopee Order.all)</button>
+      </div>
+      <input type="file" id="importOrdersExcelFile" accept=".xlsx,.xls" style="display:none;" onchange="handleImportOrdersExcelFile(event)">
 
       <div class="collapse-header" data-collapse-toggle="collapseStockTools" onclick="toggleCollapse('collapseStockTools')">
         <h3>เครื่องมือเพิ่มเติม</h3>
@@ -771,6 +775,19 @@
     <div class="btn-row">
       <button class="btn btn-outline" onclick="closeImportModal()">ยกเลิก</button>
       <button class="btn btn-primary" onclick="confirmImportRows()">นำเข้าเข้าสต็อก</button>
+    </div>
+  </div>
+</div>
+
+<!-- นำเข้ายอดขายจากไฟล์คำสั่งซื้อ Excel ของ Shopee (Order.all) -->
+<div id="import-orders-modal">
+  <div class="confirm-card" style="max-width:460px;">
+    <h3>นำเข้ายอดขายจากคำสั่งซื้อ (Shopee)</h3>
+    <div class="confirm-sub" id="importOrdersSummary">กำลังอ่านไฟล์...</div>
+    <div id="importOrdersPreviewList" style="max-height:52vh;overflow-y:auto;margin-bottom:14px;"></div>
+    <div class="btn-row">
+      <button class="btn btn-outline" onclick="closeImportOrdersModal()">ยกเลิก</button>
+      <button class="btn btn-primary" onclick="confirmImportOrders()">นำเข้ายอดขายที่เลือก</button>
     </div>
   </div>
 </div>
@@ -3418,6 +3435,198 @@ function handleImportExcelFile(event){
   };
   reader.readAsArrayBuffer(file);
 }
+
+/* ============ นำเข้ายอดขายจากไฟล์คำสั่งซื้อ Excel ของ Shopee (Order.all) ============
+   ต่างจากการนำเข้าสต็อกด้านบน (ที่นำเข้า "สินค้า" ทีละตัวเข้าคลัง) อันนี้อ่านไฟล์รายงานคำสั่งซื้อ
+   ที่ Shopee ให้ดาวน์โหลด (คอลัมน์: หมายเลขคำสั่งซื้อ/สถานะ/วันที่สั่งซื้อ/ชื่อสินค้า/ชื่อตัวเลือก/จำนวน/ราคาขายสุทธิ)
+   แล้วแปลงแต่ละแถวเป็น "รายการขาย" ให้อัตโนมัติ (ตัดสต็อก + บันทึกยอดขาย) โดยข้ามเฉพาะสถานะที่ถูกยกเลิกเท่านั้น
+   (สถานะอื่นๆ เช่น รอจัดส่ง/กำลังจัดส่ง/สำเร็จแล้ว ถือว่านับเป็นยอดขายทั้งหมด ตามที่ร้านต้องการ) */
+let importOrdersParsedRows = [];
+const IMPORTED_ORDER_IDS_KEY = 'pos_imported_shopee_order_ids';
+function loadImportedOrderIds(){
+  try{ return new Set(JSON.parse(localStorage.getItem(IMPORTED_ORDER_IDS_KEY) || '[]')); }catch(e){ return new Set(); }
+}
+function saveImportedOrderIds(idSet){ localStorage.setItem(IMPORTED_ORDER_IDS_KEY, JSON.stringify([...idSet])); }
+
+// แกะไฟล์คำสั่งซื้อ: ใช้ชื่อคอลัมน์ตรงๆ (ไฟล์ Shopee มีหัวตารางแถวแรกอยู่แล้ว ไม่ต้องเดาตำแหน่งคอลัมน์เหมือนไฟล์ลงสินค้า)
+// สแกนทุกชีท เลือกชีทที่มีคอลัมน์ "หมายเลขคำสั่งซื้อ" และมีแถวข้อมูลมากที่สุด
+function extractShopeeOrderRows(workbook){
+  let best = [];
+  workbook.SheetNames.forEach(sheetName=>{
+    const ws = workbook.Sheets[sheetName];
+    let rows;
+    try{ rows = XLSX.utils.sheet_to_json(ws, {defval:''}); }catch(e){ return; }
+    if(!rows.length || !('หมายเลขคำสั่งซื้อ' in rows[0])) return;
+    const matched = [];
+    rows.forEach(row=>{
+      const orderId = String(row['หมายเลขคำสั่งซื้อ']||'').trim();
+      const status = String(row['สถานะการสั่งซื้อ']||'').trim();
+      if(!orderId) return;
+      if(status.includes('ยกเลิก')) return; // ข้ามเฉพาะสถานะยกเลิกตามที่ร้านขอ สถานะอื่นนับเป็นยอดขายหมด
+      const orderDateRaw = String(row['วันที่ทำการสั่งซื้อ']||'').trim();
+      const title = String(row['ชื่อสินค้า']||'').trim();
+      const optionStr = String(row['ชื่อตัวเลือก']||'').trim();
+      const optParts = optionStr.split(',').map(s=>s.trim());
+      const color = optParts[0] || '';
+      const size = optParts[1] || '';
+      const qty = toNumOrNull(row['จำนวน']) || 0;
+      const netTotal = toNumOrNull(row['ราคาขายสุทธิ']);
+      const unitPrice = (netTotal !== null && qty > 0) ? Math.round((netTotal/qty)*100)/100 : null;
+      if(!title || qty <= 0) return;
+      const isoGuess = orderDateRaw.replace(' ', 'T');
+      const d = new Date(isoGuess);
+      const timestamp = isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+      matched.push({ orderId, status, timestamp, orderDateRaw, title, color, size, qty, unitPrice });
+    });
+    if(matched.length > best.length) best = matched;
+  });
+  return best;
+}
+// เช็คว่ารหัสสินค้าปรากฏอยู่ในชื่อสินค้าจากไฟล์ไหม เผื่อกรณีชื่อสินค้าบน Shopee พิมพ์รหัสตกหล่นตัวสุดท้าย
+// (เจอจริงในไฟล์ลูกค้า เช่น ชื่อเขียน "41N19C/41A19B1" แต่รหัสในระบบคือ "41N19C1" — เลขท้ายหายไปเพราะติดเครื่องหมาย "/" พอดี)
+// ถ้าเทียบตรงๆ ไม่เจอ และรหัสลงท้ายด้วยตัวเลข จะลองตัดตัวเลขท้ายออก 1 ตัวแล้วเช็คอีกครั้ง โดยต้องตามด้วยขอบเขตคำ (ไม่ใช่ตัวอักษร/ตัวเลขอื่นต่อท้าย) กันจับคู่รหัสอื่นที่ยาวกว่าโดยบังเอิญ
+function codeAppearsInTitle(code, title){
+  if(!code) return false;
+  const c = code.trim();
+  if(!c) return false;
+  if(title.includes(c)) return true;
+  if(/\d$/.test(c)){
+    const short = c.slice(0, -1);
+    if(short){
+      const escaped = short.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const re = new RegExp(escaped + '(?![0-9A-Za-z])');
+      if(re.test(title)) return true;
+    }
+  }
+  return false;
+}
+// จับคู่ 1 แถวคำสั่งซื้อกับสินค้าที่มีอยู่แล้วในระบบ โดยใช้ "รหัส" ของสินค้าเทียบว่าอยู่ในชื่อสินค้าจากไฟล์หรือไม่
+// (ชื่อสินค้าบน Shopee มักใส่รหัสไว้ทั้ง 2 สี เช่น "CD-99/ CD-88" หรือ "41G99B1 41C20B1" ปนกัน) จึงต้องกรองซ้ำด้วยสี+ไซส์
+// จากคอลัมน์ "ชื่อตัวเลือก" เทียบกับฐานข้อมูลจริง เพื่อเลือกรหัสที่ตรงกับสีนั้นๆ เท่านั้น (ตามที่ร้านสั่งไว้)
+function matchOrderRowToProduct(row, products){
+  if(!row.title) return null;
+  const oc = (row.color||'').trim();
+  const os = (row.size||'').trim();
+  const candidates = products.filter(p=>{
+    if(!codeAppearsInTitle(p.code, row.title)) return false;
+    if((p.color||'').trim() !== oc) return false;
+    if((p.size||'').trim() !== os) return false;
+    return true;
+  });
+  return candidates.length === 1 ? candidates[0] : null;
+}
+function handleImportOrdersExcelFile(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = (e)=>{
+    try{
+      const data = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, {type:'array'});
+      const rawRows = extractShopeeOrderRows(workbook);
+      if(!rawRows.length){
+        toast('ไม่พบข้อมูลคำสั่งซื้อในไฟล์นี้ (ต้องเป็นไฟล์รายงานคำสั่งซื้อที่มีคอลัมน์ "หมายเลขคำสั่งซื้อ")');
+      } else {
+        const products = loadProducts();
+        const importedIds = loadImportedOrderIds();
+        importOrdersParsedRows = rawRows.map(row=>{
+          const product = matchOrderRowToProduct(row, products);
+          const alreadyImported = importedIds.has(row.orderId);
+          return { ...row, product, alreadyImported, include: !!product && !alreadyImported };
+        });
+        openImportOrdersModal();
+      }
+    } catch(err){
+      toast('อ่านไฟล์ Excel ไม่สำเร็จ: ' + (err && err.message ? err.message : err));
+    }
+    event.target.value = '';
+  };
+  reader.readAsArrayBuffer(file);
+}
+function openImportOrdersModal(){
+  renderImportOrdersPreview();
+  document.getElementById('import-orders-modal').classList.add('open');
+}
+function closeImportOrdersModal(){
+  document.getElementById('import-orders-modal').classList.remove('open');
+}
+function importOrdersSummaryText(){
+  const rows = importOrdersParsedRows;
+  const included = rows.filter(r=>r.include);
+  const totalQty = included.reduce((a,r)=>a+r.qty,0);
+  const unmatched = rows.filter(r=>!r.product).length;
+  const already = rows.filter(r=>r.alreadyImported).length;
+  return `พบ ${rows.length} รายการ (ไม่รวมที่ยกเลิก) — เลือกนำเข้า ${included.length} รายการ (${totalQty} คู่)`
+    + (unmatched ? ` · ⚠️ หาสินค้าตรงกันไม่เจอ ${unmatched} รายการ (ต้องเพิ่มเองภายหลัง)` : '')
+    + (already ? ` · 🔁 นำเข้าไปแล้วก่อนหน้า ${already} รายการ (ไม่เลือกให้อัตโนมัติ)` : '');
+}
+function renderImportOrdersPreview(){
+  document.getElementById('importOrdersSummary').textContent = importOrdersSummaryText();
+  const el = document.getElementById('importOrdersPreviewList');
+  el.innerHTML = importOrdersParsedRows.map((r,i)=>{
+    const p = r.product;
+    const displayName = p ? composeDisplayName(p.name, p.model, p.color, p.size) : r.title;
+    const disabled = !p;
+    return `
+    <div class="import-row" style="opacity:${r.include?1:0.45};">
+      <label class="import-row-top">
+        <input type="checkbox" ${r.include?'checked':''} ${disabled?'disabled':''} onchange="toggleImportOrderRow(${i}, this.checked)">
+        <span>#${i+1} · ${new Date(r.timestamp).toLocaleString('th-TH')}</span>
+      </label>
+      ${!p ? `<div class="alert-banner" style="margin-bottom:8px;background:var(--warning-tint,#FFF4E0);color:var(--warning,#B8791A);font-size:12px;">⚠️ หาสินค้าที่ตรงกันในระบบไม่เจอ (สี "${escapeAttr(r.color)}" เบอร์ "${escapeAttr(r.size)}") — เพิ่มรายการนี้ด้วยมือภายหลัง<div class="muted" style="margin-top:4px;">${escapeAttr(r.title)}</div></div>` : ''}
+      ${r.alreadyImported ? `<div class="alert-banner" style="margin-bottom:8px;background:var(--fill);color:var(--muted,#888);font-size:12px;">🔁 บิลนี้ (เลขที่ ${escapeAttr(r.orderId)}) นำเข้าไปแล้วก่อนหน้านี้</div>` : ''}
+      <div class="cart-item">
+        <div>
+          <div>${escapeAttr(displayName)} x${r.qty}</div>
+          <div class="muted">เลขคำสั่งซื้อ ${escapeAttr(r.orderId)} · สถานะ ${escapeAttr(r.status)} · ${r.unitPrice!==null ? '฿'+r.unitPrice+'/คู่' : 'ไม่พบราคา'}</div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+function toggleImportOrderRow(i, checked){
+  const r = importOrdersParsedRows[i];
+  if(!r) return;
+  r.include = checked;
+  renderImportOrdersPreview();
+}
+// นำรายการที่ติ๊กไว้ (และจับคู่สินค้าได้แล้ว) มาบันทึกเป็นรายการขายจริง: ตัดสต็อก + สร้างบิลขาย ต่อ 1 แถว/1 บิล
+// จำเวลาออเดอร์จริงของลูกค้าไว้เป็นเวลาบันทึกบิล (ไม่ใช่เวลาที่กดนำเข้า) และจดเลขที่คำสั่งซื้อไว้กันนำเข้าซ้ำในครั้งถัดไป
+function confirmImportOrders(){
+  const rows = importOrdersParsedRows.filter(r=>r.include && r.product);
+  if(!rows.length){ toast('ไม่มีรายการที่เลือกไว้ให้นำเข้า (ต้องจับคู่สินค้าได้ก่อนถึงจะติ๊กเลือกได้)'); return; }
+  const products = loadProducts();
+  const sales = loadSales();
+  const importedIds = loadImportedOrderIds();
+  let totalQty = 0;
+  rows.forEach(r=>{
+    const p = products.find(pp=>pp.id===r.product.id);
+    if(!p) return;
+    const unitPrice = r.unitPrice !== null ? r.unitPrice : p.price;
+    const saleId = uid();
+    recordStockTransaction(products, p.id, 'SALE', r.qty, BASE_UNIT, `ขายจาก Shopee บิล ${r.orderId}`);
+    sales.push({
+      id: saleId,
+      timestamp: r.timestamp,
+      items: [{ productId: p.id, name: composeDisplayName(p.name, p.model, p.color, p.size), price: unitPrice, costPrice: p.costPrice||0, qty: r.qty }],
+      total: unitPrice * r.qty,
+      cost: (p.costPrice||0) * r.qty,
+      profit: (unitPrice - (p.costPrice||0)) * r.qty,
+      seller: 'นำเข้าจาก Shopee',
+      payment: 'โอน/พร้อมเพย์',
+      channel: 'Shopee'
+    });
+    importedIds.add(r.orderId);
+    totalQty += r.qty;
+  });
+  saveProducts(products);
+  saveSales(sales);
+  saveImportedOrderIds(importedIds);
+  closeImportOrdersModal();
+  renderSalesList(); renderDashboard(); renderProductList();
+  toast(`นำเข้ายอดขายจาก Shopee แล้ว ${rows.length} บิล (${totalQty} คู่)`);
+}
+
 function openImportModal(){
   renderImportPreview();
   document.getElementById('import-modal').classList.add('open');
