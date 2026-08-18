@@ -2465,7 +2465,17 @@ const PRODUCT_IMAGE_BUCKET = 'product-images';
 let pendingProductImageBlob = null;
 let pendingProductImageRemoved = false;
 function sanitizeImageKeyPart(s){
-  return String(s||'').trim().replace(/[^a-zA-Z0-9ก-๙]+/g, '_').replace(/^_+|_+$/g, '') || 'x';
+  // คีย์ไฟล์บน Supabase Storage ต้องเป็น ASCII เท่านั้น (อักษรไทย/ยูนิโค้ดอื่นทำให้ upload พัง "Invalid key")
+  // เลยตัดอักษรที่ไม่ใช่ a-z A-Z 0-9 ออกก่อน (รวมอักษรไทย)
+  const str = String(s||'').trim();
+  let ascii = str.replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  if(!ascii){
+    // ถ้าเป็นภาษาไทยล้วนๆ (เช่น สี "ดำ") จะไม่เหลือ ASCII เลย ใช้รหัสแทนจากตัวอักษรเดิมแทน (คงที่ทุกครั้งสำหรับคำเดียวกัน กันคีย์ชนกัน)
+    let hash = 0;
+    for(let i=0; i<str.length; i++){ hash = ((hash<<5) - hash + str.charCodeAt(i)) | 0; }
+    ascii = 'th' + Math.abs(hash).toString(36);
+  }
+  return ascii;
 }
 function productImageStorageKey(brand, code, color){
   return `${sanitizeImageKeyPart(brand)}_${sanitizeImageKeyPart(code)}_${sanitizeImageKeyPart(color)}.jpg`;
