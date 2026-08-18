@@ -167,6 +167,7 @@
   /* ===== Stock list groups (collapsible) ===== */
   .stock-group{background:var(--card);border:1px solid var(--border);border-radius:16px;margin-bottom:10px;overflow:hidden;box-shadow:0 1px 2px rgba(30,41,59,.03);}
   .stock-group-header{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;cursor:pointer;}
+  .stock-group-title-row{display:flex;align-items:center;gap:10px;min-width:0;}
   .stock-group-header:active{background:var(--fill);}
   .stock-group-header strong{font-size:14.5px;letter-spacing:-.1px;}
   .stock-group-arrow{display:inline-block;margin-left:8px;transition:transform .15s;color:var(--muted);font-size:13px;flex:0 0 auto;}
@@ -239,6 +240,9 @@
   .variant-image-row{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
   .variant-thumb{width:48px;height:48px;object-fit:cover;border-radius:10px;border:1px solid var(--border);flex:none;cursor:zoom-in;display:block;}
   .variant-thumb-empty{width:48px;height:48px;border-radius:10px;border:1px dashed var(--border);background:var(--card, #f3f3f3);flex:none;}
+  .group-thumb-wrap{flex:none;}
+  .group-thumb{width:38px;height:38px;object-fit:cover;border-radius:9px;border:1px solid var(--border);flex:none;cursor:zoom-in;display:block;}
+  .group-thumb-empty{width:38px;height:38px;border-radius:9px;border:1px dashed var(--border);background:var(--card, #f3f3f3);flex:none;}
   #image-lightbox{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:70;display:none;align-items:center;justify-content:center;padding:24px;}
   #image-lightbox.open{display:flex;}
   #image-lightbox img{max-width:100%;max-height:100%;border-radius:12px;}
@@ -3036,7 +3040,8 @@ function renderProductList(){
     let bodyHtml;
     if(ng.indices.length === 1){
       // มีรุ่น/สีเดียวสำหรับชื่อนี้ ไม่ต้องมีตัวเลือกให้กด แสดงตรงๆ ได้เลย
-      bodyHtml = renderVariantBody(groups[ng.indices[0]], ng.indices[0]);
+      // รูปสินค้าย้ายไปแสดงที่หัวข้อด้านซ้ายของชื่อสินค้าแทนแล้ว (ด้านล่าง) เลยซ่อนแถวรูปซ้ำในนี้
+      bodyHtml = renderVariantBody(groups[ng.indices[0]], ng.indices[0], { hideImageRow: true });
     } else {
       // หลายรุ่น/สี -> ใช้ chip แนวนอนปัดเลือกแทน dropdown (กดง่ายกว่าบนมือถือ)
       const chips = ng.indices.map(gi=>{
@@ -3050,6 +3055,7 @@ function renderProductList(){
       `;
     }
     const repItem = (groups[ng.indices[0]].items || [])[0] || {};
+    const headerThumbHtml = renderNameGroupThumbHtml(repItem);
     // Alias (ชื่อเรียกอื่น) ผูกกับ "ตระกูลสินค้า" (แบรนด์+รหัส หรือชื่อถ้าไม่มีรหัส) ไม่ผูกกับสี/ไซส์เดียว
     // จัดการเพิ่ม/ลบได้ตรงนี้เลยในหน้าสต็อก ไม่ต้องมีหน้า Dictionary แยก
     const familyKey = getFamilyKey(repItem);
@@ -3071,10 +3077,13 @@ function renderProductList(){
     const html = `
       <div class="stock-group">
         <div class="stock-group-header${autoOpen?' open':''}" data-group-toggle="${nameGroupId}" onclick="toggleStockGroup('${nameGroupId}')">
-          <div>
-            <strong>${ng.name}</strong>
-            ${modelsSummary ? `<div class="muted">${modelsSummary}</div>` : ''}
-            <div class="muted">${totalSkuCount} เบอร์/SKU ทั้งหมด</div>
+          <div class="stock-group-title-row">
+            ${headerThumbHtml}
+            <div>
+              <strong>${ng.name}</strong>
+              ${modelsSummary ? `<div class="muted">${modelsSummary}</div>` : ''}
+              <div class="muted">${totalSkuCount} เบอร์/SKU ทั้งหมด</div>
+            </div>
           </div>
           <span class="stock-group-arrow">▾</span>
         </div>
@@ -3202,7 +3211,20 @@ function renderSkuCardHtml(p, gi){
       </div>
     </div>`;
 }
-// แถวรูปสินค้าของ "รุ่น+สี" นี้ทั้งกลุ่ม (แสดง/อัปโหลดครั้งเดียว ใช้ร่วมกันทุกเบอร์ ไม่ต้องมีไอคอนกล้องซ้ำทีละเบอร์)
+// รูปสินค้า + ไอคอนกล้องเล็กๆ ใช้แสดงที่หัวข้อ "ชื่อสินค้า" (ทางซ้ายของชื่อ) เป็นหลัก
+// กดกล้องแล้วรูปจะผูกกับ รุ่น+สี ของ repItem ใช้ร่วมกันทุกเบอร์ในรุ่น+สีนั้นเหมือนเดิม
+function renderNameGroupThumbHtml(repItem){
+  const thumbHtml = repItem.image
+    ? `<img src="${escapeAttr(repItem.image)}" alt="" class="group-thumb" onclick="event.stopPropagation();openImageLightbox('${escapeAttr(repItem.image)}')">`
+    : `<div class="group-thumb group-thumb-empty"></div>`;
+  return `
+    <div class="sku-thumb-wrap group-thumb-wrap" onclick="event.stopPropagation();">
+      ${thumbHtml}
+      <button type="button" class="sku-thumb-cam" title="ถ่าย/เปลี่ยนรูป" onclick="event.stopPropagation();quickPickProductImage('${repItem.id}')">📷</button>
+    </div>`;
+}
+// แถวรูปสินค้าของ "รุ่น+สี" นี้ทั้งกลุ่ม ใช้เมื่อชื่อเดียวกันมีหลายรุ่น/สี (ต้องเลือก chip ก่อน) เพื่อให้เห็น/เปลี่ยนรูปของรุ่น+สีที่เลือกอยู่
+// ถ้าชื่อนี้มีรุ่น/สีเดียว รูปจะโชว์ที่หัวข้อชื่อสินค้าแทนแล้ว (ไม่ต้องซ้ำ ดูไม่รก)
 function renderVariantImageRowHtml(g){
   const rep = (g.items && g.items[0]) || {};
   const thumbHtml = rep.image
@@ -3219,9 +3241,10 @@ function renderVariantImageRowHtml(g){
 }
 // เรนเดอร์เนื้อหาของ 1 กลุ่มรุ่น/สี (ปุ่มจัดการหลายเบอร์แบบ bottom sheet + เลือกเบอร์ด้วย chip แทนที่จะโชว์ทุกเบอร์พร้อมกัน)
 // ใช้ทั้งตอนแสดงตรงๆ (มีรุ่นเดียว) และตอนเลือกจาก chip รุ่น/สี
-function renderVariantBody(g, gi){
+function renderVariantBody(g, gi, opts){
+  opts = opts || {};
   const sortedItems = getSortedGroupItems(g);
-  const imageRowHtml = renderVariantImageRowHtml(g);
+  const imageRowHtml = opts.hideImageRow ? '' : renderVariantImageRowHtml(g);
   const actionsHtml = g.items.length > 1 ? `
     <div class="stock-actions-row">
       <button type="button" class="btn-link" onclick="openBatchSheet(${gi})">จัดการหลายเบอร์พร้อมกัน</button>
