@@ -2,7 +2,7 @@
 <html lang="th">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, interactive-widget=resizes-content">
 <title>POS ร้านค้าปลีก</title>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -37,9 +37,16 @@
   .profile-icon{width:34px;height:34px;border-radius:50%;background:var(--fill);color:var(--primary);
     display:flex;align-items:center;justify-content:center;flex:0 0 auto;border:none;cursor:pointer;}
   .profile-icon svg{width:18px;height:18px;}
+  /* กระดิ่งแจ้งเตือน: โผล่ให้เห็นเฉพาะตอนมีการปรับสต็อกจากหน้าเช็คสต็อกพนักงานที่ยังไม่ได้เปิดดู */
+  .bell-btn{position:relative;width:34px;height:34px;border-radius:50%;background:var(--fill);border:none;cursor:pointer;
+    font-size:16px;display:flex;align-items:center;justify-content:center;flex:0 0 auto;}
+  .bell-badge{position:absolute;top:-3px;right:-3px;min-width:16px;height:16px;padding:0 3px;border-radius:8px;background:var(--danger);
+    color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;line-height:1;}
+  .bell-badge:empty, .bell-badge[data-zero="1"]{display:none;}
 
   /* ===== Bottom Tab Bar (native app style) ===== */
-  .tabbar{position:fixed;left:0;right:0;bottom:0;z-index:40;background:#fff;border-top:1px solid var(--border);
+  /* bottom: var(--kb-offset) กันแถบล่างเด้ง/ขยับตอนคีย์บอร์ดเปิดบนมือถือ (ตั้งค่าโดย JS ตาม visualViewport) */
+  .tabbar{position:fixed;left:0;right:0;bottom:var(--kb-offset,0px);z-index:40;background:#fff;border-top:1px solid var(--border);
     display:flex;padding:6px 4px calc(6px + env(safe-area-inset-bottom,0px));box-shadow:0 -2px 12px rgba(30,41,59,.05);}
   .tabbar-item{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;background:none;border:none;
     color:var(--muted);padding:6px 2px;cursor:pointer;border-radius:12px;}
@@ -101,7 +108,7 @@
   .import-row .field:last-child{margin-bottom:0;}
   .import-row-top{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-weight:700;font-size:13px;}
   .import-row-top input[type="checkbox"]{width:18px;height:18px;}
-  .confirm-card{background:#fff;border-radius:22px;padding:22px;width:100%;max-width:380px;max-height:90vh;overflow-y:auto;margin:auto;}
+  .confirm-card{background:#fff;border-radius:22px;padding:22px;width:100%;max-width:380px;max-height:90vh;max-height:calc(var(--vvh,100vh) * .9);overflow-y:auto;margin:auto;}
   .confirm-card h3{margin:0 0 4px;font-size:18px;font-weight:700;border:none;padding:0;letter-spacing:-.2px;}
   .confirm-sub{color:var(--muted);font-size:13px;margin-bottom:16px;line-height:1.4;}
   .toast{position:fixed;top:70px;left:50%;transform:translateX(-50%);background:rgba(28,28,30,.92);backdrop-filter:blur(10px);color:#fff;padding:12px 20px;
@@ -188,7 +195,7 @@
   /* ===== Bottom sheet (mobile-native modal, replaces boxed inline batch-edit forms) ===== */
   .sheet-overlay{position:fixed;inset:0;background:rgba(0,0,0,.42);z-index:60;display:none;align-items:flex-end;justify-content:center;}
   .sheet-overlay.open{display:flex;}
-  .sheet{background:#fff;width:100%;max-width:480px;border-radius:20px 20px 0 0;max-height:88vh;
+  .sheet{background:#fff;width:100%;max-width:480px;border-radius:20px 20px 0 0;max-height:88vh;max-height:calc(var(--vvh,100vh) * .88);
     display:flex;flex-direction:column;padding-bottom:env(safe-area-inset-bottom,0px);}
   .sheet-handle{width:38px;height:4px;background:var(--border);border-radius:2px;margin:10px auto 2px;flex:0 0 auto;}
   .sheet-header{display:flex;justify-content:space-between;align-items:center;padding:8px 20px 14px;flex:0 0 auto;}
@@ -212,7 +219,7 @@
   .scan-hero:active{opacity:.85;}
   .scan-hero svg{width:34px;height:34px;margin-bottom:8px;}
   .scan-hero div.scan-label{font-size:16px;font-weight:700;}
-  .sticky-action-bar{position:fixed;left:0;right:0;bottom:58px;z-index:39;background:#fff;border-top:1px solid var(--border);
+  .sticky-action-bar{position:fixed;left:0;right:0;bottom:calc(58px + var(--kb-offset,0px));z-index:39;background:#fff;border-top:1px solid var(--border);
     padding:10px 18px;display:none;}
   .sticky-action-bar.show{display:block;}
   .sticky-action-bar .btn{font-size:16px;padding:15px 16px;}
@@ -302,6 +309,9 @@
   <h1 id="pageTitle">สแกนสินค้า</h1>
   <span id="syncIndicator" style="margin-right:6px;font-size:15px;"></span>
   <span id="clock"></span>
+  <button class="bell-btn" id="stocktakeBellBtn" onclick="openStocktakeNotifSheet()" title="แจ้งเตือนการปรับสต็อกจากพนักงาน" style="display:none;">
+    🔔<span class="bell-badge" id="stocktakeBellBadge">0</span>
+  </button>
   <button class="profile-icon" onclick="toast('อุปกรณ์นี้ใช้เพียงคนเดียว')">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.2"/><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6"/></svg>
   </button>
@@ -963,6 +973,18 @@
   </div>
 </div>
 
+<!-- แจ้งเตือนการปรับสต็อกจากหน้าเช็คสต็อกพนักงาน (stocktake.html) — เผื่อพนักงานปรับแล้วไม่ได้บอก -->
+<div id="stocktake-notif-overlay" class="sheet-overlay" onclick="if(event.target===this)closeStocktakeNotifSheet();">
+  <div class="sheet" style="max-width:640px;">
+    <div class="sheet-handle"></div>
+    <div class="sheet-header">
+      <h3>🔔 พนักงานปรับสต็อกล่าสุด</h3>
+      <button type="button" class="sheet-close" onclick="closeStocktakeNotifSheet()">✕</button>
+    </div>
+    <div class="sheet-body" id="stocktakeNotifBody"></div>
+  </div>
+</div>
+
 <!-- กู้คืนสินค้าที่ถูกลบ: อ่านจากประวัติสต็อก (type DELETED) เอาชื่อ/ยี่ห้อ/รหัส/สี/เบอร์/สต็อกล่าสุดก่อนลบกลับมาสร้างใหม่
      หมายเหตุ: ราคาทุน/ราคาขาย/หมวดหมู่/รุ่น ไม่ได้ถูกเก็บไว้ในประวัติ ต้องกรอกใหม่เองหลังกู้คืน -->
 <div id="restore-deleted-sheet-overlay" class="sheet-overlay" onclick="if(event.target===this)closeRestoreDeletedModal();">
@@ -1009,6 +1031,34 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
+/* ============ กันหน้าเว้บ/แถบล่างเด้ง-กระตุกตอนคีย์บอร์ดมือถือเปิด ============
+   ปัญหาเดิม: .tabbar/.sticky-action-bar เป็น position:fixed อ้างอิงตาม layout viewport เฉยๆ
+   พอคีย์บอร์ดเปิด บางเบราว์เซอร์ (โดยเฉพาะ iOS Safari รุ่นเก่า) จะไม่ย่อ layout viewport ให้
+   ทำให้แถบล่างลอย/บัง แล้วเบราว์เซอร์พยายามเลื่อนจอตามช่องที่พิมพ์อยู่ กระตุกจนบางทีโฟกัส/ตัวอักษรที่พิมพ์หาย
+   วิธีแก้: ใช้ window.visualViewport (รองรับ iOS Safari ตั้งแต่ 13+) คำนวณความสูงจริงที่มองเห็น
+   แล้วตั้งเป็น CSS variable ให้ .tabbar/.sticky-action-bar/.sheet/.confirm-card อ้างอิงแทน ไม่ต้องพึ่งแค่ vh เฉยๆ */
+(function setupKeyboardViewportFix(){
+  const root = document.documentElement;
+  function applyViewportVars(){
+    const vv = window.visualViewport;
+    if(vv){
+      root.style.setProperty('--vvh', vv.height + 'px');
+      const kbOffset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      root.style.setProperty('--kb-offset', kbOffset + 'px');
+    } else {
+      root.style.setProperty('--vvh', window.innerHeight + 'px');
+      root.style.setProperty('--kb-offset', '0px');
+    }
+  }
+  applyViewportVars();
+  if(window.visualViewport){
+    window.visualViewport.addEventListener('resize', applyViewportVars);
+    window.visualViewport.addEventListener('scroll', applyViewportVars);
+  } else {
+    window.addEventListener('resize', applyViewportVars);
+  }
+})();
+
 /* ============ DATA LAYER (localStorage) ============ */
 const DB_KEYS = { products: 'pos_products', sales: 'pos_sales', staff: 'pos_staff', lastSeller: 'pos_last_seller', lastPayment: 'pos_last_payment', lastChannel: 'pos_last_channel', pin: 'pos_pin',
   aliases: 'pos_product_aliases', stockTx: 'pos_stock_transactions', dataVersion: 'pos_data_version', lowStockThreshold: 'pos_low_stock_threshold',
@@ -1164,6 +1214,107 @@ async function pullFromSupabaseAndRefresh(){
     if(typeof renderOutOfStockBanner === 'function') renderOutOfStockBanner();
   }
   return ok;
+}
+
+/* ============ แจ้งเตือน "พนักงานปรับสต็อกจากหน้า stocktake.html" ============
+   หน้า stocktake.html บันทึกทุกรายการที่พนักงานปรับ ลงตาราง stock_transactions โดยใส่ note คงที่ตัวนี้
+   index.html เช็คเป็นระยะๆ ว่ามีแถวใหม่ที่ note ตรงกัน (created_at ใหม่กว่าครั้งก่อนที่เช็ค) หรือยัง
+   ถ้ามี -> อัปเดตจำนวนสต็อกในเครื่องนี้ให้ตรง + เด้งกระดิ่งแจ้งเตือนไว้ เผื่อพนักงานปรับแล้วไม่ได้บอกด้วยปากเปล่า */
+const STOCKTAKE_NOTE = 'ปรับจากหน้าเช็คสต็อกพนักงาน';
+const STOCKTAKE_NOTIF_SINCE_KEY = 'pos_stocktake_notif_since';
+const STOCKTAKE_NOTIF_UNREAD_KEY = 'pos_stocktake_notif_unread';
+let stocktakeNotifPollTimer = null;
+
+function loadStocktakeNotifUnread(){ try{ return JSON.parse(localStorage.getItem(STOCKTAKE_NOTIF_UNREAD_KEY) || '[]'); }catch(e){ return []; } }
+function saveStocktakeNotifUnread(list){ localStorage.setItem(STOCKTAKE_NOTIF_UNREAD_KEY, JSON.stringify(list)); }
+
+function updateStocktakeBell(){
+  const btn = document.getElementById('stocktakeBellBtn');
+  const badge = document.getElementById('stocktakeBellBadge');
+  if(!btn || !badge) return;
+  const unread = loadStocktakeNotifUnread();
+  if(unread.length > 0){
+    btn.style.display = 'flex';
+    badge.textContent = unread.length > 99 ? '99+' : String(unread.length);
+    badge.removeAttribute('data-zero');
+  } else {
+    badge.setAttribute('data-zero','1');
+    // ปุ่มยังโผล่ค้างไว้ถ้าเคยมีการปรับสต็อกจากพนักงานมาก่อน (เผื่ออยากย้อนดูประวัติ) แค่ซ่อน badge ตัวเลข
+    if(localStorage.getItem(STOCKTAKE_NOTIF_SINCE_KEY)) btn.style.display = 'flex';
+  }
+}
+// เช็คว่ามีการปรับสต็อกใหม่จากหน้าเช็คสต็อกพนักงานไหม เรียกครั้งแรกตอนล็อกอินสำเร็จ + วนเช็คซ้ำเป็นระยะขณะเปิดแอปค้างไว้
+async function pollStocktakeNotifications(){
+  if(!supabaseClient || !currentOwnerId) return;
+  let since = localStorage.getItem(STOCKTAKE_NOTIF_SINCE_KEY);
+  if(!since){
+    // ครั้งแรกที่เคยเช็ค (เช่นเพิ่งอัปเดตแอปเวอร์ชันนี้) — ตั้งจุดเริ่มเป็น "ตอนนี้" ก่อน กันประวัติเก่าทั้งหมดโผล่มาเป็นแจ้งเตือนพร้อมกันทีเดียว
+    localStorage.setItem(STOCKTAKE_NOTIF_SINCE_KEY, new Date().toISOString());
+    return;
+  }
+  try{
+    const { data, error } = await supabaseClient.from('stock_transactions').select('*')
+      .eq('owner_id', currentOwnerId).eq('note', STOCKTAKE_NOTE).gt('created_at', since)
+      .order('created_at', { ascending: true });
+    if(error || !data || !data.length) return;
+    localStorage.setItem(STOCKTAKE_NOTIF_SINCE_KEY, data[data.length-1].created_at);
+    // อัปเดตจำนวนสต็อกในเครื่องนี้ให้ตรงกับที่พนักงานเพิ่งปรับ (เขียนตรงลง localStorage ไม่ผ่าน saveProducts()
+    // เพราะข้อมูลนี้ซิงก์ขึ้นคลาวด์แล้วตั้งแต่ตอนพนักงานกดยืนยัน ไม่ต้องส่งซ้ำ)
+    const products = loadProducts();
+    let changed = false;
+    data.forEach(row=>{
+      const p = products.find(x => x.id === row.product_id);
+      if(p){ p.stock = row.stock_after; changed = true; }
+    });
+    if(changed){
+      localStorage.setItem(DB_KEYS.products, JSON.stringify(products));
+      if(typeof renderProductList === 'function') renderProductList();
+      if(typeof renderDashboard === 'function') renderDashboard();
+      if(typeof renderOutOfStockBanner === 'function') renderOutOfStockBanner();
+    }
+    const unread = loadStocktakeNotifUnread();
+    unread.push(...data.map(fromStockTxRow));
+    saveStocktakeNotifUnread(unread);
+    updateStocktakeBell();
+    toast(`พนักงานปรับสต็อก ${data.length} รายการจากหน้าเช็คสต็อก`);
+  }catch(e){
+    console.error('เช็คแจ้งเตือนจากหน้าเช็คสต็อกล้มเหลว:', e);
+  }
+}
+function startStocktakeNotifPolling(){
+  updateStocktakeBell();
+  pollStocktakeNotifications();
+  if(stocktakeNotifPollTimer) clearInterval(stocktakeNotifPollTimer);
+  stocktakeNotifPollTimer = setInterval(pollStocktakeNotifications, 45000);
+}
+function openStocktakeNotifSheet(){
+  const unread = loadStocktakeNotifUnread().slice().reverse();
+  const el = document.getElementById('stocktakeNotifBody');
+  if(unread.length === 0){
+    el.innerHTML = '<div class="empty" style="padding:30px 0;">ยังไม่มีการปรับสต็อกใหม่จากพนักงาน</div>';
+  } else {
+    el.innerHTML = `
+      <div class="muted" style="font-size:12px;margin-bottom:10px;">${unread.length} รายการล่าสุด</div>
+      ${unread.map(t=>{
+        const label = [t.name, t.color].filter(Boolean).join(' · ');
+        const time = new Date(t.timestamp).toLocaleString('th-TH', {dateStyle:'short', timeStyle:'short'});
+        const diff = t.stockAfter - t.stockBefore;
+        const diffText = diff > 0 ? `+${diff}` : String(diff);
+        const diffColor = diff > 0 ? 'var(--success)' : (diff < 0 ? 'var(--danger)' : 'var(--muted)');
+        return `<div style="padding:10px 0;border-bottom:1px solid var(--border);">
+          <div style="font-weight:700;font-size:13.5px;">${escapeAttr(label)} เบอร์ ${escapeAttr(t.size||'-')}</div>
+          <div style="font-size:12.5px;color:var(--muted);margin-top:2px;">${t.stockBefore} → ${t.stockAfter}
+            <span style="color:${diffColor};font-weight:700;">(${diffText})</span> · ${time}</div>
+        </div>`;
+      }).join('')}`;
+  }
+  document.getElementById('stocktake-notif-overlay').classList.add('open');
+}
+function closeStocktakeNotifSheet(){
+  document.getElementById('stocktake-notif-overlay').classList.remove('open');
+  // เปิดดูแล้วถือว่ารับทราบ เคลียร์ badge (ประวัติยังอยู่ในตาราง stock_transactions ปกติ ดูย้อนได้จากหน้าความเคลื่อนไหวสต็อกอยู่แล้ว)
+  saveStocktakeNotifUnread([]);
+  updateStocktakeBell();
 }
 
 // ---------- diff รายการเก่า/ใหม่ (โดย key ที่กำหนด) แล้วสร้างงาน sync: upsert แถวที่เพิ่ม/เปลี่ยน + ลบแถวที่หายไป ----------
@@ -1384,6 +1535,7 @@ async function initSupabaseSession(){
       await pullFromSupabaseAndRefresh();
     }
     flushSyncQueue();
+    startStocktakeNotifPolling();
   } else {
     // ไม่มี session ค้างอยู่เลย (เช่น เครื่อง/เบราว์เซอร์นี้เพิ่งเปิดครั้งแรก หรือ session หมดอายุ)
     // แต่ถ้าเคย login แล้วเลือก "จำรหัสผ่านไว้ในเครื่อง" ไว้ก่อนหน้านี้ ให้ล็อกอินอัตโนมัติแทนการให้กรอกซ้ำ
@@ -1406,6 +1558,7 @@ async function signInSupabase(email, password, opts){
   syncStatus = 'idle';
   updateSyncIndicator();
   renderSyncSettingsCard();
+  startStocktakeNotifPolling();
   if(!opts.silent) toast('เชื่อมต่อ Supabase สำเร็จ กำลังดึงข้อมูล...');
   // ดึงข้อมูลล่าสุดจากคลาวด์มาแสดงอัตโนมัติ ตราบใดที่เครื่องนี้ไม่มีข้อมูลที่ยังไม่ทันส่งขึ้นคลาวด์ค้างอยู่
   // (ถ้ามีงานค้างส่งอยู่ แปลว่าเครื่องนี้มีข้อมูลใหม่กว่าที่ยังไม่ขึ้นคลาวด์ ดึงมาทับตอนนี้จะเสี่ยงข้อมูลหาย
