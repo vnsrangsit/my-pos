@@ -1123,7 +1123,7 @@ function toStockTxRow(t){
 }
 function toSaleRow(s){
   return { id: s.id, owner_id: currentOwnerId, total: s.total, cost: s.cost || 0, profit: s.profit || 0,
-    seller: s.seller || null, payment: s.payment || null, channel: s.channel || null, created_at: s.timestamp };
+    seller: s.seller || null, payment: s.payment || null, channel: s.channel || null, order_id: s.orderId || null, created_at: s.timestamp };
 }
 function toSaleItemRow(saleId, item, idx){
   return { id: `${saleId}_item${idx}`, owner_id: currentOwnerId, sale_id: saleId, product_id: item.productId || null,
@@ -1157,7 +1157,7 @@ function fromStockTxRow(r){
 }
 function fromSaleRow(r, items){
   return { id: r.id, timestamp: r.created_at, total: r.total, cost: r.cost || 0, profit: r.profit || 0,
-    seller: r.seller || '', payment: r.payment || 'เงินสด', channel: r.channel || 'หน้าร้าน',
+    seller: r.seller || '', payment: r.payment || 'เงินสด', channel: r.channel || 'หน้าร้าน', orderId: r.order_id || '',
     items: (items||[]).map(it => ({ productId: it.product_id || null, name: it.name, price: it.price, costPrice: it.cost_price || 0, qty: it.qty })) };
 }
 
@@ -3999,7 +3999,8 @@ function confirmImportOrders(){
       profit: (unitPrice - (p.costPrice||0)) * r.qty,
       seller: 'นำเข้าจาก Shopee',
       payment: 'โอน/พร้อมเพย์',
-      channel: 'Shopee'
+      channel: 'Shopee',
+      orderId: r.orderId || ''
     });
     importedIds.add(r.orderId);
     totalQty += r.qty;
@@ -4766,7 +4767,7 @@ function renderSalesList(){
         <div class="muted">${s.items.map(i=>
           `${i.name} x${i.qty}` + (i.productId ? ` <a href="javascript:void(0)" onclick="openBulkAddFromProduct('${i.productId}')" style="color:var(--primary);font-weight:700;">+SKU</a>` : '')
         ).join(', ')}</div>
-        <div class="muted">กำไร ฿${(s.profit||0).toFixed(2)} · ${s.seller || 'ไม่ระบุผู้ขาย'} · ${s.payment || 'เงินสด'} · ${s.channel || 'หน้าร้าน'}</div>
+        <div class="muted">กำไร ฿${(s.profit||0).toFixed(2)} · ${s.seller || 'ไม่ระบุผู้ขาย'} · ${s.payment || 'เงินสด'} · ${s.channel || 'หน้าร้าน'}${s.orderId ? ' · เลขที่ออเดอร์ '+escapeAttr(s.orderId) : ''}</div>
       </div>
       <div style="text-align:right;">
         <div class="num">฿${s.total.toFixed(2)}</div>
@@ -4806,7 +4807,11 @@ function openEditSale(saleId){
         <option value="TikTok" ${sale.channel==='TikTok'?'selected':''}>TikTok</option>
       </select>
     </div>
-    <div class="muted" style="margin:10px 0 6px;">รายการสินค้าในบิลนี้ (ลบรายการที่ลูกค้ายกเลิกได้ หรือแก้จำนวน/ราคา)</div>
+    <div class="field">
+      <label>เลขที่คำสั่งซื้อ (ถ้ามี — เติมอัตโนมัติเวลานำเข้าจาก Shopee ไว้ใช้ตอนลูกค้าคืนสินค้า)</label>
+      <input type="text" id="esOrderId" value="${escapeAttr(sale.orderId||'')}" placeholder="เช่น 2508xxxxxxxxx">
+    </div>
+    <div class="muted" style="margin:10px 0 6px;">รายการสินค้าในบิลนี้ — "✕" ใช้ลบแถวที่ใส่ผิด (ไม่กระทบสต็อกจนกว่าจะกด "บันทึกการแก้ไข") ส่วน "🔄 คืนสินค้า" ใช้ตอนลูกค้าส่งของคืนจริง จะคืนสต็อกให้ทันที</div>
     <div id="esItemsList">
       ${sale.items.map((i,idx)=>`
         <div class="cart-item" id="esItem_${idx}">
@@ -4816,8 +4821,9 @@ function openEditSale(saleId){
               <input type="number" id="esQty_${idx}" value="${i.qty}" min="0" step="1" style="width:70px;" placeholder="จำนวน">
               <input type="number" id="esPrice_${idx}" value="${i.price}" min="0" step="0.01" style="flex:1;" placeholder="ราคา/ชิ้น">
             </div>
+            <button type="button" class="btn-link" style="margin-top:6px;" onclick="returnSaleItem(${idx})">🔄 คืนสินค้า (คืนสต็อกทันที)</button>
           </div>
-          <button type="button" onclick="removeEditSaleItem(${idx})" style="background:none;border:none;color:var(--danger);font-size:18px;padding:0 6px;">✕</button>
+          <button type="button" onclick="removeEditSaleItem(${idx})" title="ลบแถวที่ใส่ผิด (ไม่ใช่ลูกค้าคืนสินค้า)" style="background:none;border:none;color:var(--danger);font-size:18px;padding:0 6px;">✕</button>
         </div>
       `).join('')}
     </div>
@@ -4880,11 +4886,58 @@ function saveEditSale(){
   sale.seller = document.getElementById('esSeller').value.trim() || sale.seller;
   sale.payment = document.getElementById('esPayment').value;
   sale.channel = document.getElementById('esChannel').value;
+  sale.orderId = document.getElementById('esOrderId').value.trim();
 
   saveSales(sales);
   closeEditSale();
   renderSalesList(); renderDashboard(); renderProductList();
   toast('บันทึกการแก้ไขบิลขายแล้ว');
+}
+// รับคืนสินค้า 1 รายการในบิลนี้ทันที (ต่างจากปุ่ม ✕ ที่แค่ลบแถวรอกดบันทึก) — คืนสต็อกทันทีที่กด ไม่ต้องรอกด "บันทึกการแก้ไข"
+// ใช้จำนวนจากช่อง "จำนวน" ของแถวนั้น ณ ตอนกด (แก้ตัวเลขลงก่อนได้ถ้าลูกค้าคืนแค่บางส่วน ไม่ใช่คืนทั้งหมด)
+function returnSaleItem(idx){
+  if(!editSaleId) return;
+  const sales = loadSales();
+  const sale = sales.find(s=>s.id===editSaleId);
+  if(!sale) return;
+  const origItem = sale.items[idx];
+  if(!origItem){ toast('ไม่พบรายการนี้แล้ว (อาจถูกลบไปก่อนหน้า)'); return; }
+  const qtyInput = document.getElementById(`esQty_${idx}`);
+  const returnQty = qtyInput ? (parseFloat(qtyInput.value) || 0) : origItem.qty;
+  if(returnQty <= 0){ toast('กรอกจำนวนที่จะคืนให้มากกว่า 0 ก่อน'); return; }
+  if(returnQty > origItem.qty){ toast(`คืนได้ไม่เกินจำนวนที่ขายไปในบิลนี้ (${origItem.qty})`); return; }
+  if(!confirm(`ยืนยันรับคืนสินค้า "${origItem.name}" จำนวน ${returnQty} ชิ้น?\nระบบจะคืนสต็อกให้อัตโนมัติทันที`)) return;
+
+  const products = loadProducts();
+  const p = products.find(pp=>pp.id===origItem.productId);
+  const orderNote = sale.orderId ? ` (เลขที่คำสั่งซื้อ ${sale.orderId})` : '';
+  if(p){
+    recordStockTransaction(products, p.id, 'RETURN', returnQty, BASE_UNIT, `ลูกค้าคืนสินค้าจากบิล ${editSaleId}${orderNote}`);
+    saveProducts(products);
+  } else {
+    toast('คืนสต็อกไม่ได้ (ไม่พบสินค้านี้ในระบบแล้ว) แต่จะตัดออกจากบิลให้ตามปกติ');
+  }
+
+  const remainingQty = origItem.qty - returnQty;
+  if(remainingQty <= 0){
+    sale.items.splice(idx, 1);
+  } else {
+    origItem.qty = remainingQty;
+  }
+  let costTotal = 0, total = 0;
+  sale.items.forEach(i=>{ costTotal += (i.costPrice||0) * i.qty; total += i.price * i.qty; });
+  sale.total = total; sale.cost = costTotal; sale.profit = total - costTotal;
+
+  if(sale.items.length === 0){
+    saveSales(sales.filter(s=>s.id!==editSaleId));
+    closeEditSale();
+    toast('รับคืนสินค้าครบทุกรายการในบิลแล้ว ลบบิลนี้ออก');
+  } else {
+    saveSales(sales);
+    toast('รับคืนสินค้าแล้ว คืนสต็อกให้อัตโนมัติ');
+    openEditSale(editSaleId); // เปิดฟอร์มใหม่ให้ตรงกับข้อมูลล่าสุดหลังคืนสินค้า
+  }
+  renderSalesList(); renderDashboard(); renderProductList();
 }
 
 /* ============ DASHBOARD TAB ============ */
