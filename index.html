@@ -631,6 +631,21 @@
     </div>
 
     <div class="card">
+      <div class="collapse-header" data-collapse-toggle="collapseStockByModel" onclick="toggleCollapse('collapseStockByModel')">
+        <h3>สต็อกคงเหลือทั้งหมด (แยกตามรุ่น)</h3>
+        <span class="collapse-arrow">▾</span>
+      </div>
+      <div id="collapseStockByModel" class="collapse-body" style="display:none;">
+        <div class="muted" style="font-size:12px;margin-bottom:8px;">รวมสต็อกทุกเบอร์/ทุกสีเข้าด้วยกันต่อรุ่น เรียงจากเหลือมากไปน้อย ใช้ดูว่ารุ่นไหนสต็อกจมเยอะ เหมาะจะจัดโปรลดราคาเคลียร์ก่อน</div>
+        <div class="field">
+          <input type="text" id="modelStockFilter" placeholder="ค้นหารุ่น/ยี่ห้อ/ชื่อสินค้า..." oninput="renderStockByModelReport()">
+        </div>
+        <div id="stockByModelSummary" class="muted" style="margin:10px 0;"></div>
+        <div id="stockByModelReport"></div>
+      </div>
+    </div>
+
+    <div class="card">
       <div class="collapse-header" data-collapse-toggle="collapseDashSettings" onclick="toggleCollapse('collapseDashSettings')">
         <h3>ตั้งค่าเพิ่มเติม (สำรอง/ซิงก์/ความปลอดภัย)</h3>
         <span class="collapse-arrow">▾</span>
@@ -3828,10 +3843,21 @@ function handleImportExcelFile(event){
    (สถานะอื่นๆ เช่น รอจัดส่ง/กำลังจัดส่ง/สำเร็จแล้ว ถือว่านับเป็นยอดขายทั้งหมด ตามที่ร้านต้องการ) */
 let importOrdersParsedRows = [];
 const IMPORTED_ORDER_IDS_KEY = 'pos_imported_shopee_order_ids';
+// ตัดอักขระที่มองไม่เห็น (zero-width space/BOM ฯลฯ) ที่บางทีติดมากับไฟล์ Excel ออกก่อนเทียบ ป้องกันเลขดูเหมือนกันแต่เทียบไม่ตรง
+function normalizeOrderId(id){
+  return String(id||'').replace(/[\u200B-\u200D\uFEFF]/g,'').trim();
+}
 function loadImportedOrderIds(){
-  try{ return new Set(JSON.parse(localStorage.getItem(IMPORTED_ORDER_IDS_KEY) || '[]')); }catch(e){ return new Set(); }
+  try{ return new Set(JSON.parse(localStorage.getItem(IMPORTED_ORDER_IDS_KEY) || '[]').map(normalizeOrderId)); }catch(e){ return new Set(); }
 }
 function saveImportedOrderIds(idSet){ localStorage.setItem(IMPORTED_ORDER_IDS_KEY, JSON.stringify([...idSet])); }
+// เก็บเลขคำสั่งซื้อจากรายการขายจริงที่มีอยู่แล้วในระบบ (แหล่งข้อมูลจริง) ใช้เป็นชั้นเช็คซ้ำเสริม เผื่อ localStorage แยกต่างหากไม่ตรงกับของจริง
+function getRecordedOrderIds(){
+  const sales = loadSales();
+  const set = new Set();
+  sales.forEach(s=>{ if(s.orderId) set.add(normalizeOrderId(s.orderId)); });
+  return set;
+}
 
 // แกะไฟล์คำสั่งซื้อ: ใช้ชื่อคอลัมน์ตรงๆ (ไฟล์ Shopee มีหัวตารางแถวแรกอยู่แล้ว ไม่ต้องเดาตำแหน่งคอลัมน์เหมือนไฟล์ลงสินค้า)
 // สแกนทุกชีท เลือกชีทที่มีคอลัมน์ "หมายเลขคำสั่งซื้อ" และมีแถวข้อมูลมากที่สุด
@@ -3844,7 +3870,7 @@ function extractShopeeOrderRows(workbook){
     if(!rows.length || !('หมายเลขคำสั่งซื้อ' in rows[0])) return;
     const matched = [];
     rows.forEach(row=>{
-      const orderId = String(row['หมายเลขคำสั่งซื้อ']||'').trim();
+      const orderId = normalizeOrderId(row['หมายเลขคำสั่งซื้อ']);
       const status = String(row['สถานะการสั่งซื้อ']||'').trim();
       if(!orderId) return;
       if(status.includes('ยกเลิก')) return; // ข้ามสถานะยกเลิกตามที่ร้านขอ
@@ -3915,10 +3941,11 @@ function handleImportOrdersExcelFile(event){
       } else {
         const products = loadProducts();
         const importedIds = loadImportedOrderIds();
+        const recordedIds = getRecordedOrderIds();
         const seenInFile = new Set(); // กันแถวซ้ำกันเองภายในไฟล์เดียวกัน (เลขบิล+ชื่อสินค้า+สี/ไซส์+จำนวน+ราคาตรงกันเป๊ะ)
         importOrdersParsedRows = rawRows.map(row=>{
           const product = matchOrderRowToProduct(row, products);
-          const alreadyImported = importedIds.has(row.orderId);
+          const alreadyImported = importedIds.has(row.orderId) || recordedIds.has(row.orderId);
           const dupKey = [row.orderId, row.title, row.color, row.size, row.qty, row.unitPrice].join('|');
           const duplicateInFile = seenInFile.has(dupKey);
           seenInFile.add(dupKey);
@@ -5016,6 +5043,7 @@ function renderDashboard(){
   `;
 
   renderStockMovementReport(range);
+  renderStockByModelReport();
   renderSyncSettingsCard();
 }
 // สรุปความเคลื่อนไหวสต็อกจากประวัติ Transaction ในช่วงเวลาเดียวกับ "สรุปตามช่วงเวลา" ด้านบน
@@ -5047,6 +5075,78 @@ function renderStockMovementReport(range){
     ${topMoved.length ? `<div style="margin-top:10px;"><div class="muted" style="margin-bottom:6px;">สินค้าที่เคลื่อนไหวมากสุด</div>` +
       topMoved.map(m=>`<div class="cart-item"><div>${m.name}${m.color?' สี'+m.color:''}${m.size?' เบอร์'+m.size:''} (${m.count} รายการ)</div><span class="num" style="color:${m.net<0?'var(--danger)':'var(--success)'};">${m.net>0?'+':''}${m.net} ${BASE_UNIT}</span></div>`).join('') + `</div>` : ''}
   `;
+}
+// สรุปสต็อกคงเหลือทั้งหมด รวมทุกเบอร์/ทุกสีเข้าเป็นยอดต่อ "รุ่น" (ใช้ brand+model เป็นตัวจัดกลุ่ม กันรุ่นเลขซ้ำกันข้ามยี่ห้อ)
+// ถ้าสินค้าไม่มีรุ่นระบุไว้ จะจัดกลุ่มตามชื่อสินค้าแทน เรียงจากเหลือเยอะไปน้อย ให้เห็นตัวที่สต็อกจมมากสุดก่อน เอาไว้ตัดสินใจลดราคาเคลียร์
+function renderStockByModelReport(){
+  const summaryEl = document.getElementById('stockByModelSummary');
+  const el = document.getElementById('stockByModelReport');
+  if(!el || !summaryEl) return;
+  const filter = (document.getElementById('modelStockFilter').value || '').trim().toLowerCase();
+  const products = loadProducts();
+
+  const UNSPEC_MODEL = 'ไม่ระบุรุ่น', UNSPEC_BRAND = 'ไม่ระบุยี่ห้อ', UNSPEC_COLOR = 'ไม่ระบุสี';
+  const groupMap = {};
+  const groupOrder = [];
+  products.forEach(p=>{
+    const stock = (typeof p.stock === 'number') ? p.stock : 0;
+    const brand = (p.brand||'').trim() || UNSPEC_BRAND;
+    const modelLabel = (p.model||'').trim() || (p.name||'').trim() || UNSPEC_MODEL;
+    const key = brand + '|||' + modelLabel;
+    if(!groupMap[key]){
+      groupMap[key] = { brand, model: modelLabel, totalStock: 0, skuCount: 0, colorMap: {}, colorOrder: [] };
+      groupOrder.push(key);
+    }
+    const g = groupMap[key];
+    g.totalStock += stock;
+    g.skuCount += 1;
+    const colorKey = (p.color||'').trim() || UNSPEC_COLOR;
+    if(!g.colorMap[colorKey]){ g.colorMap[colorKey] = { color: colorKey, stock: 0, sizes: [] }; g.colorOrder.push(colorKey); }
+    g.colorMap[colorKey].stock += stock;
+    g.colorMap[colorKey].sizes.push({ size: (p.size||'').trim() || '-', stock });
+  });
+
+  let groups = groupOrder.map(k=>groupMap[k]);
+  // ค้นหา: จับคู่กับรุ่น/ยี่ห้อ (ไม่ค้นในสี/เบอร์ เพราะกรองที่ระดับรุ่นอยู่แล้ว)
+  if(filter){
+    groups = groups.filter(g => (g.model+' '+g.brand).toLowerCase().includes(filter));
+  }
+  groups.sort((a,b)=>b.totalStock - a.totalStock);
+
+  const grandTotalStock = groups.reduce((s,g)=>s+g.totalStock,0);
+  const grandTotalSku = groups.reduce((s,g)=>s+g.skuCount,0);
+  summaryEl.innerHTML = `รวมทั้งหมด <strong>${grandTotalStock}</strong> ${BASE_UNIT} · ${groups.length} รุ่น · ${grandTotalSku} เบอร์/SKU`;
+
+  if(groups.length === 0){ el.innerHTML = '<div class="empty">ไม่พบรุ่นที่ตรงกับคำค้นหา</div>'; return; }
+
+  el.innerHTML = groups.map((g,i)=>{
+    const groupId = `modelstock_${i}`;
+    const colorRows = g.colorOrder.map(ck=>{
+      const c = g.colorMap[ck];
+      const sizeStr = c.sizes
+        .sort((a,b)=>a.size.localeCompare(b.size, undefined, {numeric:true}))
+        .map(s=>`${s.size}(${s.stock})`).join(' · ');
+      return `<div class="cart-item"><div>${g.colorOrder.length>1 || ck!==UNSPEC_COLOR ? 'สี'+ck : 'ทุกเบอร์'}<div class="muted" style="font-size:11.5px;">${sizeStr}</div></div><span class="num">${c.stock} ${BASE_UNIT}</span></div>`;
+    }).join('');
+    return `
+    <div class="stock-group">
+      <div class="stock-group-header" data-group-toggle="${groupId}" onclick="toggleStockGroup('${groupId}')">
+        <div class="stock-group-title-row">
+          <div>
+            <strong>${g.model}</strong>
+            <div class="muted">${g.brand!==UNSPEC_BRAND ? g.brand+' · ' : ''}${g.skuCount} เบอร์/SKU</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <strong class="num">${g.totalStock} ${BASE_UNIT}</strong>
+          <span class="stock-group-arrow">▾</span>
+        </div>
+      </div>
+      <div id="${groupId}" class="stock-group-body" style="display:none;">
+        ${colorRows}
+      </div>
+    </div>`;
+  }).join('');
 }
 function exportCSV(){
   const sales = loadSales();
