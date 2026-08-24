@@ -3847,7 +3847,8 @@ function extractShopeeOrderRows(workbook){
       const orderId = String(row['หมายเลขคำสั่งซื้อ']||'').trim();
       const status = String(row['สถานะการสั่งซื้อ']||'').trim();
       if(!orderId) return;
-      if(status.includes('ยกเลิก')) return; // ข้ามเฉพาะสถานะยกเลิกตามที่ร้านขอ สถานะอื่นนับเป็นยอดขายหมด
+      if(status.includes('ยกเลิก')) return; // ข้ามสถานะยกเลิกตามที่ร้านขอ
+      if(status.includes('ยังไม่ชำระ')) return; // ข้ามสถานะยังไม่ชำระด้วย (ยังไม่นับเป็นยอดขายจนกว่าจะจ่ายเงิน) สถานะอื่นนับเป็นยอดขายหมด
       const orderDateRaw = String(row['วันที่ทำการสั่งซื้อ']||'').trim();
       const title = String(row['ชื่อสินค้า']||'').trim();
       const optionStr = String(row['ชื่อตัวเลือก']||'').trim();
@@ -3914,10 +3915,14 @@ function handleImportOrdersExcelFile(event){
       } else {
         const products = loadProducts();
         const importedIds = loadImportedOrderIds();
+        const seenInFile = new Set(); // กันแถวซ้ำกันเองภายในไฟล์เดียวกัน (เลขบิล+ชื่อสินค้า+สี/ไซส์+จำนวน+ราคาตรงกันเป๊ะ)
         importOrdersParsedRows = rawRows.map(row=>{
           const product = matchOrderRowToProduct(row, products);
           const alreadyImported = importedIds.has(row.orderId);
-          return { ...row, product, alreadyImported, include: !!product && !alreadyImported };
+          const dupKey = [row.orderId, row.title, row.color, row.size, row.qty, row.unitPrice].join('|');
+          const duplicateInFile = seenInFile.has(dupKey);
+          seenInFile.add(dupKey);
+          return { ...row, product, alreadyImported, duplicateInFile, include: !!product && !alreadyImported && !duplicateInFile };
         });
         openImportOrdersModal();
       }
@@ -3941,9 +3946,11 @@ function importOrdersSummaryText(){
   const totalQty = included.reduce((a,r)=>a+r.qty,0);
   const unmatched = rows.filter(r=>!r.product).length;
   const already = rows.filter(r=>r.alreadyImported).length;
-  return `พบ ${rows.length} รายการ (ไม่รวมที่ยกเลิก) — เลือกนำเข้า ${included.length} รายการ (${totalQty} คู่)`
+  const dupInFile = rows.filter(r=>r.duplicateInFile).length;
+  return `พบ ${rows.length} รายการ (ไม่รวมที่ยกเลิก/ยังไม่ชำระ) — เลือกนำเข้า ${included.length} รายการ (${totalQty} คู่)`
     + (unmatched ? ` · ⚠️ หาสินค้าตรงกันไม่เจอ ${unmatched} รายการ (ต้องเพิ่มเองภายหลัง)` : '')
-    + (already ? ` · 🔁 นำเข้าไปแล้วก่อนหน้า ${already} รายการ (ไม่เลือกให้อัตโนมัติ)` : '');
+    + (already ? ` · 🔁 นำเข้าไปแล้วก่อนหน้า ${already} รายการ (ไม่เลือกให้อัตโนมัติ)` : '')
+    + (dupInFile ? ` · ♻️ แถวซ้ำกันเองในไฟล์นี้ ${dupInFile} รายการ (ไม่เลือกให้อัตโนมัติ)` : '');
 }
 function renderImportOrdersPreview(){
   document.getElementById('importOrdersSummary').textContent = importOrdersSummaryText();
@@ -3960,6 +3967,7 @@ function renderImportOrdersPreview(){
       </label>
       ${!p ? `<div class="alert-banner" style="margin-bottom:8px;background:var(--warning-tint,#FFF4E0);color:var(--warning,#B8791A);font-size:12px;">⚠️ หาสินค้าที่ตรงกันในระบบไม่เจอ (สี "${escapeAttr(r.color)}" เบอร์ "${escapeAttr(r.size)}") — เพิ่มรายการนี้ด้วยมือภายหลัง<div class="muted" style="margin-top:4px;">${escapeAttr(r.title)}</div></div>` : ''}
       ${r.alreadyImported ? `<div class="alert-banner" style="margin-bottom:8px;background:var(--fill);color:var(--muted,#888);font-size:12px;">🔁 บิลนี้ (เลขที่ ${escapeAttr(r.orderId)}) นำเข้าไปแล้วก่อนหน้านี้</div>` : ''}
+      ${r.duplicateInFile ? `<div class="alert-banner" style="margin-bottom:8px;background:var(--fill);color:var(--muted,#888);font-size:12px;">♻️ แถวนี้ซ้ำกับอีกแถวในไฟล์เดียวกัน (เลขบิล/สินค้า/สี/ไซส์/จำนวน/ราคาตรงกันหมด)</div>` : ''}
       <div class="cart-item">
         <div>
           <div>${escapeAttr(displayName)} x${r.qty}</div>
