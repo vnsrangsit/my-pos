@@ -3922,9 +3922,13 @@ function normalizeVariantText(s){
 }
 const COLOR_LABEL_RE = /^\s*(สี|colou?r)\s*[:：]/i;
 const SIZE_LABEL_RE = /^\s*(ไซส์|ไซซ์|ขนาด|เบอร์|size)\s*[:：]/i;
+// ไซส์รองเท้า/เสื้อผ้ามักเป็นตัวเลขล้วน (หรือช่วงตัวเลข เช่น "24-35", ทศนิยมแบบ "6.5") ส่วนสีมักสะกดเป็นตัวอักษรเสมอ
+// ใช้แยกแยะได้เมื่อไฟล์ไม่มีคำนำหน้าบอกให้ (เจอจริง: ไฟล์ส่งมาเป็น "33,Black" เฉยๆ ไม่มีคำว่า "ไซส์:"/"สี:" นำหน้าเลย)
+const SIZE_LIKE_RE = /^\d+([.\-\/]\d+)?$/;
 // แยก "สี" กับ "ไซส์" จากคอลัมน์ "ชื่อตัวเลือก" — บางร้าน/บางไฟล์เรียงเป็น "สี,ไซส์" บางไฟล์เรียงสลับเป็น "ไซส์,สี"
 // (เจอจริง: "ไซส์ : 30,สี : Black" ทำให้ระบบเดิมที่อิงตำแหน่งตายตัวได้ค่าสลับกัน) จึงต้องดูคำนำหน้าเป็นตัวตัดสินก่อน
-// ถ้าไฟล์นั้นไม่มีคำนำหน้าให้ดูเลย (เจอน้อยกว่า) ค่อย fallback ไปอิงตำแหน่งเดิม (ชิ้นแรก=สี, ชิ้นสอง=ไซส์)
+// ถ้าไม่มีคำนำหน้าเลย ลองเดาจาก "รูปแบบตัวเลข vs ตัวอักษร" ก่อนแทนที่จะเดาจากตำแหน่งเฉยๆ (เจอไฟล์ที่เรียง "33,Black" คือไซส์มาก่อนสีเช่นกัน)
+// เหลือกรณีสุดท้ายจริงๆ ที่เดาไม่ได้เลย (เช่นทั้งสองชิ้นเป็นตัวเลข หรือทั้งสองชิ้นเป็นตัวอักษร) ค่อย fallback ไปอิงตำแหน่งเดิม (ชิ้นแรก=สี, ชิ้นสอง=ไซส์)
 function parseOptionColorSize(optionStr){
   const parts = String(optionStr||'').split(',').map(s=>s.trim()).filter(Boolean);
   let colorPart = null, sizePart = null;
@@ -3932,6 +3936,12 @@ function parseOptionColorSize(optionStr){
     if(COLOR_LABEL_RE.test(part)) colorPart = part;
     else if(SIZE_LABEL_RE.test(part)) sizePart = part;
   });
+  if(colorPart === null && sizePart === null && parts.length >= 2){
+    const p0Size = SIZE_LIKE_RE.test(normalizeVariantText(parts[0]));
+    const p1Size = SIZE_LIKE_RE.test(normalizeVariantText(parts[1]));
+    if(p0Size && !p1Size){ sizePart = parts[0]; colorPart = parts[1]; }
+    else if(p1Size && !p0Size){ colorPart = parts[0]; sizePart = parts[1]; }
+  }
   if(colorPart !== null || sizePart !== null){
     return { color: normalizeVariantText(colorPart || ''), size: normalizeVariantText(sizePart || '') };
   }
@@ -3989,13 +3999,37 @@ function codeAppearsInTitle(code, title){
 // จับคู่ 1 แถวคำสั่งซื้อกับสินค้าที่มีอยู่แล้วในระบบ โดยใช้ "รหัส" ของสินค้าเทียบว่าอยู่ในชื่อสินค้าจากไฟล์หรือไม่
 // (ชื่อสินค้าบน Shopee มักใส่รหัสไว้ทั้ง 2 สี เช่น "CD-99/ CD-88" หรือ "41G99B1 41C20B1" ปนกัน) จึงต้องกรองซ้ำด้วยสี+ไซส์
 // จากคอลัมน์ "ชื่อตัวเลือก" เทียบกับฐานข้อมูลจริง เพื่อเลือกรหัสที่ตรงกับสีนั้นๆ เท่านั้น (ตามที่ร้านสั่งไว้)
+// รวมชื่อสีไทย/อังกฤษที่ใช้บ่อยให้เป็นรหัสกลางเดียวกัน กันกรณีไฟล์ Shopee ส่งมาเป็นอังกฤษ (เช่น "Black")
+// แต่ในสต็อกตั้งชื่อสีเป็นไทย (เช่น "ดำ") ถ้าเทียบตรงตัวเฉยๆ จะไม่มีวันตรงกันเลยแม้เป็นสีเดียวกัน
+const COLOR_SYNONYMS = {
+  'ดำ':'black','black':'black',
+  'ขาว':'white','white':'white',
+  'แดง':'red','red':'red',
+  'น้ำเงิน':'blue','ฟ้า':'blue','blue':'blue',
+  'เขียว':'green','green':'green',
+  'เหลือง':'yellow','yellow':'yellow',
+  'ชมพู':'pink','pink':'pink',
+  'ม่วง':'purple','purple':'purple',
+  'เทา':'grey','gray':'grey','grey':'grey',
+  'น้ำตาล':'brown','brown':'brown',
+  'ส้ม':'orange','orange':'orange',
+  'ครีม':'cream','cream':'cream',
+  'เบจ':'beige','beige':'beige',
+  'ทอง':'gold','gold':'gold',
+  'เงิน':'silver','silver':'silver',
+  'กากี':'khaki','khaki':'khaki',
+};
+function canonicalColor(s){
+  const t = normalizeVariantText(s);
+  return COLOR_SYNONYMS[t] || t;
+}
 function matchOrderRowToProduct(row, products){
   if(!row.title) return null;
-  const oc = normalizeVariantText(row.color); // row.color/size ผ่าน normalizeVariantText มาแล้วตอน extract แต่เรียกซ้ำอีกชั้นไม่เสียหาย กันเผื่อเรียกฟังก์ชันนี้ตรงๆ จากที่อื่นในอนาคต
+  const oc = canonicalColor(row.color);
   const os = normalizeVariantText(row.size);
   const candidates = products.filter(p=>{
     if(!codeAppearsInTitle(p.code, row.title)) return false;
-    if(normalizeVariantText(p.color) !== oc) return false;
+    if(canonicalColor(p.color) !== oc) return false;
     if(normalizeVariantText(p.size) !== os) return false;
     return true;
   });
