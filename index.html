@@ -3920,6 +3920,23 @@ function normalizeVariantText(s){
     .trim()
     .toLowerCase();
 }
+const COLOR_LABEL_RE = /^\s*(สี|colou?r)\s*[:：]/i;
+const SIZE_LABEL_RE = /^\s*(ไซส์|ไซซ์|ขนาด|เบอร์|size)\s*[:：]/i;
+// แยก "สี" กับ "ไซส์" จากคอลัมน์ "ชื่อตัวเลือก" — บางร้าน/บางไฟล์เรียงเป็น "สี,ไซส์" บางไฟล์เรียงสลับเป็น "ไซส์,สี"
+// (เจอจริง: "ไซส์ : 30,สี : Black" ทำให้ระบบเดิมที่อิงตำแหน่งตายตัวได้ค่าสลับกัน) จึงต้องดูคำนำหน้าเป็นตัวตัดสินก่อน
+// ถ้าไฟล์นั้นไม่มีคำนำหน้าให้ดูเลย (เจอน้อยกว่า) ค่อย fallback ไปอิงตำแหน่งเดิม (ชิ้นแรก=สี, ชิ้นสอง=ไซส์)
+function parseOptionColorSize(optionStr){
+  const parts = String(optionStr||'').split(',').map(s=>s.trim()).filter(Boolean);
+  let colorPart = null, sizePart = null;
+  parts.forEach(part=>{
+    if(COLOR_LABEL_RE.test(part)) colorPart = part;
+    else if(SIZE_LABEL_RE.test(part)) sizePart = part;
+  });
+  if(colorPart !== null || sizePart !== null){
+    return { color: normalizeVariantText(colorPart || ''), size: normalizeVariantText(sizePart || '') };
+  }
+  return { color: normalizeVariantText(parts[0] || ''), size: normalizeVariantText(parts[1] || '') };
+}
 function extractShopeeOrderRows(workbook){
   let best = [];
   workbook.SheetNames.forEach(sheetName=>{
@@ -3937,9 +3954,7 @@ function extractShopeeOrderRows(workbook){
       const orderDateRaw = String(row['วันที่ทำการสั่งซื้อ']||'').trim();
       const title = String(row['ชื่อสินค้า']||'').trim();
       const optionStr = String(row['ชื่อตัวเลือก']||'').trim();
-      const optParts = optionStr.split(',').map(s=>s.trim());
-      const color = normalizeVariantText(optParts[0] || '');
-      const size = normalizeVariantText(optParts[1] || '');
+      const { color, size } = parseOptionColorSize(optionStr);
       const qty = toNumOrNull(row['จำนวน']) || 0;
       const netTotal = toNumOrNull(row['ราคาขายสุทธิ']);
       const unitPrice = (netTotal !== null && qty > 0) ? Math.round((netTotal/qty)*100)/100 : null;
