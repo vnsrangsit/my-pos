@@ -3910,6 +3910,16 @@ function getRecordedOrderIds(){
 
 // แกะไฟล์คำสั่งซื้อ: ใช้ชื่อคอลัมน์ตรงๆ (ไฟล์ Shopee มีหัวตารางแถวแรกอยู่แล้ว ไม่ต้องเดาตำแหน่งคอลัมน์เหมือนไฟล์ลงสินค้า)
 // สแกนทุกชีท เลือกชีทที่มีคอลัมน์ "หมายเลขคำสั่งซื้อ" และมีแถวข้อมูลมากที่สุด
+// ตัดคำนำหน้าจำพวก "สี:", "สี :", "ไซส์ :", "เบอร์:", "ขนาด :", "Color:", "Size:" ที่ไฟล์ Shopee บางร้านใส่มาในคอลัมน์ "ชื่อตัวเลือก"
+// (เช่น "สี : ดำ,ไซส์ : 28") ออกก่อนเทียบกับสี/ไซส์จริงในระบบที่มักเก็บเป็นค่าเปล่าๆ เช่น "ดำ", "28" ไม่มีคำนำหน้า
+// ไม่งั้นจะเทียบไม่ตรงกันเลยแม้เนื้อหาจะเป็นสี/ไซส์เดียวกันจริงๆ ก็ตาม — ตัดช่องว่างเกิน + แปลงเป็นตัวพิมพ์เล็กด้วย กันกรณีสะกดตัวใหญ่เล็กไม่ตรงกัน
+function normalizeVariantText(s){
+  return String(s||'')
+    .replace(/^\s*(สี|ไซส์|ไซซ์|ขนาด|เบอร์|size|colou?r)\s*[:：]\s*/i, '')
+    .replace(/\s+/g,' ')
+    .trim()
+    .toLowerCase();
+}
 function extractShopeeOrderRows(workbook){
   let best = [];
   workbook.SheetNames.forEach(sheetName=>{
@@ -3928,8 +3938,8 @@ function extractShopeeOrderRows(workbook){
       const title = String(row['ชื่อสินค้า']||'').trim();
       const optionStr = String(row['ชื่อตัวเลือก']||'').trim();
       const optParts = optionStr.split(',').map(s=>s.trim());
-      const color = optParts[0] || '';
-      const size = optParts[1] || '';
+      const color = normalizeVariantText(optParts[0] || '');
+      const size = normalizeVariantText(optParts[1] || '');
       const qty = toNumOrNull(row['จำนวน']) || 0;
       const netTotal = toNumOrNull(row['ราคาขายสุทธิ']);
       const unitPrice = (netTotal !== null && qty > 0) ? Math.round((netTotal/qty)*100)/100 : null;
@@ -3966,12 +3976,12 @@ function codeAppearsInTitle(code, title){
 // จากคอลัมน์ "ชื่อตัวเลือก" เทียบกับฐานข้อมูลจริง เพื่อเลือกรหัสที่ตรงกับสีนั้นๆ เท่านั้น (ตามที่ร้านสั่งไว้)
 function matchOrderRowToProduct(row, products){
   if(!row.title) return null;
-  const oc = (row.color||'').trim();
-  const os = (row.size||'').trim();
+  const oc = normalizeVariantText(row.color); // row.color/size ผ่าน normalizeVariantText มาแล้วตอน extract แต่เรียกซ้ำอีกชั้นไม่เสียหาย กันเผื่อเรียกฟังก์ชันนี้ตรงๆ จากที่อื่นในอนาคต
+  const os = normalizeVariantText(row.size);
   const candidates = products.filter(p=>{
     if(!codeAppearsInTitle(p.code, row.title)) return false;
-    if((p.color||'').trim() !== oc) return false;
-    if((p.size||'').trim() !== os) return false;
+    if(normalizeVariantText(p.color) !== oc) return false;
+    if(normalizeVariantText(p.size) !== os) return false;
     return true;
   });
   return candidates.length === 1 ? candidates[0] : null;
