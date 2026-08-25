@@ -620,6 +620,42 @@
     </div>
 
     <div class="card">
+      <div class="collapse-header" data-collapse-toggle="collapseAdLog" onclick="toggleCollapse('collapseAdLog')">
+        <h3>บันทึกเวลาลงโฆษณา</h3>
+        <span class="collapse-arrow">▾</span>
+      </div>
+      <div id="collapseAdLog" class="collapse-body" style="display:none;">
+        <div class="muted" style="font-size:12px;margin-bottom:8px;">บันทึกวัน-เวลาที่ลงโฆษณาแต่ละตัว ระบบจะเอาไปคำนวณยอดขายที่การ์ด "ยอดขายตามช่วงโฆษณา" ด้านล่างให้อัตโนมัติ</div>
+        <div class="field">
+          <label>วันที่ลงโฆษณา</label>
+          <input type="date" id="adLogDate">
+        </div>
+        <div class="field">
+          <label>เวลาลงโฆษณา (ทุก 30 นาที)</label>
+          <select id="adLogTime"></select>
+        </div>
+        <div class="field">
+          <label>ชื่อ/หมายเหตุโฆษณา (ไม่บังคับ)</label>
+          <input type="text" id="adLogLabel" placeholder="เช่น คลิปรีวิวรุ่น A">
+        </div>
+        <button class="btn btn-primary btn-full" onclick="submitAdLog()">บันทึกเวลาโฆษณา</button>
+        <div class="section-divider"></div>
+        <div id="adLogList"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="collapse-header" data-collapse-toggle="collapseAdSales" onclick="toggleCollapse('collapseAdSales')">
+        <h3>ยอดขายตามช่วงโฆษณา</h3>
+        <span class="collapse-arrow">▾</span>
+      </div>
+      <div id="collapseAdSales" class="collapse-body" style="display:none;">
+        <div class="muted" style="font-size:12px;margin-bottom:8px;">นับยอดขายตั้งแต่เวลาที่ลงโฆษณาแต่ละตัว ไปจนถึงเวลาที่ลงโฆษณาตัวถัดไป (ตัวล่าสุดนับถึงปัจจุบัน)</div>
+        <div id="adSalesReport"></div>
+      </div>
+    </div>
+
+    <div class="card">
       <div class="collapse-header" data-collapse-toggle="collapseStockMovement" onclick="toggleCollapse('collapseStockMovement')">
         <h3>ความเคลื่อนไหวสต็อก</h3>
         <span class="collapse-arrow">▾</span>
@@ -1077,7 +1113,7 @@
 /* ============ DATA LAYER (localStorage) ============ */
 const DB_KEYS = { products: 'pos_products', sales: 'pos_sales', staff: 'pos_staff', lastSeller: 'pos_last_seller', lastPayment: 'pos_last_payment', lastChannel: 'pos_last_channel', pin: 'pos_pin',
   aliases: 'pos_product_aliases', stockTx: 'pos_stock_transactions', dataVersion: 'pos_data_version', lowStockThreshold: 'pos_low_stock_threshold',
-  savedSyncEmail: 'pos_saved_sync_email', savedSyncPassword: 'pos_saved_sync_pw', dismissedOutOfStock: 'pos_dismissed_oos' };
+  savedSyncEmail: 'pos_saved_sync_email', savedSyncPassword: 'pos_saved_sync_pw', dismissedOutOfStock: 'pos_dismissed_oos', adLogs: 'pos_ad_logs' };
 
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 
@@ -1152,6 +1188,10 @@ function getStaffId(name){
 function toStaffRow(name){
   return { id: getStaffId(name), owner_id: currentOwnerId, name };
 }
+// บันทึกเวลาลงโฆษณา ใช้แบ่งช่วงยอดขายว่าเกิดหลังลงโฆษณาตัวไหน (ดู renderAdSalesReport)
+function toAdLogRow(a){
+  return { id: a.id, owner_id: currentOwnerId, ad_time: a.adTime, label: a.label || null, created_at: a.createdAt || new Date().toISOString() };
+}
 
 // ---------- แปลงกลับจากแถวตาราง Supabase (snake_case) เป็น field เดิมในเว็บแอป (camelCase) ----------
 // ใช้ตอน "ดึงข้อมูล" ลงมาที่เครื่อง/เบราว์เซอร์ใหม่ที่ยังไม่เคยมีข้อมูลนี้ใน localStorage มาก่อน (เช่น เปิดเว็บครั้งแรกจากมือถือ/เว็บ GitHub Pages)
@@ -1175,6 +1215,9 @@ function fromSaleRow(r, items){
     seller: r.seller || '', payment: r.payment || 'เงินสด', channel: r.channel || 'หน้าร้าน', orderId: r.order_id || '',
     items: (items||[]).map(it => ({ productId: it.product_id || null, name: it.name, price: it.price, costPrice: it.cost_price || 0, qty: it.qty })) };
 }
+function fromAdLogRow(r){
+  return { id: r.id, adTime: r.ad_time, label: r.label || '', createdAt: r.created_at };
+}
 
 // ---------- ดึงข้อมูลทั้งหมดของร้าน (owner_id ปัจจุบัน) จาก Supabase ลงมาไว้ในเครื่อง/เบราว์เซอร์นี้ ----------
 // ใช้ตอนล็อกอินครั้งแรกบนอุปกรณ์ที่ localStorage ยังว่างอยู่ (เช่น เปิดเว็บผ่าน GitHub Pages/มือถือเป็นครั้งแรก)
@@ -1182,16 +1225,19 @@ function fromSaleRow(r, items){
 async function pullFromSupabase(){
   if(!supabaseClient || !currentOwnerId) return false;
   try{
-    const [productsRes, aliasesRes, txRes, salesRes, itemsRes, staffRes] = await Promise.all([
+    const [productsRes, aliasesRes, txRes, salesRes, itemsRes, staffRes, adLogsRes] = await Promise.all([
       supabaseClient.from('products').select('*').eq('owner_id', currentOwnerId),
       supabaseClient.from('product_aliases').select('*').eq('owner_id', currentOwnerId),
       supabaseClient.from('stock_transactions').select('*').eq('owner_id', currentOwnerId),
       supabaseClient.from('sales').select('*').eq('owner_id', currentOwnerId),
       supabaseClient.from('sale_items').select('*').eq('owner_id', currentOwnerId),
       supabaseClient.from('staff').select('*').eq('owner_id', currentOwnerId),
+      supabaseClient.from('ad_logs').select('*').eq('owner_id', currentOwnerId),
     ]);
-    const errors = [productsRes, aliasesRes, txRes, salesRes, itemsRes, staffRes].map(r=>r.error).filter(Boolean);
-    if(errors.length){ console.error('ดึงข้อมูลจากคลาวด์ล้มเหลว:', errors); return false; }
+    // ตาราง ad_logs อาจยังไม่ถูกสร้างในโปรเจกต์ Supabase (ต้องรันคำสั่ง SQL เพิ่มเองครั้งแรก) — ถ้า error เฉพาะตัวนี้ ไม่ให้ล้มทั้งหมด แค่ข้ามไปเก็บเป็น [] แทน
+    const coreErrors = [productsRes, aliasesRes, txRes, salesRes, itemsRes, staffRes].map(r=>r.error).filter(Boolean);
+    if(coreErrors.length){ console.error('ดึงข้อมูลจากคลาวด์ล้มเหลว:', coreErrors); return false; }
+    if(adLogsRes.error) console.warn('ดึงตาราง ad_logs ไม่สำเร็จ (อาจยังไม่ได้สร้างตารางนี้ใน Supabase):', adLogsRes.error);
 
     const itemsBySale = {};
     (itemsRes.data||[]).forEach(it=>{ (itemsBySale[it.sale_id] = itemsBySale[it.sale_id] || []).push(it); });
@@ -1201,12 +1247,14 @@ async function pullFromSupabase(){
     const stockTx = (txRes.data||[]).map(fromStockTxRow);
     const sales = (salesRes.data||[]).map(r => fromSaleRow(r, itemsBySale[r.id]));
     const staffNames = (staffRes.data||[]).map(r=>r.name);
+    const adLogs = (adLogsRes.error ? [] : (adLogsRes.data||[])).map(fromAdLogRow);
 
     localStorage.setItem(DB_KEYS.products, JSON.stringify(products));
     localStorage.setItem(DB_KEYS.aliases, JSON.stringify(aliases));
     localStorage.setItem(DB_KEYS.stockTx, JSON.stringify(stockTx));
     localStorage.setItem(DB_KEYS.sales, JSON.stringify(sales));
     localStorage.setItem(DB_KEYS.staff, JSON.stringify(staffNames));
+    if(!adLogsRes.error) localStorage.setItem(DB_KEYS.adLogs, JSON.stringify(adLogs)); // ไม่เขียนทับของเดิมถ้าดึงไม่สำเร็จ (ตารางอาจยังไม่ถูกสร้าง)
     // เก็บ id ของพนักงานที่ดึงมา ไว้ใช้ตอน sync ชื่อนี้กลับขึ้นไปในอนาคต (กันสร้าง id ใหม่ซ้ำ)
     const idMap = JSON.parse(localStorage.getItem(STAFF_ID_MAP_KEY) || '{}');
     (staffRes.data||[]).forEach(r=>{ idMap[r.name] = r.id; });
@@ -1227,6 +1275,8 @@ async function pullFromSupabaseAndRefresh(){
     if(typeof renderDashboard === 'function') renderDashboard();
     if(typeof renderSalesList === 'function') renderSalesList();
     if(typeof renderOutOfStockBanner === 'function') renderOutOfStockBanner();
+    if(typeof renderAdLogList === 'function') renderAdLogList();
+    if(typeof renderAdSalesReport === 'function') renderAdSalesReport();
   }
   return ok;
 }
@@ -1670,6 +1720,8 @@ function loadProducts(){ return JSON.parse(localStorage.getItem(DB_KEYS.products
 function saveProducts(list){ const old = loadProducts(); localStorage.setItem(DB_KEYS.products, JSON.stringify(list)); diffAndEnqueue('products', old, list, p=>p.id, toProductRow); }
 function loadSales(){ return JSON.parse(localStorage.getItem(DB_KEYS.sales) || '[]'); }
 function saveSales(list){ const old = loadSales(); localStorage.setItem(DB_KEYS.sales, JSON.stringify(list)); diffSalesAndEnqueue(old, list); }
+function loadAdLogs(){ return JSON.parse(localStorage.getItem(DB_KEYS.adLogs) || '[]'); }
+function saveAdLogs(list){ const old = loadAdLogs(); localStorage.setItem(DB_KEYS.adLogs, JSON.stringify(list)); diffAndEnqueue('ad_logs', old, list, a=>a.id, toAdLogRow); }
 // เกณฑ์ "สต็อกต่ำ" (นอกจาก 0 คู่ = หมดสต็อก): ค่าเริ่มต้น 3 คู่ ปรับได้จากหน้าสต็อก แล้วมีผลทันทีกับแบนเนอร์เตือน
 function loadLowStockThreshold(){
   const v = parseInt(localStorage.getItem(DB_KEYS.lowStockThreshold));
@@ -3842,16 +3894,13 @@ function handleImportExcelFile(event){
    แล้วแปลงแต่ละแถวเป็น "รายการขาย" ให้อัตโนมัติ (ตัดสต็อก + บันทึกยอดขาย) โดยข้ามเฉพาะสถานะที่ถูกยกเลิกเท่านั้น
    (สถานะอื่นๆ เช่น รอจัดส่ง/กำลังจัดส่ง/สำเร็จแล้ว ถือว่านับเป็นยอดขายทั้งหมด ตามที่ร้านต้องการ) */
 let importOrdersParsedRows = [];
-const IMPORTED_ORDER_IDS_KEY = 'pos_imported_shopee_order_ids';
 // ตัดอักขระที่มองไม่เห็น (zero-width space/BOM ฯลฯ) ที่บางทีติดมากับไฟล์ Excel ออกก่อนเทียบ ป้องกันเลขดูเหมือนกันแต่เทียบไม่ตรง
 function normalizeOrderId(id){
   return String(id||'').replace(/[\u200B-\u200D\uFEFF]/g,'').trim();
 }
-function loadImportedOrderIds(){
-  try{ return new Set(JSON.parse(localStorage.getItem(IMPORTED_ORDER_IDS_KEY) || '[]').map(normalizeOrderId)); }catch(e){ return new Set(); }
-}
-function saveImportedOrderIds(idSet){ localStorage.setItem(IMPORTED_ORDER_IDS_KEY, JSON.stringify([...idSet])); }
-// เก็บเลขคำสั่งซื้อจากรายการขายจริงที่มีอยู่แล้วในระบบ (แหล่งข้อมูลจริง) ใช้เป็นชั้นเช็คซ้ำเสริม เผื่อ localStorage แยกต่างหากไม่ตรงกับของจริง
+// เช็คเลขคำสั่งซื้อที่ "เคยนำเข้าแล้ว" โดยอิงจากรายการขายจริง (sales.orderId) เป็นแหล่งเดียว (single source of truth)
+// เดิมมี key แยกต่างหากใน localStorage (pos_imported_shopee_order_ids) แต่เป็น local-only ไม่ sync ข้ามเครื่อง/อุปกรณ์
+// ทำให้เช็คซ้ำพลาดได้ถ้าเปลี่ยนเครื่องหรือ localStorage ถูกล้าง เลยเลิกใช้ไปเลย เหลือแหล่งเดียวคือข้อมูลขายจริงที่ sync ผ่าน Supabase ได้
 function getRecordedOrderIds(){
   const sales = loadSales();
   const set = new Set();
@@ -3940,12 +3989,11 @@ function handleImportOrdersExcelFile(event){
         toast('ไม่พบข้อมูลคำสั่งซื้อในไฟล์นี้ (ต้องเป็นไฟล์รายงานคำสั่งซื้อที่มีคอลัมน์ "หมายเลขคำสั่งซื้อ")');
       } else {
         const products = loadProducts();
-        const importedIds = loadImportedOrderIds();
         const recordedIds = getRecordedOrderIds();
         const seenInFile = new Set(); // กันแถวซ้ำกันเองภายในไฟล์เดียวกัน (เลขบิล+ชื่อสินค้า+สี/ไซส์+จำนวน+ราคาตรงกันเป๊ะ)
         importOrdersParsedRows = rawRows.map(row=>{
           const product = matchOrderRowToProduct(row, products);
-          const alreadyImported = importedIds.has(row.orderId) || recordedIds.has(row.orderId);
+          const alreadyImported = recordedIds.has(row.orderId);
           const dupKey = [row.orderId, row.title, row.color, row.size, row.qty, row.unitPrice].join('|');
           const duplicateInFile = seenInFile.has(dupKey);
           seenInFile.add(dupKey);
@@ -4011,13 +4059,13 @@ function toggleImportOrderRow(i, checked){
   renderImportOrdersPreview();
 }
 // นำรายการที่ติ๊กไว้ (และจับคู่สินค้าได้แล้ว) มาบันทึกเป็นรายการขายจริง: ตัดสต็อก + สร้างบิลขาย ต่อ 1 แถว/1 บิล
-// จำเวลาออเดอร์จริงของลูกค้าไว้เป็นเวลาบันทึกบิล (ไม่ใช่เวลาที่กดนำเข้า) และจดเลขที่คำสั่งซื้อไว้กันนำเข้าซ้ำในครั้งถัดไป
+// จำเวลาออเดอร์จริงของลูกค้าไว้เป็นเวลาบันทึกบิล (ไม่ใช่เวลาที่กดนำเข้า) และบันทึกเลขที่คำสั่งซื้อไว้ในบิล (sales.orderId)
+// เพื่อให้รอบนำเข้าถัดไปเช็คซ้ำได้จากข้อมูลขายจริงโดยตรง (ดู getRecordedOrderIds)
 function confirmImportOrders(){
   const rows = importOrdersParsedRows.filter(r=>r.include && r.product);
   if(!rows.length){ toast('ไม่มีรายการที่เลือกไว้ให้นำเข้า (ต้องจับคู่สินค้าได้ก่อนถึงจะติ๊กเลือกได้)'); return; }
   const products = loadProducts();
   const sales = loadSales();
-  const importedIds = loadImportedOrderIds();
   let totalQty = 0;
   rows.forEach(r=>{
     const p = products.find(pp=>pp.id===r.product.id);
@@ -4037,12 +4085,10 @@ function confirmImportOrders(){
       channel: 'Shopee',
       orderId: r.orderId || ''
     });
-    importedIds.add(r.orderId);
     totalQty += r.qty;
   });
   saveProducts(products);
   saveSales(sales);
-  saveImportedOrderIds(importedIds);
   closeImportOrdersModal();
   renderSalesList(); renderDashboard(); renderProductList();
   toast(`นำเข้ายอดขายจาก Shopee แล้ว ${rows.length} บิล (${totalQty} คู่)`);
@@ -5044,6 +5090,8 @@ function renderDashboard(){
 
   renderStockMovementReport(range);
   renderStockByModelReport();
+  renderAdLogList();
+  renderAdSalesReport();
   renderSyncSettingsCard();
 }
 // สรุปความเคลื่อนไหวสต็อกจากประวัติ Transaction ในช่วงเวลาเดียวกับ "สรุปตามช่วงเวลา" ด้านบน
@@ -5148,6 +5196,108 @@ function renderStockByModelReport(){
     </div>`;
   }).join('');
 }
+
+/* ============ บันทึกเวลาลงโฆษณา + ยอดขายตามช่วงโฆษณา ============ */
+// เติมตัวเลือกเวลาในฟอร์มบันทึกโฆษณา ทีละ 30 นาที (00:00, 00:30, ... 23:30) เรียกครั้งเดียวตอนโหลดหน้า
+function populateAdLogTimeOptions(){
+  const sel = document.getElementById('adLogTime');
+  if(!sel || sel.options.length) return; // กันเติมซ้ำถ้าเรียกมากกว่า 1 ครั้ง
+  let html = '';
+  for(let h=0; h<24; h++){
+    for(let m=0; m<60; m+=30){
+      const label = String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0');
+      html += `<option value="${label}">${label}</option>`;
+    }
+  }
+  sel.innerHTML = html;
+  // ตั้งค่าเริ่มต้นเป็นเวลาปัจจุบัน ปัดลงไปที่ช่วง 30 นาทีล่าสุด กันต้องเลื่อนหาเองทุกครั้ง
+  const now = new Date();
+  const roundedMin = now.getMinutes() < 30 ? '00' : '30';
+  sel.value = String(now.getHours()).padStart(2,'0') + ':' + roundedMin;
+}
+function submitAdLog(){
+  const dateEl = document.getElementById('adLogDate');
+  const timeEl = document.getElementById('adLogTime');
+  const labelEl = document.getElementById('adLogLabel');
+  if(!dateEl.value){ toast('กรุณาเลือกวันที่ลงโฆษณา'); return; }
+  // ประกอบวันที่+เวลาที่เลือก (ตามเวลาท้องถิ่นเครื่องนี้) แล้วแปลงเป็น ISO string เก็บแบบเดียวกับ timestamp ของบิลขาย เทียบกันตรงๆ ได้
+  const [y,mo,d] = dateEl.value.split('-').map(Number);
+  const [hh,mm] = timeEl.value.split(':').map(Number);
+  const adDate = new Date(y, mo-1, d, hh, mm, 0, 0);
+  const logs = loadAdLogs();
+  logs.push({ id: uid(), adTime: adDate.toISOString(), label: labelEl.value.trim(), createdAt: new Date().toISOString() });
+  saveAdLogs(logs);
+  labelEl.value = '';
+  toast('บันทึกเวลาโฆษณาแล้ว');
+  renderAdLogList();
+  renderAdSalesReport();
+}
+function deleteAdLog(id){
+  if(!confirm('ลบรายการเวลาลงโฆษณานี้ใช่ไหม?')) return;
+  const logs = loadAdLogs().filter(a=>a.id!==id);
+  saveAdLogs(logs);
+  renderAdLogList();
+  renderAdSalesReport();
+}
+function renderAdLogList(){
+  const el = document.getElementById('adLogList');
+  if(!el) return;
+  const logs = loadAdLogs().slice().sort((a,b)=> new Date(b.adTime) - new Date(a.adTime)); // ล่าสุดอยู่บนสุด
+  if(logs.length === 0){ el.innerHTML = '<div class="empty">ยังไม่มีบันทึกเวลาลงโฆษณา</div>'; return; }
+  el.innerHTML = logs.map(a=>{
+    const dt = new Date(a.adTime);
+    const dateStr = dt.toLocaleDateString('th-TH', { day:'numeric', month:'short', year:'numeric' });
+    const timeStr = dt.toLocaleTimeString('th-TH', { hour:'2-digit', minute:'2-digit' });
+    return `<div class="cart-item">
+      <div>${dateStr} · ${timeStr}${a.label ? `<div class="muted" style="font-size:11.5px;">${a.label}</div>` : ''}</div>
+      <div class="row-actions"><button onclick="deleteAdLog('${a.id}')">ลบ</button></div>
+    </div>`;
+  }).join('');
+}
+// นับยอดขายที่เกิดตั้งแต่เวลาลงโฆษณาแต่ละตัว ไปจนถึงตัวถัดไป (เรียงตามเวลาโฆษณา) ตัวล่าสุดนับถึงปัจจุบัน
+function renderAdSalesReport(){
+  const el = document.getElementById('adSalesReport');
+  if(!el) return;
+  const logs = loadAdLogs().slice().sort((a,b)=> new Date(a.adTime) - new Date(b.adTime)); // เก่า -> ใหม่ เพื่อหาตัวถัดไปง่าย
+  if(logs.length === 0){ el.innerHTML = '<div class="empty">ยังไม่มีบันทึกเวลาลงโฆษณา เพิ่มที่การ์ด "บันทึกเวลาลงโฆษณา" ด้านบนก่อน</div>'; return; }
+  const sales = loadSales();
+  const rows = logs.map((log, i)=>{
+    const start = new Date(log.adTime).getTime();
+    const end = (i+1 < logs.length) ? new Date(logs[i+1].adTime).getTime() : Infinity;
+    const windowSales = sales.filter(s=>{
+      const t = new Date(s.timestamp).getTime();
+      return t >= start && t < end;
+    });
+    const total = windowSales.reduce((sum,s)=>sum+s.total,0);
+    const qty = windowSales.reduce((sum,s)=>sum + (s.items||[]).reduce((q,it)=>q+it.qty,0), 0);
+    return { log, start, end, count: windowSales.length, total, qty };
+  }).reverse(); // แสดงตัวล่าสุด (นับถึงปัจจุบัน) ไว้บนสุด
+
+  el.innerHTML = rows.map(r=>{
+    const dt = new Date(r.log.adTime);
+    const dateStr = dt.toLocaleDateString('th-TH', { day:'numeric', month:'short', year:'numeric' });
+    const timeStr = dt.toLocaleTimeString('th-TH', { hour:'2-digit', minute:'2-digit' });
+    const untilStr = r.end === Infinity ? 'ถึงปัจจุบัน' : (()=>{
+      const e = new Date(r.end);
+      return e.toLocaleDateString('th-TH', { day:'numeric', month:'short' }) + ' ' + e.toLocaleTimeString('th-TH', { hour:'2-digit', minute:'2-digit' });
+    })();
+    return `
+    <div class="stock-group">
+      <div class="stock-group-header" style="cursor:default;">
+        <div class="stock-group-title-row">
+          <div>
+            <strong>${dateStr} ${timeStr}${r.log.label ? ' · '+r.log.label : ''}</strong>
+            <div class="muted">ถึง ${untilStr} · ${r.count} บิล</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <strong class="num">฿${r.total.toFixed(2)}</strong>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
 function exportCSV(){
   const sales = loadSales();
   if(sales.length===0){ toast('ไม่มีข้อมูลให้ส่งออก'); return; }
@@ -5851,6 +6001,8 @@ renderCart();
 renderDashboard();
 renderOutOfStockBanner();
 refreshCategoryBrandDatalists();
+populateAdLogTimeOptions();
+(function setDefaultAdLogDate(){ const el = document.getElementById('adLogDate'); if(el && !el.value) el.value = new Date().toISOString().slice(0,10); })();
 initSupabaseSession().then(maybeShowLoginGate);
 setInterval(flushSyncQueue, 20000); // ลองส่งงานที่ค้างในคิวซ้ำทุก 20 วิ เผื่อเน็ตหลุดแล้วกลับมา
 window.addEventListener('online', flushSyncQueue);
