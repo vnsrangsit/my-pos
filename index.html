@@ -660,6 +660,41 @@
     </div>
 
     <div class="card">
+      <div class="collapse-header" data-collapse-toggle="collapseDownloadReport" onclick="toggleCollapse('collapseDownloadReport')">
+        <h3>ดาวน์โหลดรายงานขาย/คืนสินค้า</h3>
+        <span class="collapse-arrow">▾</span>
+      </div>
+      <div id="collapseDownloadReport" class="collapse-body" style="display:none;">
+        <div class="btn-row">
+          <div class="field" style="flex:1;margin-bottom:0;">
+            <label>จากวันที่</label>
+            <input type="date" id="reportDlFrom">
+          </div>
+          <div class="field" style="flex:1;margin-bottom:0;">
+            <label>ถึงวันที่</label>
+            <input type="date" id="reportDlTo">
+          </div>
+        </div>
+
+        <div class="section-divider"></div>
+        <div class="muted" style="font-size:12.5px;margin-bottom:6px;"><strong>สำหรับ PDF</strong> — เลือกหัวข้อที่จะให้แสดง และระดับความละเอียด (ไฟล์ Excel จะได้ข้อมูลครบทุกอย่างเสมอ ไม่ต้องเลือก)</div>
+        <div id="reportDlColumnPicker" class="btn-row" style="flex-wrap:wrap;gap:6px 14px;margin-bottom:10px;"></div>
+        <div class="field">
+          <label>ระดับความละเอียด (PDF)</label>
+          <select id="reportDlDetailLevel">
+            <option value="detail">รายละเอียดทุกรายการ</option>
+            <option value="summary">สรุปรวมยอดต่อสินค้า (เข้าใจง่าย เหมาะเสนอหัวหน้า)</option>
+          </select>
+        </div>
+
+        <div class="btn-row" style="margin-top:6px;">
+          <button class="btn btn-primary" style="flex:1;" onclick="downloadSalesReportPdf()">📄 ดาวน์โหลด PDF</button>
+          <button class="btn btn-outline" style="flex:1;" onclick="downloadSalesReportExcel()">📊 ดาวน์โหลด Excel (ครบทุกข้อมูล)</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
       <div class="collapse-header" data-collapse-toggle="collapseStockMovement" onclick="toggleCollapse('collapseStockMovement')">
         <h3>ความเคลื่อนไหวสต็อก</h3>
         <span class="collapse-arrow">▾</span>
@@ -5380,6 +5415,200 @@ function renderAdSalesReport(){
   }).join('');
 }
 
+/* ============ ดาวน์โหลดรายงานขาย/คืนสินค้า (PDF เลือกหัวข้อได้ / Excel ครบทุกข้อมูล) ============ */
+const REPORT_DL_COLUMNS = [
+  { key:'date', label:'วันที่' },
+  { key:'type', label:'ประเภท (ขาย/คืน)' },
+  { key:'brand', label:'ยี่ห้อ' },
+  { key:'model', label:'รุ่น' },
+  { key:'name', label:'ชื่อสินค้า' },
+  { key:'color', label:'สี' },
+  { key:'size', label:'เบอร์' },
+  { key:'qty', label:'จำนวน' },
+  { key:'adDate', label:'วันที่โฆษณา' },
+];
+function populateReportDlColumnPicker(){
+  const el = document.getElementById('reportDlColumnPicker');
+  if(!el || el.children.length) return; // กันเติมซ้ำถ้าเรียกมากกว่า 1 ครั้ง
+  el.innerHTML = REPORT_DL_COLUMNS.map(c=>`
+    <label style="display:flex;align-items:center;gap:5px;font-size:13px;font-weight:400;margin:0;">
+      <input type="checkbox" class="reportDlCol" value="${c.key}" checked style="width:auto;">${c.label}
+    </label>
+  `).join('');
+}
+// หาว่า ณ เวลาที่ขาย/คืนของแถวนี้ อยู่ในช่วงโฆษณาตัวไหน (ดูตรรกะเดียวกับ renderAdSalesReport) ใช้เติมคอลัมน์ "วันที่โฆษณา"
+function findAdWindowLabel(ts, adLogsAsc){
+  const t = new Date(ts).getTime();
+  let match = null;
+  for(const log of adLogsAsc){ if(new Date(log.adTime).getTime() <= t) match = log; else break; }
+  if(!match) return '';
+  const dt = new Date(match.adTime);
+  const dateStr = dt.toLocaleDateString('th-TH', { day:'numeric', month:'short', year:'numeric' });
+  const timeStr = dt.toLocaleTimeString('th-TH', { hour:'2-digit', minute:'2-digit' });
+  return dateStr + ' ' + timeStr + (match.label ? ' ('+match.label+')' : '');
+}
+// รวมข้อมูล "ขาย" (จาก sales) กับ "คืนสินค้า" (จาก stock_transactions ประเภท RETURN) เป็นแถวเดียวกัน เรียงตามเวลา
+// พยายาม lookup สินค้าจริงจาก productId เพื่อเอายี่ห้อ/รุ่น/สี/เบอร์ที่แม่นยำ ถ้าหาไม่เจอ (สินค้าถูกลบไปแล้ว) จะใช้ข้อมูลที่บันทึกไว้ ณ ตอนนั้นแทน
+function buildSalesReturnReportRows(fromDate, toDate){
+  const products = loadProducts();
+  const productById = {}; products.forEach(p=>{ productById[p.id]=p; });
+  const adLogsAsc = loadAdLogs().slice().sort((a,b)=> new Date(a.adTime) - new Date(b.adTime));
+  const fromTs = fromDate ? new Date(fromDate+'T00:00:00').getTime() : -Infinity;
+  const toTs = toDate ? new Date(toDate+'T23:59:59').getTime() : Infinity;
+  const rows = [];
+
+  loadSales().forEach(s=>{
+    const t = new Date(s.timestamp).getTime();
+    if(t < fromTs || t > toTs) return;
+    (s.items||[]).forEach(it=>{
+      const p = it.productId ? productById[it.productId] : null;
+      rows.push({
+        date: s.timestamp, type: 'ขาย',
+        brand: p ? (p.brand||'') : '', model: p ? (p.model||'') : '',
+        name: p ? (p.name||'') : it.name, color: p ? (p.color||'') : '', size: p ? (p.size||'') : '',
+        qty: it.qty, unitPrice: it.price, total: it.price * it.qty,
+        adDate: findAdWindowLabel(s.timestamp, adLogsAsc),
+        orderId: s.orderId || '', seller: s.seller || '', channel: s.channel || '', payment: s.payment || '', note: ''
+      });
+    });
+  });
+
+  loadStockTransactions().filter(tx=>tx.type==='RETURN').forEach(tx=>{
+    const t = new Date(tx.timestamp).getTime();
+    if(t < fromTs || t > toTs) return;
+    const p = tx.productId ? productById[tx.productId] : null;
+    rows.push({
+      date: tx.timestamp, type: 'คืนสินค้า',
+      brand: tx.brand || (p?p.brand:'') || '', model: p ? (p.model||'') : '',
+      name: tx.name || (p?p.name:'') || '', color: tx.color || (p?p.color:'') || '', size: tx.size || (p?p.size:'') || '',
+      qty: tx.baseQuantity, unitPrice: '', total: '',
+      adDate: findAdWindowLabel(tx.timestamp, adLogsAsc),
+      orderId: '', seller: '', channel: '', payment: '', note: tx.note || ''
+    });
+  });
+
+  rows.sort((a,b)=> new Date(a.date) - new Date(b.date));
+  return rows;
+}
+function getReportDlDateRange(){
+  const from = document.getElementById('reportDlFrom').value || '';
+  const to = document.getElementById('reportDlTo').value || '';
+  return { from, to };
+}
+function downloadSalesReportExcel(){
+  const { from, to } = getReportDlDateRange();
+  const rows = buildSalesReturnReportRows(from, to);
+  if(!rows.length){ toast('ไม่มีข้อมูลในช่วงเวลาที่เลือก'); return; }
+  // Excel เอาข้อมูลครบทุกอย่างเสมอ ไม่ต้องเลือกหัวข้อ (ต่างจาก PDF)
+  const sheetData = rows.map(r=>({
+    'วันที่เวลา': new Date(r.date).toLocaleString('th-TH'),
+    'ประเภท': r.type,
+    'ยี่ห้อ': r.brand,
+    'รุ่น': r.model,
+    'ชื่อสินค้า': r.name,
+    'สี': r.color,
+    'เบอร์': r.size,
+    'จำนวน': r.qty,
+    'ราคา/หน่วย': r.unitPrice,
+    'รวม': r.total,
+    'วันที่โฆษณา': r.adDate,
+    'เลขที่คำสั่งซื้อ': r.orderId,
+    'ผู้ขาย': r.seller,
+    'ช่องทาง': r.channel,
+    'ชำระโดย': r.payment,
+    'หมายเหตุ': r.note,
+  }));
+  const ws = XLSX.utils.json_to_sheet(sheetData);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'รายงานขาย-คืน');
+  const label = (from||'ทั้งหมด') + '_' + (to||'ปัจจุบัน');
+  XLSX.writeFile(wb, `รายงานขาย-คืนสินค้า_${label}.xlsx`);
+}
+// เปิดหน้าต่างใหม่ที่จัดหน้าสวยงามแบบ "รายงานเสนอหัวหน้า" แล้วเรียก print() ให้ผู้ใช้เลือก "บันทึกเป็น PDF" เอง
+// ใช้วิธีนี้แทนไลบรารีสร้าง PDF ฝั่ง JS เพราะไลบรารีทั่วไปไม่รองรับฟอนต์ภาษาไทยในตัว ต้องฝังฟอนต์เพิ่มซึ่งยุ่งยากและไฟล์หนักเกินจำเป็น
+// การ print จากเบราว์เซอร์ใช้ฟอนต์เดียวกับที่เห็นในแอปอยู่แล้ว จึงพิมพ์ภาษาไทยได้ถูกต้อง 100% โดยไม่ต้องฝังอะไรเพิ่ม
+function downloadSalesReportPdf(){
+  const { from, to } = getReportDlDateRange();
+  const selectedCols = Array.from(document.querySelectorAll('.reportDlCol:checked')).map(cb=>cb.value);
+  if(!selectedCols.length){ toast('เลือกอย่างน้อย 1 หัวข้อก่อน'); return; }
+  const detailLevel = document.getElementById('reportDlDetailLevel').value;
+  const rows = buildSalesReturnReportRows(from, to);
+  if(!rows.length){ toast('ไม่มีข้อมูลในช่วงเวลาที่เลือก'); return; }
+
+  const cols = REPORT_DL_COLUMNS.filter(c=>selectedCols.includes(c.key));
+  const rangeLabel = (from ? new Date(from).toLocaleDateString('th-TH') : 'เริ่มต้น') + ' – ' + (to ? new Date(to).toLocaleDateString('th-TH') : 'ปัจจุบัน');
+
+  const fmtRow = (r)=>{
+    return {
+      date: new Date(r.date).toLocaleDateString('th-TH', { day:'numeric', month:'short', year:'numeric' }),
+      type: r.type, brand: r.brand, model: r.model, name: r.name, color: r.color, size: r.size,
+      qty: r.qty, adDate: r.adDate,
+    };
+  };
+
+  let tableHtml = '';
+  let footNote = '';
+  if(detailLevel === 'summary'){
+    // สรุปรวมยอดต่อสินค้า: กลุ่มตามหัวข้อที่ "ไม่ใช่วันที่/ประเภท/วันที่โฆษณา" ที่เลือกไว้ (ยี่ห้อ/รุ่น/ชื่อ/สี/เบอร์) รวมจำนวนขาย-คืน-สุทธิ
+      const groupCols = cols.filter(c=>['brand','model','name','color','size'].includes(c.key));
+      const effectiveGroupCols = groupCols.length ? groupCols : REPORT_DL_COLUMNS.filter(c=>['brand','model','name','color','size'].includes(c.key));
+      const groups = {};
+      const order = [];
+      rows.forEach(r=>{
+        const key = effectiveGroupCols.map(c=>r[c.key]||'').join('|||');
+        if(!groups[key]){ groups[key] = { row: r, sold: 0, returned: 0 }; order.push(key); }
+        if(r.type === 'ขาย') groups[key].sold += r.qty; else groups[key].returned += r.qty;
+      });
+      const groupRows = order.map(k=>groups[k]).sort((a,b)=> (b.sold-b.returned) - (a.sold-a.returned));
+      tableHtml = `<table><thead><tr>${effectiveGroupCols.map(c=>`<th>${c.label}</th>`).join('')}<th>ขายรวม</th><th>คืนรวม</th><th>สุทธิ</th></tr></thead><tbody>`;
+      groupRows.forEach(g=>{
+        tableHtml += `<tr>${effectiveGroupCols.map(c=>`<td>${g.row[c.key]||'-'}</td>`).join('')}<td>${g.sold}</td><td>${g.returned}</td><td><strong>${g.sold-g.returned}</strong></td></tr>`;
+      });
+      tableHtml += '</tbody></table>';
+      footNote = 'โหมดสรุป: รวมจำนวนขาย/คืน/สุทธิ ต่อ 1 กลุ่มสินค้า (ไม่แยกตามวันที่เป็นรายแถว)';
+  } else {
+      const fmtRows = rows.map(fmtRow);
+      tableHtml = `<table><thead><tr>${cols.map(c=>`<th>${c.label}</th>`).join('')}</tr></thead><tbody>`;
+      fmtRows.forEach(r=>{
+        tableHtml += `<tr>${cols.map(c=>`<td>${(r[c.key]!==undefined && r[c.key]!=='') ? r[c.key] : '-'}</td>`).join('')}</tr>`;
+      });
+      tableHtml += '</tbody></table>';
+  }
+
+  const totalSold = rows.filter(r=>r.type==='ขาย').reduce((s,r)=>s+r.qty,0);
+  const totalReturned = rows.filter(r=>r.type==='คืนสินค้า').reduce((s,r)=>s+r.qty,0);
+
+  const win = window.open('', '_blank');
+  if(!win){ toast('เบราว์เซอร์บล็อกป็อปอัป กรุณาอนุญาตป็อปอัปสำหรับหน้านี้แล้วลองใหม่'); return; }
+  win.document.write(`<!doctype html><html lang="th"><head><meta charset="utf-8">
+    <title>รายงานขาย-คืนสินค้า ${rangeLabel}</title>
+    <style>
+      body{ font-family: 'Sarabun','Segoe UI',sans-serif; padding:24px; color:#111; }
+      h1{ font-size:20px; margin-bottom:2px; }
+      .sub{ color:#666; font-size:13px; margin-bottom:18px; }
+      .summary{ display:flex; gap:24px; margin-bottom:18px; font-size:14px; }
+      .summary b{ font-size:18px; display:block; }
+      table{ width:100%; border-collapse:collapse; font-size:12.5px; }
+      th,td{ border:1px solid #ccc; padding:6px 8px; text-align:left; }
+      th{ background:#f3f4f6; }
+      tr:nth-child(even){ background:#fafafa; }
+      .footnote{ margin-top:10px; font-size:11.5px; color:#777; }
+      @media print{ body{ padding:8px; } }
+    </style></head><body>
+    <h1>รายงานขาย/คืนสินค้า</h1>
+    <div class="sub">ช่วงวันที่ ${rangeLabel} · พิมพ์เมื่อ ${new Date().toLocaleString('th-TH')}</div>
+    <div class="summary">
+      <div>ยอดขายรวม<b>${totalSold} ชิ้น</b></div>
+      <div>ยอดคืนรวม<b>${totalReturned} ชิ้น</b></div>
+      <div>สุทธิ<b>${totalSold-totalReturned} ชิ้น</b></div>
+    </div>
+    ${tableHtml}
+    ${footNote ? `<div class="footnote">${footNote}</div>` : ''}
+    <script>window.onload = function(){ window.print(); };<\/script>
+    </body></html>`);
+  win.document.close();
+}
+
 function exportCSV(){
   const sales = loadSales();
   if(sales.length===0){ toast('ไม่มีข้อมูลให้ส่งออก'); return; }
@@ -6085,6 +6314,12 @@ renderOutOfStockBanner();
 refreshCategoryBrandDatalists();
 populateAdLogTimeOptions();
 (function setDefaultAdLogDate(){ const el = document.getElementById('adLogDate'); if(el && !el.value) el.value = new Date().toISOString().slice(0,10); })();
+populateReportDlColumnPicker();
+(function setDefaultReportDlRange(){ // ค่าเริ่มต้นของตัวกรองวันที่ในการ์ดดาวน์โหลดรายงาน: เดือนนี้ (วันที่ 1 ถึงวันนี้)
+  const fromEl = document.getElementById('reportDlFrom'), toEl = document.getElementById('reportDlTo');
+  if(fromEl && !fromEl.value){ const d = new Date(); fromEl.value = new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0,10); }
+  if(toEl && !toEl.value){ toEl.value = new Date().toISOString().slice(0,10); }
+})();
 initSupabaseSession().then(maybeShowLoginGate);
 setInterval(flushSyncQueue, 20000); // ลองส่งงานที่ค้างในคิวซ้ำทุก 20 วิ เผื่อเน็ตหลุดแล้วกลับมา
 window.addEventListener('online', flushSyncQueue);
