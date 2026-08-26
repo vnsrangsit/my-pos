@@ -459,6 +459,10 @@
       </div>
       <div id="collapseSalesList" class="collapse-body" style="display:none;">
         <div class="field">
+          <label>ค้นหา (เลขที่ออเดอร์ / ชื่อสินค้า / ผู้ขาย)</label>
+          <input type="text" id="saleListSearch" placeholder="เช่น เลขออเดอร์ตอนลูกค้าคืนสินค้า..." oninput="renderSalesList()">
+        </div>
+        <div class="field">
           <label>ช่วงเวลา</label>
           <select id="saleListFilter" onchange="renderSalesList()">
             <option value="today" selected>วันนี้</option>
@@ -4897,9 +4901,22 @@ function deleteSale(id){
 }
 function renderSalesList(){
   const range = document.getElementById('saleListFilter').value;
-  const sales = loadSales().filter(s=>inRange(s.timestamp, range)).slice().reverse();
+  const searchRaw = document.getElementById('saleListSearch').value.trim();
+  const search = searchRaw.toLowerCase();
+  let sales = loadSales();
+  if(search){
+    // มีคำค้นหา: ค้นข้ามทุกช่วงเวลาเลย (ไม่ยึดตามตัวเลือก "ช่วงเวลา" ด้านบน) เผื่อลูกค้าคืนสินค้าบิลเก่าที่ไม่ได้อยู่ในช่วงที่เลือกไว้
+    sales = sales.filter(s=>{
+      if((s.orderId||'').toLowerCase().includes(search)) return true;
+      if((s.seller||'').toLowerCase().includes(search)) return true;
+      return (s.items||[]).some(i=>(i.name||'').toLowerCase().includes(search));
+    });
+  } else {
+    sales = sales.filter(s=>inRange(s.timestamp, range));
+  }
+  sales = sales.slice().reverse();
   const el = document.getElementById('salesListTable');
-  if(sales.length===0){ el.innerHTML = '<div class="empty">ยังไม่มีรายการขาย</div>'; return; }
+  if(sales.length===0){ el.innerHTML = `<div class="empty">${search ? 'ไม่พบรายการที่ตรงกับคำค้นหา' : 'ยังไม่มีรายการขาย'}</div>`; return; }
   el.innerHTML = sales.map(s=>`
     <div class="cart-item">
       <div>
