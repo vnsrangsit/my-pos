@@ -5066,13 +5066,19 @@ function returnSaleItem(idx){
   if(!confirm(`ยืนยันรับคืนสินค้า "${origItem.name}" จำนวน ${returnQty} ชิ้น?\nระบบจะคืนสต็อกให้อัตโนมัติทันที`)) return;
 
   const products = loadProducts();
-  const p = products.find(pp=>pp.id===origItem.productId);
+  let p = products.find(pp=>pp.id===origItem.productId);
+  if(!p){
+    // productId หาไม่เจอ (เช่น บิลนี้ถูกบันทึกแบบไม่ได้ผูกกับสต็อกไว้ตั้งแต่แรก — พบได้กับรายการที่เคยขึ้นเตือน "หาสินค้าไม่เจอ" ตอนนำเข้าแล้วต้องเพิ่มบิลเอง)
+    // ลองหาใหม่จากชื่อที่ประกอบแล้วตรงกันเป๊ะ (ชื่อ+รุ่น+สี+เบอร์) ก่อนจะยอมแพ้ กันกรณีสินค้ายังอยู่ในสต็อกจริงแค่ไม่ได้ผูก id ไว้ตอนขาย
+    p = products.find(pp => composeDisplayName(pp.name, pp.model, pp.color, pp.size) === origItem.name);
+  }
   const orderNote = sale.orderId ? ` (เลขที่คำสั่งซื้อ ${sale.orderId})` : '';
   if(p){
     recordStockTransaction(products, p.id, 'RETURN', returnQty, BASE_UNIT, `ลูกค้าคืนสินค้าจากบิล ${editSaleId}${orderNote}`);
     saveProducts(products);
   } else {
-    toast('คืนสต็อกไม่ได้ (ไม่พบสินค้านี้ในระบบแล้ว) แต่จะตัดออกจากบิลให้ตามปกติ');
+    // เตือนแบบต้องกดปิดเอง (ไม่ใช่ toast ที่หายไปเอง) กันพลาดไม่ทันเห็น เพราะสต็อกจะไม่ถูกคืนให้อัตโนมัติจริงๆ ต้องไปเพิ่มเองที่หน้าสต็อก
+    alert(`⚠️ คืนสต็อกอัตโนมัติไม่ได้ เพราะหาสินค้า "${origItem.name}" ที่ตรงกับบิลนี้ในสต็อกไม่เจอ (อาจถูกลบไปแล้ว หรือชื่อ/สี/เบอร์ในสต็อกถูกแก้ไขจนไม่ตรงกับตอนขาย)\n\nระบบจะตัดรายการนี้ออกจากบิลให้ตามปกติ แต่คุณต้อง "เพิ่มสต็อกคืนเอง" ที่หน้าสต็อก จำนวน ${returnQty} ชิ้น ให้กับสินค้านี้ด้วยตัวเองครับ`);
   }
 
   const remainingQty = origItem.qty - returnQty;
