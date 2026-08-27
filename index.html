@@ -5451,6 +5451,7 @@ function findAdWindowMatch(ts, adLogsAsc){
   for(const log of adLogsAsc){ if(new Date(log.adTime).getTime() <= t) match = log; else break; }
   return match;
 }
+const NO_AD_WINDOW_ID = '__none__'; // รหัสพิเศษแทน "ช่วงก่อนมีการบันทึกเวลาโฆษณาเลย" กันบิลเก่าก่อนเริ่มบันทึกโฆษณาหายไปจากรายงาน
 function formatAdWindowLabel(match){
   if(!match) return '';
   const dt = new Date(match.adTime);
@@ -5459,7 +5460,8 @@ function formatAdWindowLabel(match){
   return dateStr + ' ' + timeStr + (match.label ? ' ('+match.label+')' : '');
 }
 // แสดงช่องติ๊กเลือก "ช่วงเวลาโฆษณา" เฉพาะช่วงที่มีบิลขาย/คืนจริงในวันที่เลือกไว้ด้านบน (ไม่โชว์ช่วงที่ไม่มีออเดอร์เลย กันรกตา)
-// ถ้าระบบยังไม่มีการบันทึกเวลาโฆษณาเลย จะซ่อนส่วนนี้ทั้งหมด แล้วดาวน์โหลดรายงานตามช่วงวันที่อย่างเดียวเหมือนเดิม
+// รวมถึงช่วง "ก่อนมีการบันทึกโฆษณาเลย" ด้วย (บิลเก่าก่อนเริ่มใช้ฟีเจอร์นี้ หรือก่อนบันทึกโฆษณาตัวแรก) กันข้อมูลเก่าหายไปจากรายงานเงียบๆ
+// ถ้าระบบยังไม่มีการบันทึกเวลาโฆษณาเลยแม้แต่ตัวเดียว จะซ่อนส่วนนี้ทั้งหมด แล้วดาวน์โหลดรายงานตามช่วงวันที่อย่างเดียวเหมือนเดิม (ไม่มีอะไรให้กรองตามโฆษณา)
 function renderReportDlAdWindowPicker(){
   const section = document.getElementById('reportDlAdWindowSection');
   const el = document.getElementById('reportDlAdWindowPicker');
@@ -5468,31 +5470,37 @@ function renderReportDlAdWindowPicker(){
   if(adLogsAsc.length === 0){ section.style.display = 'none'; return; }
 
   const { from, to } = getReportDlDateRange();
-  const fromTs = from ? new Date(from+'T00:00:00').getTime() : -Infinity;
-  const toTs = to ? new Date(to+'T23:59:59').getTime() : Infinity;
   const allRows = buildSalesReturnReportRows(from, to, null); // null = ยังไม่กรองตามช่วงโฆษณา เอาไว้นับจำนวนบิลต่อช่วงก่อน
 
-  const counts = {}; // windowId -> จำนวนแถว (ขาย+คืน) ในช่วงนั้น
+  const counts = {}; // windowId (หรือ NO_AD_WINDOW_ID) -> จำนวนแถว (ขาย+คืน) ในช่วงนั้น
   allRows.forEach(r=>{
     const match = findAdWindowMatch(r.date, adLogsAsc);
-    if(!match) return;
-    counts[match.id] = (counts[match.id]||0) + 1;
+    const key = match ? match.id : NO_AD_WINDOW_ID;
+    counts[key] = (counts[key]||0) + 1;
   });
 
   const windowsWithOrders = adLogsAsc.filter(log => counts[log.id] > 0).slice().reverse(); // ล่าสุดไว้บนสุด
-  if(windowsWithOrders.length === 0){ section.style.display = 'none'; return; }
+  if(windowsWithOrders.length === 0 && !counts[NO_AD_WINDOW_ID]){ section.style.display = 'none'; return; }
 
   section.style.display = '';
-  el.innerHTML = windowsWithOrders.map(log=>`
+  let html = windowsWithOrders.map(log=>`
     <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:400;margin:4px 0;">
       <input type="checkbox" class="reportDlAdWindow" value="${log.id}" checked style="width:auto;">
       ${formatAdWindowLabel(log)} <span class="muted">(${counts[log.id]} รายการ)</span>
     </label>
   `).join('');
+  if(counts[NO_AD_WINDOW_ID] > 0){
+    html += `<label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:400;margin:4px 0;">
+      <input type="checkbox" class="reportDlAdWindow" value="${NO_AD_WINDOW_ID}" checked style="width:auto;">
+      ⏳ ก่อนมีการบันทึกเวลาโฆษณา <span class="muted">(${counts[NO_AD_WINDOW_ID]} รายการ)</span>
+    </label>`;
+  }
+  el.innerHTML = html;
 }
 // รวมข้อมูล "ขาย" (จาก sales) กับ "คืนสินค้า" (จาก stock_transactions ประเภท RETURN) เป็นแถวเดียวกัน เรียงตามเวลา
 // พยายาม lookup สินค้าจริงจาก productId เพื่อเอายี่ห้อ/รุ่น/สี/เบอร์ที่แม่นยำ ถ้าหาไม่เจอ (สินค้าถูกลบไปแล้ว) จะใช้ข้อมูลที่บันทึกไว้ ณ ตอนนั้นแทน
 // selectedWindowIds: null = ไม่กรองตามช่วงโฆษณา (เอาทุกอย่างในช่วงวันที่) / array = เอาเฉพาะแถวที่อยู่ในช่วงโฆษณาที่ id อยู่ในลิสต์นี้เท่านั้น
+// (รวม NO_AD_WINDOW_ID สำหรับแถวที่เกิดก่อนมีการบันทึกโฆษณาตัวแรกเลย ไม่งั้นแถวเหล่านี้จะหายไปเงียบๆ ถ้ามีการกรองตามช่วงโฆษณา)
 function buildSalesReturnReportRows(fromDate, toDate, selectedWindowIds){
   const products = loadProducts();
   const productById = {}; products.forEach(p=>{ productById[p.id]=p; });
@@ -5503,7 +5511,12 @@ function buildSalesReturnReportRows(fromDate, toDate, selectedWindowIds){
   const passesWindowFilter = (ts)=>{
     if(!windowSet) return true;
     const match = findAdWindowMatch(ts, adLogsAsc);
-    return !!match && windowSet.has(match.id);
+    return windowSet.has(match ? match.id : NO_AD_WINDOW_ID);
+  };
+  const adDateText = (ts)=>{
+    const match = findAdWindowMatch(ts, adLogsAsc);
+    if(match) return formatAdWindowLabel(match);
+    return adLogsAsc.length ? 'ก่อนบันทึกโฆษณา' : '';
   };
   const rows = [];
 
@@ -5518,7 +5531,7 @@ function buildSalesReturnReportRows(fromDate, toDate, selectedWindowIds){
         brand: p ? (p.brand||'') : '', model: p ? (p.model||'') : '',
         name: p ? (p.name||'') : it.name, color: p ? (p.color||'') : '', size: p ? (p.size||'') : '',
         qty: it.qty, unitPrice: it.price, total: it.price * it.qty,
-        adDate: formatAdWindowLabel(findAdWindowMatch(s.timestamp, adLogsAsc)),
+        adDate: adDateText(s.timestamp),
         orderId: s.orderId || '', seller: s.seller || '', channel: s.channel || '', payment: s.payment || '', note: ''
       });
     });
@@ -5534,7 +5547,7 @@ function buildSalesReturnReportRows(fromDate, toDate, selectedWindowIds){
       brand: tx.brand || (p?p.brand:'') || '', model: p ? (p.model||'') : '',
       name: tx.name || (p?p.name:'') || '', color: tx.color || (p?p.color:'') || '', size: tx.size || (p?p.size:'') || '',
       qty: tx.baseQuantity, unitPrice: '', total: '',
-      adDate: formatAdWindowLabel(findAdWindowMatch(tx.timestamp, adLogsAsc)),
+      adDate: adDateText(tx.timestamp),
       orderId: '', seller: '', channel: '', payment: '', note: tx.note || ''
     });
   });
