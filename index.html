@@ -667,12 +667,12 @@
       <div id="collapseDownloadReport" class="collapse-body" style="display:none;">
         <div class="btn-row">
           <div class="field" style="flex:1;margin-bottom:0;">
-            <label>จากวันที่</label>
-            <input type="date" id="reportDlFrom">
+            <label>จากวันที่-เวลา</label>
+            <input type="datetime-local" id="reportDlFrom">
           </div>
           <div class="field" style="flex:1;margin-bottom:0;">
-            <label>ถึงวันที่</label>
-            <input type="date" id="reportDlTo">
+            <label>ถึงวันที่-เวลา</label>
+            <input type="datetime-local" id="reportDlTo">
           </div>
         </div>
 
@@ -5449,12 +5449,13 @@ function findAdWindowLabel(ts, adLogsAsc){
 }
 // รวมข้อมูล "ขาย" (จาก sales) กับ "คืนสินค้า" (จาก stock_transactions ประเภท RETURN) เป็นแถวเดียวกัน เรียงตามเวลา
 // พยายาม lookup สินค้าจริงจาก productId เพื่อเอายี่ห้อ/รุ่น/สี/เบอร์ที่แม่นยำ ถ้าหาไม่เจอ (สินค้าถูกลบไปแล้ว) จะใช้ข้อมูลที่บันทึกไว้ ณ ตอนนั้นแทน
-function buildSalesReturnReportRows(fromDate, toDate){
+// fromDateTime/toDateTime เป็นค่าจาก <input type="datetime-local"> (เช่น "2026-08-25T15:00") เลือกได้ละเอียดถึงนาที ไม่ใช่แค่ระดับวัน
+function buildSalesReturnReportRows(fromDateTime, toDateTime){
   const products = loadProducts();
   const productById = {}; products.forEach(p=>{ productById[p.id]=p; });
   const adLogsAsc = loadAdLogs().slice().sort((a,b)=> new Date(a.adTime) - new Date(b.adTime));
-  const fromTs = fromDate ? new Date(fromDate+'T00:00:00').getTime() : -Infinity;
-  const toTs = toDate ? new Date(toDate+'T23:59:59').getTime() : Infinity;
+  const fromTs = fromDateTime ? new Date(fromDateTime).getTime() : -Infinity;
+  const toTs = toDateTime ? new Date(toDateTime).getTime() : Infinity;
   const rows = [];
 
   loadSales().forEach(s=>{
@@ -5521,7 +5522,8 @@ function downloadSalesReportExcel(){
   const ws = XLSX.utils.json_to_sheet(sheetData);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'รายงานขาย-คืน');
-  const label = (from||'ทั้งหมด') + '_' + (to||'ปัจจุบัน');
+  const safe = s => String(s||'').replace(/[:T]/g,'-'); // ตัดอักขระ : และ T ออกจากชื่อไฟล์ (datetime-local เช่น 2026-08-01T00:00 มี : ซึ่งใช้ในชื่อไฟล์ Windows ไม่ได้)
+  const label = safe(from||'ทั้งหมด') + '_' + safe(to||'ปัจจุบัน');
   XLSX.writeFile(wb, `รายงานขาย-คืนสินค้า_${label}.xlsx`);
 }
 // เปิดหน้าต่างใหม่ที่จัดหน้าสวยงามแบบ "รายงานเสนอหัวหน้า" แล้วเรียก print() ให้ผู้ใช้เลือก "บันทึกเป็น PDF" เอง
@@ -5536,11 +5538,12 @@ function downloadSalesReportPdf(){
   if(!rows.length){ toast('ไม่มีข้อมูลในช่วงเวลาที่เลือก'); return; }
 
   const cols = REPORT_DL_COLUMNS.filter(c=>selectedCols.includes(c.key));
-  const rangeLabel = (from ? new Date(from).toLocaleDateString('th-TH') : 'เริ่มต้น') + ' – ' + (to ? new Date(to).toLocaleDateString('th-TH') : 'ปัจจุบัน');
+  const fmtDateTime = (v)=> new Date(v).toLocaleDateString('th-TH',{day:'numeric',month:'short',year:'numeric'}) + ' ' + new Date(v).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'});
+  const rangeLabel = (from ? fmtDateTime(from) : 'เริ่มต้น') + ' – ' + (to ? fmtDateTime(to) : 'ปัจจุบัน');
 
   const fmtRow = (r)=>{
     return {
-      date: new Date(r.date).toLocaleDateString('th-TH', { day:'numeric', month:'short', year:'numeric' }),
+      date: new Date(r.date).toLocaleDateString('th-TH', { day:'numeric', month:'short', year:'numeric' }) + ' ' + new Date(r.date).toLocaleTimeString('th-TH', { hour:'2-digit', minute:'2-digit' }),
       type: r.type, brand: r.brand, model: r.model, name: r.name, color: r.color, size: r.size,
       qty: r.qty, adDate: r.adDate,
     };
@@ -6315,10 +6318,15 @@ refreshCategoryBrandDatalists();
 populateAdLogTimeOptions();
 (function setDefaultAdLogDate(){ const el = document.getElementById('adLogDate'); if(el && !el.value) el.value = new Date().toISOString().slice(0,10); })();
 populateReportDlColumnPicker();
-(function setDefaultReportDlRange(){ // ค่าเริ่มต้นของตัวกรองวันที่ในการ์ดดาวน์โหลดรายงาน: เดือนนี้ (วันที่ 1 ถึงวันนี้)
+(function setDefaultReportDlRange(){ // ค่าเริ่มต้นของตัวกรองวันที่-เวลาในการ์ดดาวน์โหลดรายงาน: ตั้งแต่ต้นเดือนนี้ 00:00 ถึงตอนนี้
+  const toLocalInput = (d)=>{ // แปลงเป็นรูปแบบที่ input datetime-local ต้องการ (ตามเวลาท้องถิ่นเครื่องนี้ ไม่ใช่ toISOString ที่เป็น UTC ซึ่งจะเพี้ยนเวลาได้)
+    const pad = n=>String(n).padStart(2,'0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
   const fromEl = document.getElementById('reportDlFrom'), toEl = document.getElementById('reportDlTo');
-  if(fromEl && !fromEl.value){ const d = new Date(); fromEl.value = new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0,10); }
-  if(toEl && !toEl.value){ toEl.value = new Date().toISOString().slice(0,10); }
+  const now = new Date();
+  if(fromEl && !fromEl.value) fromEl.value = toLocalInput(new Date(now.getFullYear(), now.getMonth(), 1, 0, 0));
+  if(toEl && !toEl.value) toEl.value = toLocalInput(now);
 })();
 initSupabaseSession().then(maybeShowLoginGate);
 setInterval(flushSyncQueue, 20000); // ลองส่งงานที่ค้างในคิวซ้ำทุก 20 วิ เผื่อเน็ตหลุดแล้วกลับมา
