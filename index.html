@@ -667,13 +667,19 @@
       <div id="collapseDownloadReport" class="collapse-body" style="display:none;">
         <div class="btn-row">
           <div class="field" style="flex:1;margin-bottom:0;">
-            <label>จากวันที่-เวลา</label>
-            <input type="datetime-local" id="reportDlFrom">
+            <label>จากวันที่</label>
+            <input type="date" id="reportDlFrom" onchange="renderReportDlAdWindowPicker()">
           </div>
           <div class="field" style="flex:1;margin-bottom:0;">
-            <label>ถึงวันที่-เวลา</label>
-            <input type="datetime-local" id="reportDlTo">
+            <label>ถึงวันที่</label>
+            <input type="date" id="reportDlTo" onchange="renderReportDlAdWindowPicker()">
           </div>
+        </div>
+
+        <div id="reportDlAdWindowSection" style="display:none;">
+          <div class="section-divider"></div>
+          <div class="muted" style="font-size:12.5px;margin-bottom:6px;">ติ๊กเลือกเฉพาะช่วงเวลาที่ต้องการรวมในรายงาน (แสดงเฉพาะช่วงที่มีบิลขาย/คืนจริงในวันที่เลือกไว้ด้านบน)</div>
+          <div id="reportDlAdWindowPicker"></div>
         </div>
 
         <div class="section-divider"></div>
@@ -5348,6 +5354,7 @@ function submitAdLog(){
   toast('บันทึกเวลาโฆษณาแล้ว');
   renderAdLogList();
   renderAdSalesReport();
+  renderReportDlAdWindowPicker();
 }
 function deleteAdLog(id){
   if(!confirm('ลบรายการเวลาลงโฆษณานี้ใช่ไหม?')) return;
@@ -5355,6 +5362,7 @@ function deleteAdLog(id){
   saveAdLogs(logs);
   renderAdLogList();
   renderAdSalesReport();
+  renderReportDlAdWindowPicker();
 }
 function renderAdLogList(){
   const el = document.getElementById('adLogList');
@@ -5436,31 +5444,73 @@ function populateReportDlColumnPicker(){
     </label>
   `).join('');
 }
-// หาว่า ณ เวลาที่ขาย/คืนของแถวนี้ อยู่ในช่วงโฆษณาตัวไหน (ดูตรรกะเดียวกับ renderAdSalesReport) ใช้เติมคอลัมน์ "วันที่โฆษณา"
-function findAdWindowLabel(ts, adLogsAsc){
+// หาว่า ณ เวลาที่ขาย/คืนของแถวนี้ อยู่ในช่วงโฆษณาตัวไหน (ดูตรรกะเดียวกับ renderAdSalesReport) — คืนตัวบันทึกโฆษณาที่ตรงกัน (หรือ null ถ้าไม่มี)
+function findAdWindowMatch(ts, adLogsAsc){
   const t = new Date(ts).getTime();
   let match = null;
   for(const log of adLogsAsc){ if(new Date(log.adTime).getTime() <= t) match = log; else break; }
+  return match;
+}
+function formatAdWindowLabel(match){
   if(!match) return '';
   const dt = new Date(match.adTime);
   const dateStr = dt.toLocaleDateString('th-TH', { day:'numeric', month:'short', year:'numeric' });
   const timeStr = dt.toLocaleTimeString('th-TH', { hour:'2-digit', minute:'2-digit' });
   return dateStr + ' ' + timeStr + (match.label ? ' ('+match.label+')' : '');
 }
+// แสดงช่องติ๊กเลือก "ช่วงเวลาโฆษณา" เฉพาะช่วงที่มีบิลขาย/คืนจริงในวันที่เลือกไว้ด้านบน (ไม่โชว์ช่วงที่ไม่มีออเดอร์เลย กันรกตา)
+// ถ้าระบบยังไม่มีการบันทึกเวลาโฆษณาเลย จะซ่อนส่วนนี้ทั้งหมด แล้วดาวน์โหลดรายงานตามช่วงวันที่อย่างเดียวเหมือนเดิม
+function renderReportDlAdWindowPicker(){
+  const section = document.getElementById('reportDlAdWindowSection');
+  const el = document.getElementById('reportDlAdWindowPicker');
+  if(!section || !el) return;
+  const adLogsAsc = loadAdLogs().slice().sort((a,b)=> new Date(a.adTime) - new Date(b.adTime));
+  if(adLogsAsc.length === 0){ section.style.display = 'none'; return; }
+
+  const { from, to } = getReportDlDateRange();
+  const fromTs = from ? new Date(from+'T00:00:00').getTime() : -Infinity;
+  const toTs = to ? new Date(to+'T23:59:59').getTime() : Infinity;
+  const allRows = buildSalesReturnReportRows(from, to, null); // null = ยังไม่กรองตามช่วงโฆษณา เอาไว้นับจำนวนบิลต่อช่วงก่อน
+
+  const counts = {}; // windowId -> จำนวนแถว (ขาย+คืน) ในช่วงนั้น
+  allRows.forEach(r=>{
+    const match = findAdWindowMatch(r.date, adLogsAsc);
+    if(!match) return;
+    counts[match.id] = (counts[match.id]||0) + 1;
+  });
+
+  const windowsWithOrders = adLogsAsc.filter(log => counts[log.id] > 0).slice().reverse(); // ล่าสุดไว้บนสุด
+  if(windowsWithOrders.length === 0){ section.style.display = 'none'; return; }
+
+  section.style.display = '';
+  el.innerHTML = windowsWithOrders.map(log=>`
+    <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:400;margin:4px 0;">
+      <input type="checkbox" class="reportDlAdWindow" value="${log.id}" checked style="width:auto;">
+      ${formatAdWindowLabel(log)} <span class="muted">(${counts[log.id]} รายการ)</span>
+    </label>
+  `).join('');
+}
 // รวมข้อมูล "ขาย" (จาก sales) กับ "คืนสินค้า" (จาก stock_transactions ประเภท RETURN) เป็นแถวเดียวกัน เรียงตามเวลา
 // พยายาม lookup สินค้าจริงจาก productId เพื่อเอายี่ห้อ/รุ่น/สี/เบอร์ที่แม่นยำ ถ้าหาไม่เจอ (สินค้าถูกลบไปแล้ว) จะใช้ข้อมูลที่บันทึกไว้ ณ ตอนนั้นแทน
-// fromDateTime/toDateTime เป็นค่าจาก <input type="datetime-local"> (เช่น "2026-08-25T15:00") เลือกได้ละเอียดถึงนาที ไม่ใช่แค่ระดับวัน
-function buildSalesReturnReportRows(fromDateTime, toDateTime){
+// selectedWindowIds: null = ไม่กรองตามช่วงโฆษณา (เอาทุกอย่างในช่วงวันที่) / array = เอาเฉพาะแถวที่อยู่ในช่วงโฆษณาที่ id อยู่ในลิสต์นี้เท่านั้น
+function buildSalesReturnReportRows(fromDate, toDate, selectedWindowIds){
   const products = loadProducts();
   const productById = {}; products.forEach(p=>{ productById[p.id]=p; });
   const adLogsAsc = loadAdLogs().slice().sort((a,b)=> new Date(a.adTime) - new Date(b.adTime));
-  const fromTs = fromDateTime ? new Date(fromDateTime).getTime() : -Infinity;
-  const toTs = toDateTime ? new Date(toDateTime).getTime() : Infinity;
+  const fromTs = fromDate ? new Date(fromDate+'T00:00:00').getTime() : -Infinity;
+  const toTs = toDate ? new Date(toDate+'T23:59:59').getTime() : Infinity;
+  const windowSet = selectedWindowIds ? new Set(selectedWindowIds) : null;
+  const passesWindowFilter = (ts)=>{
+    if(!windowSet) return true;
+    const match = findAdWindowMatch(ts, adLogsAsc);
+    return !!match && windowSet.has(match.id);
+  };
   const rows = [];
 
   loadSales().forEach(s=>{
     const t = new Date(s.timestamp).getTime();
     if(t < fromTs || t > toTs) return;
+    if(!passesWindowFilter(s.timestamp)) return;
     (s.items||[]).forEach(it=>{
       const p = it.productId ? productById[it.productId] : null;
       rows.push({
@@ -5468,7 +5518,7 @@ function buildSalesReturnReportRows(fromDateTime, toDateTime){
         brand: p ? (p.brand||'') : '', model: p ? (p.model||'') : '',
         name: p ? (p.name||'') : it.name, color: p ? (p.color||'') : '', size: p ? (p.size||'') : '',
         qty: it.qty, unitPrice: it.price, total: it.price * it.qty,
-        adDate: findAdWindowLabel(s.timestamp, adLogsAsc),
+        adDate: formatAdWindowLabel(findAdWindowMatch(s.timestamp, adLogsAsc)),
         orderId: s.orderId || '', seller: s.seller || '', channel: s.channel || '', payment: s.payment || '', note: ''
       });
     });
@@ -5477,13 +5527,14 @@ function buildSalesReturnReportRows(fromDateTime, toDateTime){
   loadStockTransactions().filter(tx=>tx.type==='RETURN').forEach(tx=>{
     const t = new Date(tx.timestamp).getTime();
     if(t < fromTs || t > toTs) return;
+    if(!passesWindowFilter(tx.timestamp)) return;
     const p = tx.productId ? productById[tx.productId] : null;
     rows.push({
       date: tx.timestamp, type: 'คืนสินค้า',
       brand: tx.brand || (p?p.brand:'') || '', model: p ? (p.model||'') : '',
       name: tx.name || (p?p.name:'') || '', color: tx.color || (p?p.color:'') || '', size: tx.size || (p?p.size:'') || '',
       qty: tx.baseQuantity, unitPrice: '', total: '',
-      adDate: findAdWindowLabel(tx.timestamp, adLogsAsc),
+      adDate: formatAdWindowLabel(findAdWindowMatch(tx.timestamp, adLogsAsc)),
       orderId: '', seller: '', channel: '', payment: '', note: tx.note || ''
     });
   });
@@ -5496,9 +5547,16 @@ function getReportDlDateRange(){
   const to = document.getElementById('reportDlTo').value || '';
   return { from, to };
 }
+// ถ้าการ์ดช่วงเวลาโฆษณากำลังแสดงอยู่ (มีเวลาโฆษณาที่มีออเดอร์จริง) ให้เอาเฉพาะติ๊กที่เลือกไว้ ไม่งั้นถือว่าไม่กรอง (null)
+function getSelectedAdWindowIds(){
+  const section = document.getElementById('reportDlAdWindowSection');
+  if(!section || section.style.display === 'none') return null;
+  return Array.from(document.querySelectorAll('.reportDlAdWindow:checked')).map(cb=>cb.value);
+}
 function downloadSalesReportExcel(){
   const { from, to } = getReportDlDateRange();
-  const rows = buildSalesReturnReportRows(from, to);
+  const windowIds = getSelectedAdWindowIds();
+  const rows = buildSalesReturnReportRows(from, to, windowIds);
   if(!rows.length){ toast('ไม่มีข้อมูลในช่วงเวลาที่เลือก'); return; }
   // Excel เอาข้อมูลครบทุกอย่างเสมอ ไม่ต้องเลือกหัวข้อ (ต่างจาก PDF)
   const sheetData = rows.map(r=>({
@@ -5522,8 +5580,7 @@ function downloadSalesReportExcel(){
   const ws = XLSX.utils.json_to_sheet(sheetData);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'รายงานขาย-คืน');
-  const safe = s => String(s||'').replace(/[:T]/g,'-'); // ตัดอักขระ : และ T ออกจากชื่อไฟล์ (datetime-local เช่น 2026-08-01T00:00 มี : ซึ่งใช้ในชื่อไฟล์ Windows ไม่ได้)
-  const label = safe(from||'ทั้งหมด') + '_' + safe(to||'ปัจจุบัน');
+  const label = (from||'ทั้งหมด') + '_' + (to||'ปัจจุบัน');
   XLSX.writeFile(wb, `รายงานขาย-คืนสินค้า_${label}.xlsx`);
 }
 // เปิดหน้าต่างใหม่ที่จัดหน้าสวยงามแบบ "รายงานเสนอหัวหน้า" แล้วเรียก print() ให้ผู้ใช้เลือก "บันทึกเป็น PDF" เอง
@@ -5531,15 +5588,16 @@ function downloadSalesReportExcel(){
 // การ print จากเบราว์เซอร์ใช้ฟอนต์เดียวกับที่เห็นในแอปอยู่แล้ว จึงพิมพ์ภาษาไทยได้ถูกต้อง 100% โดยไม่ต้องฝังอะไรเพิ่ม
 function downloadSalesReportPdf(){
   const { from, to } = getReportDlDateRange();
+  const windowIds = getSelectedAdWindowIds();
   const selectedCols = Array.from(document.querySelectorAll('.reportDlCol:checked')).map(cb=>cb.value);
   if(!selectedCols.length){ toast('เลือกอย่างน้อย 1 หัวข้อก่อน'); return; }
   const detailLevel = document.getElementById('reportDlDetailLevel').value;
-  const rows = buildSalesReturnReportRows(from, to);
+  const rows = buildSalesReturnReportRows(from, to, windowIds);
   if(!rows.length){ toast('ไม่มีข้อมูลในช่วงเวลาที่เลือก'); return; }
 
   const cols = REPORT_DL_COLUMNS.filter(c=>selectedCols.includes(c.key));
-  const fmtDateTime = (v)=> new Date(v).toLocaleDateString('th-TH',{day:'numeric',month:'short',year:'numeric'}) + ' ' + new Date(v).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'});
-  const rangeLabel = (from ? fmtDateTime(from) : 'เริ่มต้น') + ' – ' + (to ? fmtDateTime(to) : 'ปัจจุบัน');
+  const fmtDate = (v)=> new Date(v).toLocaleDateString('th-TH',{day:'numeric',month:'short',year:'numeric'});
+  const rangeLabel = (from ? fmtDate(from) : 'เริ่มต้น') + ' – ' + (to ? fmtDate(to) : 'ปัจจุบัน');
 
   const fmtRow = (r)=>{
     return {
@@ -6318,16 +6376,15 @@ refreshCategoryBrandDatalists();
 populateAdLogTimeOptions();
 (function setDefaultAdLogDate(){ const el = document.getElementById('adLogDate'); if(el && !el.value) el.value = new Date().toISOString().slice(0,10); })();
 populateReportDlColumnPicker();
-(function setDefaultReportDlRange(){ // ค่าเริ่มต้นของตัวกรองวันที่-เวลาในการ์ดดาวน์โหลดรายงาน: ตั้งแต่ต้นเดือนนี้ 00:00 ถึงตอนนี้
-  const toLocalInput = (d)=>{ // แปลงเป็นรูปแบบที่ input datetime-local ต้องการ (ตามเวลาท้องถิ่นเครื่องนี้ ไม่ใช่ toISOString ที่เป็น UTC ซึ่งจะเพี้ยนเวลาได้)
-    const pad = n=>String(n).padStart(2,'0');
-    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  };
+(function setDefaultReportDlRange(){ // ค่าเริ่มต้นของตัวกรองวันที่ในการ์ดดาวน์โหลดรายงาน: ตั้งแต่ต้นเดือนนี้ถึงวันนี้
+  const pad = n=>String(n).padStart(2,'0');
+  const toLocalDate = (d)=> `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
   const fromEl = document.getElementById('reportDlFrom'), toEl = document.getElementById('reportDlTo');
   const now = new Date();
-  if(fromEl && !fromEl.value) fromEl.value = toLocalInput(new Date(now.getFullYear(), now.getMonth(), 1, 0, 0));
-  if(toEl && !toEl.value) toEl.value = toLocalInput(now);
+  if(fromEl && !fromEl.value) fromEl.value = toLocalDate(new Date(now.getFullYear(), now.getMonth(), 1));
+  if(toEl && !toEl.value) toEl.value = toLocalDate(now);
 })();
+renderReportDlAdWindowPicker();
 initSupabaseSession().then(maybeShowLoginGate);
 setInterval(flushSyncQueue, 20000); // ลองส่งงานที่ค้างในคิวซ้ำทุก 20 วิ เผื่อเน็ตหลุดแล้วกลับมา
 window.addEventListener('online', flushSyncQueue);
