@@ -623,7 +623,7 @@ function confirmQtyChange(){
 function normalizeSize(s){ return String(s||'').trim().toLowerCase(); }
 let addSizeGroupIndex = null;
 // ช่วงเบอร์รองเท้ามาตรฐานให้เลือกจาก dropdown (ครอบคลุมตั้งแต่เด็กเล็กถึงผู้ใหญ่ตัวใหญ่) กันพิมพ์เองพลาด/สะกดไม่ตรงกับเบอร์ที่มีอยู่แล้ว
-const COMMON_SHOE_SIZES = Array.from({length: 46-14+1}, (_, i) => String(14 + i)); // "14" ถึง "46"
+const COMMON_SHOE_SIZES = Array.from({length: 48-25+1}, (_, i) => String(25 + i)); // "25" ถึง "48"
 function openAddSizeSheet(gi){
   const g = currentGroups[gi];
   if(!g || !g.items.length){ toast('ไม่พบกลุ่มสินค้านี้แล้ว ลองรีเฟรชแล้วลองใหม่'); return; }
