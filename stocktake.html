@@ -39,7 +39,7 @@
   .refresh-btn{flex:none;width:44px;height:44px;border-radius:10px;border:1px solid var(--border);background:#fff;font-size:18px;cursor:pointer;}
   .refresh-btn.spinning{animation:spin .8s linear infinite;}
   @keyframes spin{from{transform:rotate(0deg);}to{transform:rotate(360deg);}}
-  input[type="text"], input[type="email"], input[type="password"], input[type="number"]{
+  input[type="text"], input[type="email"], input[type="password"], input[type="number"], select{
     width:100%;padding:12px 13px;border:1px solid var(--border);border-radius:10px;font-size:16px;background:#fff;color:var(--text);}
   .btn{border:none;border-radius:10px;padding:12px 16px;font-weight:700;font-size:14px;cursor:pointer;}
   .btn-primary{background:var(--primary);color:#fff;}
@@ -77,6 +77,8 @@
   .size-chip.changed{border-color:var(--success);background:var(--success-tint);}
   .size-chip.changed::after{content:"✓";position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;
     background:var(--success);color:#fff;font-size:11px;display:flex;align-items:center;justify-content:center;font-weight:700;}
+  .size-chip.add-size-chip{border-style:dashed;background:#fff;color:var(--muted);}
+  .size-chip.add-size-chip .sz{font-size:16px;line-height:1;}
 
   .empty-state{padding:60px 20px;text-align:center;color:var(--muted);}
   .empty-state svg{width:44px;height:44px;opacity:.4;margin-bottom:10px;}
@@ -186,6 +188,33 @@
         <button type="button" class="btn btn-outline" style="flex:1;" onclick="copyReportText()">📋 คัดลอกข้อความ</button>
         <button type="button" class="btn btn-outline" style="flex:1;" onclick="clearReportLog()">ล้างรายงาน/เริ่มรอบใหม่</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- ป็อปอัพเพิ่มเบอร์ใหม่ -->
+<div id="addSizeSheetOverlay" class="sheet-overlay" onclick="if(event.target===this)closeAddSizeSheet();">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-header">
+      <h3>เพิ่มเบอร์ใหม่</h3>
+      <button type="button" class="sheet-close" onclick="closeAddSizeSheet()">✕</button>
+    </div>
+    <div class="sheet-body">
+      <div class="qty-before" id="addSizeTitle" style="font-weight:700;color:var(--text);font-size:14px;"></div>
+      <div class="qty-before" id="addSizeExisting" style="margin-bottom:14px;"></div>
+      <div class="field">
+        <label>เบอร์ที่จะเพิ่ม</label>
+        <select id="addSizeInput"></select>
+      </div>
+      <div class="field">
+        <label>จำนวนเริ่มต้น</label>
+        <input type="number" id="addSizeQtyInput" inputmode="numeric" min="0" step="1" value="0">
+      </div>
+    </div>
+    <div class="sheet-footer">
+      <button type="button" class="btn btn-outline" style="flex:1;" onclick="closeAddSizeSheet()">ยกเลิก</button>
+      <button type="button" class="btn btn-primary" style="flex:2;" onclick="confirmAddSize()">✓ เพิ่มเบอร์นี้</button>
     </div>
   </div>
 </div>
@@ -385,8 +414,9 @@ async function silentAutoRefresh(){
   if(hasPendingLocalSyncWork()){ flushSyncQueue(); return; }
   const qtyOpen = document.getElementById('qtySheetOverlay').classList.contains('open');
   const reportOpen = document.getElementById('reportSheetOverlay').classList.contains('open');
+  const addSizeOpen = document.getElementById('addSizeSheetOverlay').classList.contains('open');
   const ok = await pullFromSupabase();
-  if(ok){ setStatus('ok'); if(!qtyOpen && !reportOpen) renderGrid(); }
+  if(ok){ setStatus('ok'); if(!qtyOpen && !reportOpen && !addSizeOpen) renderGrid(); }
 }
 async function manualRefresh(){
   if(!currentOwnerId){ toast('ต้องล็อกอินก่อนถึงจะดึงข้อมูลล่าสุดได้'); return; }
@@ -474,6 +504,7 @@ async function handleStkLogin(){
 }
 
 /* ============ RENDER: PRODUCT GRID ============ */
+let currentGroups = []; // เก็บกลุ่มที่กำลังแสดงอยู่ล่าสุด ใช้อ้างอิงตอนกด "+" เพิ่มเบอร์ใหม่ (อ้างด้วย index กันปัญหา escape ชื่อ/สีที่มีอักขระพิเศษ)
 function renderGrid(){
   const el = document.getElementById('gridArea');
   const filter = (document.getElementById('stkSearch').value || '').trim().toLowerCase();
@@ -485,11 +516,13 @@ function renderGrid(){
   });
   if(filtered.length === 0){
     el.innerHTML = `<div class="empty-state">📦<br>ไม่พบสินค้า</div>`;
+    currentGroups = [];
     return;
   }
   const groups = groupProducts(filtered).sort((a,b)=>(a.name||'').localeCompare(b.name||'','th'));
+  currentGroups = groups;
   const changedIds = new Set(loadStocktakeLog().map(e=>e.productId));
-  el.innerHTML = groups.map(g=>{
+  el.innerHTML = groups.map((g,gi)=>{
     const items = sortedSizeItems(g);
     const rep = items[0];
     const imgHtml = rep.image
@@ -507,7 +540,10 @@ function renderGrid(){
         <div class="sz">${escapeHtml(p.size||'-')}</div>
         <div class="qty">${qty}</div>
       </div>`;
-    }).join('');
+    }).join('') + `<div class="size-chip add-size-chip" onclick="openAddSizeSheet(${gi})">
+        <div class="sz">＋</div>
+        <div class="qty">เบอร์ใหม่</div>
+      </div>`;
     return `
       <div class="p-card">
         ${imgHtml}
@@ -579,6 +615,74 @@ function confirmQtyChange(){
   }
   toast('บันทึกแล้ว');
   closeQtySheet();
+  renderGrid();
+  renderReportBadgeCount();
+}
+
+/* ============ ป็อปอัพเพิ่มเบอร์ใหม่ (สร้างสินค้าตัวใหม่ในรุ่น/สีเดียวกัน ไปโผล่ในแอปหลัก index.html ด้วยอัตโนมัติผ่านการซิงก์) ============ */
+function normalizeSize(s){ return String(s||'').trim().toLowerCase(); }
+let addSizeGroupIndex = null;
+// ช่วงเบอร์รองเท้ามาตรฐานให้เลือกจาก dropdown (ครอบคลุมตั้งแต่เด็กเล็กถึงผู้ใหญ่ตัวใหญ่) กันพิมพ์เองพลาด/สะกดไม่ตรงกับเบอร์ที่มีอยู่แล้ว
+const COMMON_SHOE_SIZES = Array.from({length: 46-14+1}, (_, i) => String(14 + i)); // "14" ถึง "46"
+function openAddSizeSheet(gi){
+  const g = currentGroups[gi];
+  if(!g || !g.items.length){ toast('ไม่พบกลุ่มสินค้านี้แล้ว ลองรีเฟรชแล้วลองใหม่'); return; }
+  addSizeGroupIndex = gi;
+  document.getElementById('addSizeTitle').textContent = [g.name, g.model, g.color].filter(Boolean).join(' · ');
+  const existingSizes = new Set(sortedSizeItems(g).map(p=>normalizeSize(p.size)));
+  document.getElementById('addSizeExisting').textContent = 'เบอร์ที่มีอยู่แล้ว: ' + sortedSizeItems(g).map(p=>p.size||'-').join(', ');
+  const select = document.getElementById('addSizeInput');
+  const available = COMMON_SHOE_SIZES.filter(sz => !existingSizes.has(normalizeSize(sz)));
+  if(available.length === 0){
+    select.innerHTML = `<option value="">— มีครบทุกเบอร์ในช่วง 14-46 แล้ว —</option>`;
+    select.disabled = true;
+  } else {
+    select.disabled = false;
+    select.innerHTML = available.map(sz=>`<option value="${sz}">${sz}</option>`).join('');
+  }
+  document.getElementById('addSizeQtyInput').value = 0;
+  document.getElementById('addSizeSheetOverlay').classList.add('open');
+}
+function closeAddSizeSheet(){
+  document.getElementById('addSizeSheetOverlay').classList.remove('open');
+  addSizeGroupIndex = null;
+}
+function confirmAddSize(){
+  if(addSizeGroupIndex === null) return;
+  const g = currentGroups[addSizeGroupIndex];
+  if(!g || !g.items.length){ toast('ไม่พบกลุ่มสินค้านี้แล้ว'); closeAddSizeSheet(); return; }
+  const select = document.getElementById('addSizeInput');
+  if(select.disabled){ toast('ไม่มีเบอร์ให้เพิ่มแล้ว (มีครบทุกเบอร์ในช่วงที่กำหนดแล้ว)'); return; }
+  const sizeVal = (select.value || '').trim();
+  if(!sizeVal){ toast('เลือกเบอร์ที่ต้องการเพิ่ม'); return; }
+  const qtyVal = parseInt(document.getElementById('addSizeQtyInput').value, 10);
+  if(isNaN(qtyVal) || qtyVal < 0){ toast('กรอกจำนวนเป็นตัวเลข 0 ขึ้นไป'); return; }
+
+  const products = loadProducts();
+  // เช็คกับสินค้าทั้งหมดในระบบ (ไม่ใช่แค่ที่กรองอยู่บนจอ) กันเพิ่มเบอร์ซ้ำที่มีอยู่แล้วในรุ่น/สีเดียวกัน
+  const dup = products.find(p =>
+    (p.name||'')===(g.name||'') && (p.model||'')===(g.model||'') && (p.color||'')===(g.color||'') &&
+    normalizeSize(p.size) === normalizeSize(sizeVal));
+  if(dup){ toast(`เบอร์ ${sizeVal} มีอยู่แล้วในรุ่นนี้ กรุณาปรับจำนวนที่เบอร์เดิมแทน`); return; }
+
+  // คัดลอกข้อมูลพื้นฐาน (ยี่ห้อ/รหัส/หมวดหมู่/ราคา/รูป) จากเบอร์ที่มีอยู่แล้วในรุ่นเดียวกัน ยกเว้นเบอร์ (ใหม่), บาร์โค้ด/SKU (เว้นว่างไว้ให้ไปตั้งเองที่แอปหลัก เพราะมักไม่ซ้ำกันต่อเบอร์)
+  const sibling = g.items[0];
+  const newProduct = {
+    id: uid(), category: sibling.category||'', brand: sibling.brand||'', code: sibling.code||'',
+    name: sibling.name||'', model: sibling.model||'', color: sibling.color||'', size: sizeVal,
+    barcode: '', sku: '', costPrice: sibling.costPrice||0, price: sibling.price||0, stock: 0, image: sibling.image||''
+  };
+  products.push(newProduct);
+  recordStockTransaction(products, newProduct.id, 'ADJUSTMENT', qtyVal, BASE_UNIT, 'เพิ่มเบอร์ใหม่จากหน้าเช็คสต็อกพนักงาน', { setAbsolute:true });
+  saveProducts(products); // เข้าคิวซิงก์ขึ้น Supabase อัตโนมัติ — index.html เครื่องอื่นจะเห็นเบอร์นี้เมื่อรีเฟรช/ล็อกอินใหม่ (หรือทันทีถ้าเปิดระบบดึงอัตโนมัติไว้)
+  if(qtyVal > 0){
+    appendStocktakeLog({
+      id: uid(), productId: newProduct.id, name: newProduct.name, model: newProduct.model, color: newProduct.color, size: newProduct.size,
+      before: 0, after: qtyVal, diff: qtyVal, timestamp: new Date().toISOString()
+    });
+  }
+  toast(`เพิ่มเบอร์ ${sizeVal} แล้ว`);
+  closeAddSizeSheet();
   renderGrid();
   renderReportBadgeCount();
 }

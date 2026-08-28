@@ -1325,6 +1325,23 @@ async function pullFromSupabaseAndRefresh(){
   }
   return ok;
 }
+// เช็คว่ามี modal/sheet ไหนเปิดค้างอยู่ไหม (กำลังแก้ไข/กำลังพิมพ์อะไรอยู่) กันดึงข้อมูลใหม่มาเขียนทับหน้าจอระหว่างที่ผู้ใช้ทำงานค้างอยู่
+function isAnyModalOpen(){
+  return !!document.querySelector('.sheet-overlay.open, #scanner-modal.open, #voice-modal.open, #confirm-modal.open, #bulk-modal.open, #import-modal.open, #import-orders-modal.open, #image-lightbox.open');
+}
+// ดึงข้อมูลล่าสุดจาก Supabase เป็นระยะๆ ระหว่างเปิดแอพค้างไว้ (เหมือนที่ stocktake.html มีอยู่แล้ว) เพื่อให้เห็นของที่เพิ่ม/แก้จากเครื่องอื่น (เช่น เบอร์ใหม่ที่พนักงานเพิ่มจากหน้าเช็คสต็อก)
+// โดยไม่ต้องปิดเปิดแอพใหม่เอง — ทำงานเงียบๆ ไม่มี toast กวนใจ และข้ามการ re-render ถ้ามี modal/sheet เปิดอยู่กันข้อมูลสลับระหว่างพิมพ์
+let indexAutoRefreshTimer = null;
+function startIndexAutoRefresh(){
+  if(indexAutoRefreshTimer) clearInterval(indexAutoRefreshTimer);
+  indexAutoRefreshTimer = setInterval(silentIndexAutoRefresh, 20000);
+}
+async function silentIndexAutoRefresh(){
+  if(!currentOwnerId) return;
+  if(hasPendingLocalSyncWork()) return; // มีงานค้างส่งขึ้นคลาวด์อยู่ รอให้ flushSyncQueue จัดการก่อน ไม่ดึงสวนกัน
+  if(isAnyModalOpen()) return;
+  await pullFromSupabaseAndRefresh();
+}
 
 /* ============ แจ้งเตือน "พนักงานปรับสต็อกจากหน้า stocktake.html" ============
    หน้า stocktake.html บันทึกทุกรายการที่พนักงานปรับ ลงตาราง stock_transactions โดยใส่ note คงที่ตัวนี้
@@ -1646,6 +1663,7 @@ async function initSupabaseSession(){
     }
     flushSyncQueue();
     startStocktakeNotifPolling();
+    startIndexAutoRefresh();
   } else {
     // ไม่มี session ค้างอยู่เลย (เช่น เครื่อง/เบราว์เซอร์นี้เพิ่งเปิดครั้งแรก หรือ session หมดอายุ)
     // แต่ถ้าเคย login แล้วเลือก "จำรหัสผ่านไว้ในเครื่อง" ไว้ก่อนหน้านี้ ให้ล็อกอินอัตโนมัติแทนการให้กรอกซ้ำ
@@ -1669,6 +1687,7 @@ async function signInSupabase(email, password, opts){
   updateSyncIndicator();
   renderSyncSettingsCard();
   startStocktakeNotifPolling();
+  startIndexAutoRefresh();
   if(!opts.silent) toast('เชื่อมต่อ Supabase สำเร็จ กำลังดึงข้อมูล...');
   // ดึงข้อมูลล่าสุดจากคลาวด์มาแสดงอัตโนมัติ ตราบใดที่เครื่องนี้ไม่มีข้อมูลที่ยังไม่ทันส่งขึ้นคลาวด์ค้างอยู่
   // (ถ้ามีงานค้างส่งอยู่ แปลว่าเครื่องนี้มีข้อมูลใหม่กว่าที่ยังไม่ขึ้นคลาวด์ ดึงมาทับตอนนี้จะเสี่ยงข้อมูลหาย
@@ -1690,6 +1709,7 @@ async function signOutSupabase(){
   currentOwnerId = null;
   syncStatus = 'not-logged-in';
   clearSavedSyncCredentials(); // ออกจากระบบแบบตั้งใจ = เลิกจำรหัสผ่านในเครื่องนี้ด้วย จะได้ไม่ auto login กลับเข้ามาเอง
+  if(indexAutoRefreshTimer){ clearInterval(indexAutoRefreshTimer); indexAutoRefreshTimer = null; }
   updateSyncIndicator();
   renderSyncSettingsCard();
   toast('ออกจากระบบซิงก์ Supabase แล้ว (ข้อมูลในเครื่องยังอยู่ครบ)');
