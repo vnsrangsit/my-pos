@@ -1486,6 +1486,15 @@ function diffStaffAndEnqueue(oldList, newList){
   flushSyncQueue();
 }
 
+// ครอบการเรียก Supabase ด้วย timeout กัน "ค้างเงียบๆ ไม่รู้จบ" ถ้าเน็ตแย่/หลุดกลางทาง (คำขอไม่ error แต่ก็ไม่ตอบกลับเลย)
+// ถ้าไม่มี timeout ตรงนี้ รายการที่ค้างจะบล็อกทุกอย่างที่ต่อคิวตามมาไปตลอดกาล เพราะ catch ด้านล่างจะไม่มีวันถูกเรียก
+// (เจอจริง: ปรับสต็อกหลักร้อยรายการตอนเย็นค้างไม่ขึ้น Supabase เลยแม้แต่รายการเดียว หลายชั่วโมง เพราะไม่มี timeout ตรงนี้มาก่อน)
+function withSyncTimeout(promise, ms){
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('ซิงก์หมดเวลา (เครือข่ายไม่ตอบสนอง)')), ms))
+  ]);
+}
 async function runSyncOp(op){
   // สำคัญ: ต้องใส่ owner_id ปัจจุบัน "ตอนส่งจริง" ไม่ใช่ตอน enqueue เพราะงานบางอย่างอาจถูกสร้างคิวไว้
   // ก่อนจะล็อกอิน Supabase สำเร็จ (เช่น ตอนเปิดแอปครั้งแรกมีการสร้างพนักงานเริ่มต้นอัตโนมัติ) ถ้าใช้ owner_id
@@ -1496,17 +1505,17 @@ async function runSyncOp(op){
     // ถ้า upsert อิง id เฉยๆ จะชนกับ unique(owner_id,name) เกิด 409 ค้างคิวทุกอย่างที่ตามมาไปตลอดกาล
     // จึงต้องอิง (owner_id, name) เป็นตัวจับคู่แทน เพื่อ "อัปเดตทับ" แถวเดิมแทนที่จะพยายามสร้างแถวใหม่ซ้ำชื่อ
     const upsertOpts = op.table === 'staff' ? { onConflict: 'owner_id,name' } : undefined;
-    const { error } = await supabaseClient.from(op.table).upsert({ ...op.row, owner_id: currentOwnerId }, upsertOpts);
+    const { error } = await withSyncTimeout(supabaseClient.from(op.table).upsert({ ...op.row, owner_id: currentOwnerId }, upsertOpts), 20000);
     if(error) throw error;
   } else if(op.action === 'delete'){
-    const { error } = await supabaseClient.from(op.table).delete().eq('id', op.id);
+    const { error } = await withSyncTimeout(supabaseClient.from(op.table).delete().eq('id', op.id), 20000);
     if(error) throw error;
   } else if(op.action === 'replace_for_sale'){
-    const { error: delErr } = await supabaseClient.from('sale_items').delete().eq('sale_id', op.saleId);
+    const { error: delErr } = await withSyncTimeout(supabaseClient.from('sale_items').delete().eq('sale_id', op.saleId), 20000);
     if(delErr) throw delErr;
     if(op.rows.length){
       const rows = op.rows.map(r => ({ ...r, owner_id: currentOwnerId }));
-      const { error: insErr } = await supabaseClient.from('sale_items').insert(rows);
+      const { error: insErr } = await withSyncTimeout(supabaseClient.from('sale_items').insert(rows), 20000);
       if(insErr) throw insErr;
     }
   }
