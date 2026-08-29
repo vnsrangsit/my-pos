@@ -115,6 +115,12 @@
   table.report-table th{color:var(--muted);font-weight:700;font-size:11.5px;text-transform:uppercase;letter-spacing:.02em;}
   .diff-pos{color:var(--success);font-weight:700;}
   .diff-neg{color:var(--danger);font-weight:700;}
+  .report-tabs{display:flex;gap:6px;margin-bottom:12px;}
+  .report-tab-btn{flex:1;padding:9px;border-radius:9px;border:1px solid var(--border);background:#fff;color:var(--muted);
+    font-size:13px;font-weight:600;cursor:pointer;}
+  .report-tab-btn.active{background:var(--primary);color:#fff;border-color:var(--primary);}
+  .report-tab-content{display:none;}
+  .report-tab-content.active{display:block;}
   .report-copy-box{width:100%;min-height:140px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;
     border:1px solid var(--border);border-radius:10px;padding:10px;white-space:pre-wrap;}
 
@@ -180,14 +186,49 @@
   <div class="sheet">
     <div class="sheet-handle"></div>
     <div class="sheet-header">
-      <h3>รายงานการปรับสต็อกรอบนี้</h3>
+      <h3>รายงานการปรับสต็อก</h3>
       <button type="button" class="sheet-close" onclick="closeReportSheet()">✕</button>
     </div>
-    <div class="sheet-body" id="reportBody"></div>
+    <div class="sheet-body">
+      <div class="report-tabs">
+        <button type="button" class="report-tab-btn active" id="reportTabBtnLog" onclick="switchReportTab('log')">รายการปรับ (เครื่องนี้)</button>
+        <button type="button" class="report-tab-btn" id="reportTabBtnSummary" onclick="switchReportTab('summary')">สรุปยอดสุทธิ (ตามช่วงเวลา)</button>
+      </div>
+
+      <div id="reportTabLog" class="report-tab-content active">
+        <div id="reportBody"></div>
+      </div>
+
+      <div id="reportTabSummary" class="report-tab-content">
+        <div class="muted" style="font-size:12px;margin-bottom:10px;">
+          รวมทุกการปรับ (ทุกเครื่อง/ทุกคนที่ปรับ) ในช่วงเวลาที่เลือก เหลือแค่ "ยอดสุทธิ" ต่อ 1 สินค้า — เอาไปอัปเดต Shopee ตรงๆ ได้เลย
+          ไม่ต้องมานั่งไล่บวกลบเองว่าที่ปรับไปมาหลายรอบ สุดท้ายจริงๆ แล้วเหลือเท่าไร
+        </div>
+        <div class="btn-row">
+          <div class="field" style="flex:1;margin-bottom:0;">
+            <label>จาก</label>
+            <input type="datetime-local" id="netSummaryFrom">
+          </div>
+          <div class="field" style="flex:1;margin-bottom:0;">
+            <label>ถึง</label>
+            <input type="datetime-local" id="netSummaryTo">
+          </div>
+        </div>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:400;margin:8px 0 4px;">
+          <input type="checkbox" id="netSummaryHideZero" checked style="width:auto;" onchange="renderNetSummaryTab()">
+          ซ่อนรายการที่ปรับไปมาแล้วสุทธิเท่าเดิม (ไม่ต้องแก้ Shopee)
+        </label>
+        <button type="button" class="btn btn-primary btn-full" style="margin-top:6px;" onclick="renderNetSummaryTab()">🔍 สรุปยอด</button>
+        <div id="netSummaryResult" style="margin-top:12px;"></div>
+      </div>
+    </div>
     <div class="sheet-footer" style="flex-direction:column;">
-      <div style="display:flex;gap:8px;width:100%;">
+      <div style="display:flex;gap:8px;width:100%;" id="reportFooterLog">
         <button type="button" class="btn btn-outline" style="flex:1;" onclick="copyReportText()">📋 คัดลอกข้อความ</button>
         <button type="button" class="btn btn-outline" style="flex:1;" onclick="clearReportLog()">ล้างรายงาน/เริ่มรอบใหม่</button>
+      </div>
+      <div style="display:none;gap:8px;width:100%;" id="reportFooterSummary">
+        <button type="button" class="btn btn-outline btn-full" onclick="copyNetSummaryText()">📋 คัดลอกยอดสุทธิ</button>
       </div>
     </div>
   </div>
@@ -756,9 +797,129 @@ function renderReportBadgeCount(){ document.getElementById('reportCount').textCo
 
 function openReportSheet(){
   renderReportBody();
+  setDefaultNetSummaryRange();
   document.getElementById('reportSheetOverlay').classList.add('open');
 }
 function closeReportSheet(){ document.getElementById('reportSheetOverlay').classList.remove('open'); }
+// สลับแท็บ "รายการปรับ" (log ดิบของเครื่องนี้) กับ "สรุปยอดสุทธิ" (รวมทุกเครื่อง อิงตามช่วงเวลา)
+function switchReportTab(tab){
+  const isLog = tab === 'log';
+  document.getElementById('reportTabBtnLog').classList.toggle('active', isLog);
+  document.getElementById('reportTabBtnSummary').classList.toggle('active', !isLog);
+  document.getElementById('reportTabLog').classList.toggle('active', isLog);
+  document.getElementById('reportTabSummary').classList.toggle('active', !isLog);
+  document.getElementById('reportFooterLog').style.display = isLog ? 'flex' : 'none';
+  document.getElementById('reportFooterSummary').style.display = isLog ? 'none' : 'flex';
+  if(!isLog && !document.getElementById('netSummaryResult').innerHTML) renderNetSummaryTab();
+}
+// ค่าเริ่มต้นของช่วงเวลาสรุปยอด: ตั้งแต่ 2 ชั่วโมงที่แล้ว ถึงตอนนี้ (ปรับเองได้ตามจริง)
+function setDefaultNetSummaryRange(){
+  const fromEl = document.getElementById('netSummaryFrom'), toEl = document.getElementById('netSummaryTo');
+  if(fromEl.value && toEl.value) return; // ตั้งไว้แล้วจากรอบก่อน ไม่ทับค่าที่ผู้ใช้เลือกเอง
+  const pad = n=>String(n).padStart(2,'0');
+  const toLocalInput = (d)=> `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const now = new Date();
+  const twoHoursAgo = new Date(now.getTime() - 2*60*60*1000);
+  fromEl.value = toLocalInput(twoHoursAgo);
+  toEl.value = toLocalInput(now);
+}
+// รวมทุกการปรับสต็อก (ตาราง stock_transactions ที่ sync ข้ามเครื่อง/คนได้ ไม่ใช่แค่ log ของเครื่องนี้) ในช่วงเวลาที่เลือก
+// กลุ่มตามสินค้า (productId) แล้วเทียบ "stockBefore ของรายการแรกสุดในช่วง" กับ "stockAfter ของรายการล่าสุดในช่วง"
+// ได้ยอดสุทธิที่แท้จริง ไม่ว่าระหว่างนั้นจะมีการปรับไปมากี่รอบก็ตาม (กันงงแบบ +1 แล้ว -1 ดูเหมือนเปลี่ยน 2 ครั้งแต่จริงๆ สุทธิ 0)
+function computeNetStockSummary(fromDateTime, toDateTime){
+  const fromTs = fromDateTime ? new Date(fromDateTime).getTime() : -Infinity;
+  const toTs = toDateTime ? new Date(toDateTime).getTime() : Infinity;
+  const products = loadProducts();
+  const productById = {}; products.forEach(p=>{ productById[p.id] = p; });
+  const inRange = loadStockTransactions().filter(t=>{
+    if(t.type !== 'ADJUSTMENT') return false;
+    const ts = new Date(t.timestamp).getTime();
+    return ts >= fromTs && ts <= toTs;
+  });
+  const groups = {};
+  const order = [];
+  inRange.forEach(t=>{
+    const key = t.productId || `${t.sku}|${t.name}|${t.color}|${t.size}`;
+    if(!groups[key]){ groups[key] = { productId: t.productId, name: t.name, color: t.color, size: t.size, brand: t.brand, txs: [] }; order.push(key); }
+    groups[key].txs.push(t);
+  });
+  const rows = order.map(key=>{
+    const g = groups[key];
+    g.txs.sort((a,b)=> new Date(a.timestamp) - new Date(b.timestamp));
+    const first = g.txs[0], last = g.txs[g.txs.length-1];
+    const p = g.productId ? productById[g.productId] : null;
+    return {
+      name: g.name, model: p ? (p.model||'') : '', color: g.color, size: g.size, brand: g.brand,
+      before: first.stockBefore, after: last.stockAfter, net: last.stockAfter - first.stockBefore, count: g.txs.length,
+    };
+  });
+  rows.sort((a,b)=> Math.abs(b.net) - Math.abs(a.net));
+  return rows;
+}
+function renderNetSummaryTab(){
+  const from = document.getElementById('netSummaryFrom').value;
+  const to = document.getElementById('netSummaryTo').value;
+  const hideZero = document.getElementById('netSummaryHideZero').checked;
+  const el = document.getElementById('netSummaryResult');
+  if(!from || !to){ el.innerHTML = `<div class="empty-state">เลือกช่วงเวลาก่อน</div>`; return; }
+  let rows = computeNetStockSummary(from, to);
+  const totalTouched = rows.length;
+  const totalTxCount = rows.reduce((s,r)=>s+r.count, 0);
+  if(hideZero) rows = rows.filter(r=>r.net !== 0);
+  if(rows.length === 0){
+    el.innerHTML = `<div class="empty-state">ไม่มีการปรับสต็อกในช่วงเวลานี้${hideZero && totalTouched>0 ? ' (หรือปรับไปมาแล้วสุทธิเท่าเดิมทั้งหมด)' : ''}</div>`;
+    return;
+  }
+  const trs = rows.map(r=>{
+    const diffCls = r.net > 0 ? 'diff-pos' : (r.net < 0 ? 'diff-neg' : '');
+    const diffText = r.net > 0 ? `+${r.net}` : String(r.net);
+    const label = [r.name, r.model, r.color].filter(Boolean).join(' · ');
+    return `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(r.size||'-')}</td><td>${r.before}</td><td>${r.after}</td>
+      <td class="${diffCls}">${diffText}</td><td class="muted">${r.count} ครั้ง</td></tr>`;
+  }).join('');
+  el.innerHTML = `
+    <div class="muted" style="font-size:12px;margin-bottom:8px;">
+      ปรับทั้งหมด ${totalTxCount} ครั้ง ใน ${totalTouched} สินค้า — เหลือ ${rows.length} รายการที่ต้องอัปเดต Shopee จริง
+    </div>
+    <div style="overflow-x:auto;">
+      <table class="report-table">
+        <thead><tr><th>สินค้า</th><th>เบอร์</th><th>เริ่มต้น</th><th>สิ้นสุด</th><th>สุทธิ</th><th>ปรับกี่ครั้ง</th></tr></thead>
+        <tbody>${trs}</tbody>
+      </table>
+    </div>`;
+}
+function buildNetSummaryText(){
+  const from = document.getElementById('netSummaryFrom').value;
+  const to = document.getElementById('netSummaryTo').value;
+  const hideZero = document.getElementById('netSummaryHideZero').checked;
+  if(!from || !to) return 'กรุณาเลือกช่วงเวลาก่อน';
+  let rows = computeNetStockSummary(from, to);
+  if(hideZero) rows = rows.filter(r=>r.net !== 0);
+  if(rows.length === 0) return 'ไม่มีรายการที่ต้องอัปเดต Shopee ในช่วงเวลานี้';
+  const fromStr = new Date(from).toLocaleString('th-TH', {dateStyle:'medium', timeStyle:'short'});
+  const toStr = new Date(to).toLocaleString('th-TH', {dateStyle:'medium', timeStyle:'short'});
+  const lines = [`สรุปยอดสุทธิ — ${fromStr} ถึง ${toStr}`, ''];
+  rows.forEach(r=>{
+    const label = [r.name, r.model, r.color].filter(Boolean).join(' ');
+    const diffText = r.net > 0 ? `+${r.net}` : String(r.net);
+    lines.push(`${label} เบอร์ ${r.size||'-'}: ${r.before} → ${r.after} (${diffText})`);
+  });
+  return lines.join('\n');
+}
+async function copyNetSummaryText(){
+  const text = buildNetSummaryText();
+  try{
+    await navigator.clipboard.writeText(text);
+    toast('คัดลอกยอดสุทธิแล้ว วางไปใช้อัปเดต Shopee ได้เลย');
+  }catch(e){
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.className = 'report-copy-box';
+    const body = document.getElementById('netSummaryResult');
+    body.insertAdjacentElement('beforebegin', ta);
+    ta.focus(); ta.select();
+    toast('คัดลอกอัตโนมัติไม่ได้ กดเลือกข้อความในกล่องด้านบนแล้วคัดลอกเองได้เลย');
+  }
+}
 function renderReportBody(){
   const log = loadStocktakeLog().slice().reverse();
   const el = document.getElementById('reportBody');
