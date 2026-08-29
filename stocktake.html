@@ -12,6 +12,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root{
     --primary:#1E293B; --primary-dark:#141D2B; --bg:#FAFAFA; --card:#FDFCFA;
@@ -191,8 +192,9 @@
     </div>
     <div class="sheet-body">
       <div class="report-tabs">
-        <button type="button" class="report-tab-btn active" id="reportTabBtnLog" onclick="switchReportTab('log')">รายการปรับ (เครื่องนี้)</button>
-        <button type="button" class="report-tab-btn" id="reportTabBtnSummary" onclick="switchReportTab('summary')">สรุปยอดสุทธิ (ตามช่วงเวลา)</button>
+        <button type="button" class="report-tab-btn active" id="reportTabBtnLog" onclick="switchReportTab('log')">รายการปรับ</button>
+        <button type="button" class="report-tab-btn" id="reportTabBtnSummary" onclick="switchReportTab('summary')">สรุปยอดสุทธิ</button>
+        <button type="button" class="report-tab-btn" id="reportTabBtnShopee" onclick="switchReportTab('shopee')">อัปเดต Shopee</button>
       </div>
 
       <div id="reportTabLog" class="report-tab-content active">
@@ -221,6 +223,17 @@
         <button type="button" class="btn btn-primary btn-full" style="margin-top:6px;" onclick="renderNetSummaryTab()">🔍 สรุปยอด</button>
         <div id="netSummaryResult" style="margin-top:12px;"></div>
       </div>
+
+      <div id="reportTabShopee" class="report-tab-content">
+        <div class="muted" style="font-size:12px;margin-bottom:10px;">
+          อัปโหลดไฟล์ "อัปเดตสต็อกจำนวนมาก" ที่ดาวน์โหลดมาจาก Shopee (Seller Centre) ระบบจะเทียบสต็อกในไฟล์กับสต็อกปัจจุบันในระบบเรา
+          จับคู่ด้วย Parent SKU/เลข SKU ก่อน ถ้าไม่มีจะดูรหัสในชื่อสินค้า + สี (แปลไทย-อังกฤษให้อัตโนมัติ) + เบอร์แทน
+          แล้วสร้างไฟล์ใหม่ที่มี "เฉพาะรายการที่ตัวเลขไม่ตรงกัน" พร้อมอัปโหลดกลับเข้า Shopee ได้เลย
+        </div>
+        <input type="file" id="shopeeFileInput" accept=".xlsx,.xls" style="display:none;" onchange="handleShopeeUpdateFile(event)">
+        <button type="button" class="btn btn-outline btn-full" onclick="document.getElementById('shopeeFileInput').click()">📁 เลือกไฟล์ Shopee (.xlsx)</button>
+        <div id="shopeeUpdateResult" style="margin-top:12px;"></div>
+      </div>
     </div>
     <div class="sheet-footer" style="flex-direction:column;">
       <div style="display:flex;gap:8px;width:100%;" id="reportFooterLog">
@@ -229,6 +242,9 @@
       </div>
       <div style="display:none;gap:8px;width:100%;" id="reportFooterSummary">
         <button type="button" class="btn btn-outline btn-full" onclick="copyNetSummaryText()">📋 คัดลอกยอดสุทธิ</button>
+      </div>
+      <div style="display:none;gap:8px;width:100%;" id="reportFooterShopee">
+        <button type="button" class="btn btn-primary btn-full" id="shopeeDownloadBtn" onclick="downloadShopeeUpdateFile()" disabled>⬇️ ดาวน์โหลดไฟล์อัปเดต Shopee</button>
       </div>
     </div>
   </div>
@@ -801,16 +817,15 @@ function openReportSheet(){
   document.getElementById('reportSheetOverlay').classList.add('open');
 }
 function closeReportSheet(){ document.getElementById('reportSheetOverlay').classList.remove('open'); }
-// สลับแท็บ "รายการปรับ" (log ดิบของเครื่องนี้) กับ "สรุปยอดสุทธิ" (รวมทุกเครื่อง อิงตามช่วงเวลา)
+// สลับแท็บ "รายการปรับ" (log ดิบของเครื่องนี้) / "สรุปยอดสุทธิ" (รวมทุกเครื่อง อิงตามช่วงเวลา) / "อัปเดต Shopee" (เทียบไฟล์ Shopee)
 function switchReportTab(tab){
-  const isLog = tab === 'log';
-  document.getElementById('reportTabBtnLog').classList.toggle('active', isLog);
-  document.getElementById('reportTabBtnSummary').classList.toggle('active', !isLog);
-  document.getElementById('reportTabLog').classList.toggle('active', isLog);
-  document.getElementById('reportTabSummary').classList.toggle('active', !isLog);
-  document.getElementById('reportFooterLog').style.display = isLog ? 'flex' : 'none';
-  document.getElementById('reportFooterSummary').style.display = isLog ? 'none' : 'flex';
-  if(!isLog && !document.getElementById('netSummaryResult').innerHTML) renderNetSummaryTab();
+  ['log','summary','shopee'].forEach(t=>{
+    const active = t === tab;
+    document.getElementById('reportTabBtn' + t[0].toUpperCase()+t.slice(1)).classList.toggle('active', active);
+    document.getElementById('reportTab' + t[0].toUpperCase()+t.slice(1)).classList.toggle('active', active);
+    document.getElementById('reportFooter' + t[0].toUpperCase()+t.slice(1)).style.display = active ? 'flex' : 'none';
+  });
+  if(tab === 'summary' && !document.getElementById('netSummaryResult').innerHTML) renderNetSummaryTab();
 }
 // ค่าเริ่มต้นของช่วงเวลาสรุปยอด: ตั้งแต่ 2 ชั่วโมงที่แล้ว ถึงตอนนี้ (ปรับเองได้ตามจริง)
 function setDefaultNetSummaryRange(){
@@ -920,6 +935,235 @@ async function copyNetSummaryText(){
     toast('คัดลอกอัตโนมัติไม่ได้ กดเลือกข้อความในกล่องด้านบนแล้วคัดลอกเองได้เลย');
   }
 }
+
+/* ============ อัปเดต Shopee จากไฟล์ "อัปเดตสต็อกจำนวนมาก" — เทียบไฟล์ Shopee กับสต็อกจริงในระบบ แล้วสร้างไฟล์อัปเดตกลับ ============ */
+// ชุดฟังก์ชันจับคู่สี/เบอร์/รหัส เหมือนกับที่ index.html ใช้ตอนนำเข้าคำสั่งซื้อ Shopee (พอร์ตมาให้ตรงกันเป๊ะ กันพฤติกรรมเพี้ยนระหว่าง 2 หน้า)
+function normalizeVariantText(s){
+  return String(s||'')
+    .replace(/^\s*(สี|ไซส์|ไซซ์|ขนาด|เบอร์|size|colou?r)\s*[:：]\s*/i, '')
+    .replace(/\s+/g,' ')
+    .trim()
+    .toLowerCase();
+}
+const COLOR_LABEL_RE = /^\s*(สี|colou?r)\s*[:：]/i;
+const SIZE_LABEL_RE = /^\s*(ไซส์|ไซซ์|ขนาด|เบอร์|size)\s*[:：]/i;
+const SIZE_LIKE_RE = /^\d+([.\-\/]\d+)?$/;
+function parseOptionColorSize(optionStr){
+  const parts = String(optionStr||'').split(',').map(s=>s.trim()).filter(Boolean);
+  let colorPart = null, sizePart = null;
+  parts.forEach(part=>{
+    if(COLOR_LABEL_RE.test(part)) colorPart = part;
+    else if(SIZE_LABEL_RE.test(part)) sizePart = part;
+  });
+  if(colorPart === null && sizePart === null && parts.length >= 2){
+    const p0Size = SIZE_LIKE_RE.test(normalizeVariantText(parts[0]));
+    const p1Size = SIZE_LIKE_RE.test(normalizeVariantText(parts[1]));
+    if(p0Size && !p1Size){ sizePart = parts[0]; colorPart = parts[1]; }
+    else if(p1Size && !p0Size){ colorPart = parts[0]; sizePart = parts[1]; }
+  }
+  if(colorPart !== null || sizePart !== null){
+    return { color: normalizeVariantText(colorPart || ''), size: normalizeVariantText(sizePart || '') };
+  }
+  return { color: normalizeVariantText(parts[0] || ''), size: normalizeVariantText(parts[1] || '') };
+}
+function codeAppearsInTitle(code, title){
+  if(!code) return false;
+  const c = String(code).trim();
+  if(!c) return false;
+  if(title.includes(c)) return true;
+  if(/\d$/.test(c)){
+    const short = c.slice(0, -1);
+    if(short){
+      const escaped = short.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const re = new RegExp(escaped + '(?![0-9A-Za-z])');
+      if(re.test(title)) return true;
+    }
+  }
+  return false;
+}
+const COLOR_SYNONYMS = {
+  'ดำ':'black','black':'black', 'ขาว':'white','white':'white', 'แดง':'red','red':'red',
+  'น้ำเงิน':'blue','ฟ้า':'blue','blue':'blue', 'เขียว':'green','green':'green', 'เหลือง':'yellow','yellow':'yellow',
+  'ชมพู':'pink','pink':'pink', 'ม่วง':'purple','purple':'purple', 'เทา':'grey','gray':'grey','grey':'grey',
+  'น้ำตาล':'brown','brown':'brown', 'ส้ม':'orange','orange':'orange', 'ครีม':'cream','cream':'cream',
+  'เบจ':'beige','beige':'beige', 'ทอง':'gold','gold':'gold', 'เงิน':'silver','silver':'silver', 'กากี':'khaki','khaki':'khaki',
+};
+function canonicalColor(s){ const t = normalizeVariantText(s); return COLOR_SYNONYMS[t] || t; }
+
+// จับคู่ 1 แถวจากไฟล์ Shopee กับสินค้าในระบบเรา — ถ้ามี Parent SKU/เลข SKU ให้ใช้ตัวนั้นตัดสินก่อน (แม่นสุด เพราะ Shopee
+// 1 product_id เดียวมักมีหลายรหัสรุ่นซ่อนอยู่ เช่น สีขาวรหัสหนึ่ง สีดำอีกรหัสหนึ่ง เทียบแค่ product_id อย่างเดียวแยกไม่ออก)
+// ถ้าไม่มี SKU ให้ (ทั้ง 2 ช่องว่าง) ค่อย fallback ไปดูว่ารหัสสินค้าในระบบเราปรากฏอยู่ในชื่อสินค้าจากไฟล์ Shopee ไหม
+// ไม่ว่าทางไหนก็ยังต้องกรองซ้ำด้วยสี (แปลไทย-อังกฤษให้เป็นรหัสเดียวกันก่อนเทียบ) + เบอร์ ให้ตรงเป๊ะเสมอ กันจับคู่ผิดตัว
+function matchShopeeRowToProduct(productName, variationName, parentSku, variationSku, products){
+  const { color, size } = parseOptionColorSize(variationName);
+  const explicitCode = String(parentSku || variationSku || '').trim();
+  let candidates;
+  if(explicitCode){
+    candidates = products.filter(p =>
+      String(p.code||'').trim().toLowerCase() === explicitCode.toLowerCase() &&
+      canonicalColor(p.color) === canonicalColor(color) &&
+      normalizeVariantText(p.size) === normalizeVariantText(size)
+    );
+    if(candidates.length === 0){
+      candidates = products.filter(p =>
+        codeAppearsInTitle(p.code, productName) &&
+        canonicalColor(p.color) === canonicalColor(color) &&
+        normalizeVariantText(p.size) === normalizeVariantText(size)
+      );
+    }
+  } else {
+    candidates = products.filter(p =>
+      codeAppearsInTitle(p.code, productName) &&
+      canonicalColor(p.color) === canonicalColor(color) &&
+      normalizeVariantText(p.size) === normalizeVariantText(size)
+    );
+  }
+  return { color, size, candidates };
+}
+
+let shopeeUpdateRows = []; // ผลลัพธ์ "ต้องอัปเดต" ล่าสุด ใช้ตอนกดดาวน์โหลด
+let shopeeSheetMeta = null; // { rows2d, headerRowIndex, firstDataRowIndex, colIndex, sheetName } ของไฟล์ที่เพิ่งอัปโหลด
+
+function findShopeeHeaderInfo(rows2d){
+  for(let i=0;i<Math.min(rows2d.length, 15); i++){
+    const row = rows2d[i] || [];
+    if(row.some(c => String(c||'').trim() === 'รหัสสินค้า')){
+      const colIndex = {};
+      row.forEach((c, idx)=>{ colIndex[String(c||'').trim()] = idx; });
+      return { headerRowIndex: i, colIndex };
+    }
+  }
+  return null;
+}
+function handleShopeeUpdateFile(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = (e)=>{
+    try{
+      const wb = XLSX.read(new Uint8Array(e.target.result), { type:'array' });
+      const sheetName = wb.SheetNames[0];
+      const rows2d = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header:1, defval:'', raw:true });
+      const headerInfo = findShopeeHeaderInfo(rows2d);
+      if(!headerInfo){
+        document.getElementById('shopeeUpdateResult').innerHTML = `<div class="empty-state">อ่านไฟล์นี้ไม่ได้ ไม่พบหัวตาราง "รหัสสินค้า" — ตรวจสอบว่าเป็นไฟล์ Template อัปเดตสต็อกจาก Shopee จริงไหม</div>`;
+        shopeeUpdateRows = []; shopeeSheetMeta = null;
+        document.getElementById('shopeeDownloadBtn').disabled = true;
+        return;
+      }
+      shopeeSheetMeta = { rows2d, sheetName, firstDataRowIndex: null, ...headerInfo };
+      processShopeeUpdateFile();
+    }catch(err){
+      console.error(err);
+      toast('อ่านไฟล์ไม่สำเร็จ ลองไฟล์อื่นหรือเช็คว่าไฟล์ไม่เสียหาย');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+  event.target.value = '';
+}
+function processShopeeUpdateFile(){
+  const { rows2d, headerRowIndex, colIndex } = shopeeSheetMeta;
+  const idx = {
+    productName: colIndex['ชื่อสินค้า'], variationName: colIndex['ชื่อตัวเลือกสินค้า'],
+    parentSku: colIndex['Parent SKU'], variationSku: colIndex['เลข SKU'], stock: colIndex['คลัง'],
+  };
+  if([idx.productName, idx.variationName, idx.stock].some(v => v === undefined)){
+    document.getElementById('shopeeUpdateResult').innerHTML = `<div class="empty-state">อ่านไฟล์ได้ แต่หาคอลัมน์ที่จำเป็นไม่ครบ (ชื่อสินค้า/ชื่อตัวเลือกสินค้า/คลัง) — โครงสร้างไฟล์อาจเปลี่ยนไปจากที่คุ้นเคย</div>`;
+    return;
+  }
+  const products = loadProducts();
+  const toUpdate = [], unchanged = [], unmatched = [], ambiguous = [];
+  let firstDataRowIndex = null;
+
+  for(let r = headerRowIndex + 1; r < rows2d.length; r++){
+    const row = rows2d[r] || [];
+    const variationName = String(row[idx.variationName] || '').trim();
+    const stockRaw = row[idx.stock];
+    if(!variationName) continue;
+    if(stockRaw === '' || stockRaw === null || stockRaw === undefined) continue;
+    const shopeeStock = Number(stockRaw);
+    if(!Number.isFinite(shopeeStock)) continue;
+    if(firstDataRowIndex === null) firstDataRowIndex = r;
+
+    const productName = String(row[idx.productName] || '').trim();
+    const parentSku = idx.parentSku !== undefined ? row[idx.parentSku] : '';
+    const variationSku = idx.variationSku !== undefined ? row[idx.variationSku] : '';
+    const { color, size, candidates } = matchShopeeRowToProduct(productName, variationName, parentSku, variationSku, products);
+    const label = productName.length > 46 ? productName.slice(0,46)+'…' : productName;
+
+    if(candidates.length === 1){
+      const p = candidates[0];
+      const ourStock = (typeof p.stock === 'number') ? p.stock : 0;
+      if(ourStock !== shopeeStock){
+        toUpdate.push({ rowIndex: r, shopeeStock, ourStock, name: p.name, model: p.model, color: p.color, size: p.size });
+      } else {
+        unchanged.push({ rowIndex: r });
+      }
+    } else if(candidates.length === 0){
+      unmatched.push({ rowIndex: r, productName: label, color, size, shopeeStock });
+    } else {
+      ambiguous.push({ rowIndex: r, productName: label, color, size, count: candidates.length });
+    }
+  }
+
+  shopeeSheetMeta.firstDataRowIndex = firstDataRowIndex;
+  shopeeUpdateRows = toUpdate;
+  renderShopeeUpdateResult(toUpdate, unchanged, unmatched, ambiguous);
+  document.getElementById('shopeeDownloadBtn').disabled = toUpdate.length === 0;
+}
+function renderShopeeUpdateResult(toUpdate, unchanged, unmatched, ambiguous){
+  const el = document.getElementById('shopeeUpdateResult');
+  const rowsHtml = toUpdate.map(u=>{
+    const label = [u.name, u.model, u.color].filter(Boolean).join(' · ');
+    return `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(u.size||'-')}</td><td>${u.shopeeStock}</td><td><strong>${u.ourStock}</strong></td></tr>`;
+  }).join('');
+  const total = toUpdate.length + unchanged.length + unmatched.length + ambiguous.length;
+
+  let html = `<div class="muted" style="font-size:12.5px;margin-bottom:10px;">
+    พบ ${total} รายการในไฟล์ · ต้องอัปเดต <strong>${toUpdate.length}</strong> รายการ · ตรงกันอยู่แล้ว ${unchanged.length} รายการ
+    ${unmatched.length ? ` · หาสินค้าตรงกันไม่เจอ ${unmatched.length} รายการ` : ''}
+    ${ambiguous.length ? ` · จับคู่ได้มากกว่า 1 (ข้ามไว้ก่อน) ${ambiguous.length} รายการ` : ''}
+  </div>`;
+
+  html += toUpdate.length
+    ? `<div style="overflow-x:auto;"><table class="report-table">
+        <thead><tr><th>สินค้า</th><th>เบอร์</th><th>Shopee เดิม</th><th>จะเปลี่ยนเป็น</th></tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table></div>`
+    : `<div class="empty-state">ไม่มีรายการที่ต้องอัปเดต (ตัวเลขในไฟล์ตรงกับระบบเราหมดแล้ว)</div>`;
+
+  if(unmatched.length){
+    html += `<div class="section-divider"></div>
+      <div style="font-weight:700;font-size:13px;margin-bottom:6px;color:var(--danger);">⚠️ หาสินค้าตรงกันในระบบไม่เจอ (${unmatched.length} รายการ — ต้องเช็คเอง)</div>`
+      + unmatched.map(u=>`<div class="muted" style="font-size:12px;margin-bottom:4px;">${escapeHtml(u.productName)} — สี ${escapeHtml(u.color||'-')} เบอร์ ${escapeHtml(u.size||'-')} (Shopee: ${u.shopeeStock})</div>`).join('');
+  }
+  if(ambiguous.length){
+    html += `<div class="section-divider"></div>
+      <div style="font-weight:700;font-size:13px;margin-bottom:6px;color:var(--danger);">⚠️ จับคู่ได้มากกว่า 1 รายการ ไม่กล้าเดา (${ambiguous.length} รายการ — ต้องเช็คเอง)</div>`
+      + ambiguous.map(u=>`<div class="muted" style="font-size:12px;margin-bottom:4px;">${escapeHtml(u.productName)} — สี ${escapeHtml(u.color||'-')} เบอร์ ${escapeHtml(u.size||'-')} (พบ ${u.count} รายการที่ตรงเงื่อนไข)</div>`).join('');
+  }
+  el.innerHTML = html;
+}
+function downloadShopeeUpdateFile(){
+  if(!shopeeSheetMeta || shopeeUpdateRows.length === 0){ toast('ไม่มีรายการให้ดาวน์โหลด'); return; }
+  const { rows2d, headerRowIndex, colIndex, firstDataRowIndex, sheetName } = shopeeSheetMeta;
+  const stockCol = colIndex['คลัง'];
+  const outRows = [];
+  const keepUntil = (firstDataRowIndex !== null ? firstDataRowIndex : headerRowIndex + 1);
+  for(let i=0;i<keepUntil;i++) outRows.push(rows2d[i]);
+  shopeeUpdateRows.forEach(u=>{
+    const row = rows2d[u.rowIndex].slice();
+    row[stockCol] = u.ourStock;
+    outRows.push(row);
+  });
+  const ws = XLSX.utils.aoa_to_sheet(outRows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, sheetName || 'Sheet1');
+  const stamp = new Date().toISOString().slice(0,16).replace(/[:T]/g,'-');
+  XLSX.writeFile(wb, `shopee_stock_update_${stamp}.xlsx`);
+  toast(`สร้างไฟล์อัปเดต ${shopeeUpdateRows.length} รายการแล้ว อัปโหลดกลับเข้า Shopee ได้เลย`);
+}
+
 function renderReportBody(){
   const log = loadStocktakeLog().slice().reverse();
   const el = document.getElementById('reportBody');
