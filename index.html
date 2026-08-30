@@ -101,8 +101,8 @@
   #scanner-modal.open,#voice-modal.open{display:flex;}
   #reader{width:90vw;max-width:400px;background:#000;border-radius:20px;overflow:hidden;}
   .modal-close{margin-top:18px;}
-  #confirm-modal, #bulk-modal, #import-modal, #import-orders-modal{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:55;display:none;align-items:center;justify-content:center;padding:16px;overflow-y:auto;backdrop-filter:blur(2px);}
-  #confirm-modal.open, #bulk-modal.open, #import-modal.open, #import-orders-modal.open{display:flex;}
+  #confirm-modal, #bulk-modal, #import-modal, #import-orders-modal, #cancel-orders-modal{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:55;display:none;align-items:center;justify-content:center;padding:16px;overflow-y:auto;backdrop-filter:blur(2px);}
+  #confirm-modal.open, #bulk-modal.open, #import-modal.open, #import-orders-modal.open, #cancel-orders-modal.open{display:flex;}
   .import-row{background:var(--fill);border-radius:12px;padding:12px;margin-bottom:8px;transition:opacity .15s;}
   .import-row .field{margin-bottom:8px;}
   .import-row .field:last-child{margin-bottom:0;}
@@ -567,6 +567,10 @@
         <button class="btn btn-outline btn-full" onclick="document.getElementById('importOrdersExcelFile').click()">นำเข้ายอดขายจากไฟล์คำสั่งซื้อ Excel (Shopee Order.all)</button>
       </div>
       <input type="file" id="importOrdersExcelFile" accept=".xlsx,.xls" style="display:none;" onchange="handleImportOrdersExcelFile(event)">
+      <div class="btn-row" style="margin-bottom:12px;">
+        <button class="btn btn-outline btn-full" onclick="document.getElementById('cancelOrdersExcelFile').click()">↩️ ยกเลิก/คืนสินค้าจากไฟล์เดิม (คืนสต็อก)</button>
+      </div>
+      <input type="file" id="cancelOrdersExcelFile" accept=".xlsx,.xls" style="display:none;" onchange="handleCancelOrdersExcelFile(event)">
 
       <div class="collapse-header" data-collapse-toggle="collapseStockTools" onclick="toggleCollapse('collapseStockTools')">
         <h3>เครื่องมือเพิ่มเติม</h3>
@@ -919,6 +923,18 @@
     <div class="btn-row">
       <button class="btn btn-outline" onclick="closeImportOrdersModal()">ยกเลิก</button>
       <button class="btn btn-primary" onclick="confirmImportOrders()">นำเข้ายอดขายที่เลือก</button>
+    </div>
+  </div>
+</div>
+
+<div id="cancel-orders-modal">
+  <div class="confirm-card" style="max-width:460px;">
+    <h3>ยกเลิก/คืนสินค้า (คืนสต็อก)</h3>
+    <div class="confirm-sub" id="cancelOrdersSummary">กำลังอ่านไฟล์...</div>
+    <div id="cancelOrdersPreviewList" style="max-height:52vh;overflow-y:auto;margin-bottom:14px;"></div>
+    <div class="btn-row">
+      <button class="btn btn-outline" onclick="closeCancelOrdersModal()">ปิด</button>
+      <button class="btn btn-primary" onclick="confirmCancelOrders()">คืนสต็อกรายการที่เลือก</button>
     </div>
   </div>
 </div>
@@ -1327,7 +1343,7 @@ async function pullFromSupabaseAndRefresh(){
 }
 // เช็คว่ามี modal/sheet ไหนเปิดค้างอยู่ไหม (กำลังแก้ไข/กำลังพิมพ์อะไรอยู่) กันดึงข้อมูลใหม่มาเขียนทับหน้าจอระหว่างที่ผู้ใช้ทำงานค้างอยู่
 function isAnyModalOpen(){
-  return !!document.querySelector('.sheet-overlay.open, #scanner-modal.open, #voice-modal.open, #confirm-modal.open, #bulk-modal.open, #import-modal.open, #import-orders-modal.open, #image-lightbox.open');
+  return !!document.querySelector('.sheet-overlay.open, #scanner-modal.open, #voice-modal.open, #confirm-modal.open, #bulk-modal.open, #import-modal.open, #import-orders-modal.open, #cancel-orders-modal.open, #image-lightbox.open');
 }
 // ดึงข้อมูลล่าสุดจาก Supabase เป็นระยะๆ ระหว่างเปิดแอพค้างไว้ (เหมือนที่ stocktake.html มีอยู่แล้ว) เพื่อให้เห็นของที่เพิ่ม/แก้จากเครื่องอื่น (เช่น เบอร์ใหม่ที่พนักงานเพิ่มจากหน้าเช็คสต็อก)
 // โดยไม่ต้องปิดเปิดแอพใหม่เอง — ทำงานเงียบๆ ไม่มี toast กวนใจ และข้ามการ re-render ถ้ามี modal/sheet เปิดอยู่กันข้อมูลสลับระหว่างพิมพ์
@@ -4021,7 +4037,8 @@ function parseOptionColorSize(optionStr){
   }
   return { color: normalizeVariantText(parts[0] || ''), size: normalizeVariantText(parts[1] || '') };
 }
-function extractShopeeOrderRows(workbook){
+function extractShopeeOrderRows(workbook, mode){
+  mode = mode || 'sale'; // 'sale' = ใช้ตอนนำเข้ายอดขาย (ข้ามยกเลิก/ยังไม่ชำระ) / 'cancelled' = ใช้ตอนหาออเดอร์ที่ยกเลิกแล้ว (เอาเฉพาะที่ยกเลิก)
   let best = [];
   workbook.SheetNames.forEach(sheetName=>{
     const ws = workbook.Sheets[sheetName];
@@ -4033,8 +4050,14 @@ function extractShopeeOrderRows(workbook){
       const orderId = normalizeOrderId(row['หมายเลขคำสั่งซื้อ']);
       const status = String(row['สถานะการสั่งซื้อ']||'').trim();
       if(!orderId) return;
-      if(status.includes('ยกเลิก')) return; // ข้ามสถานะยกเลิกตามที่ร้านขอ
-      if(status.includes('ยังไม่ชำระ')) return; // ข้ามสถานะยังไม่ชำระด้วย (ยังไม่นับเป็นยอดขายจนกว่าจะจ่ายเงิน) สถานะอื่นนับเป็นยอดขายหมด
+      // ครอบทั้ง "ยกเลิก" (ลูกค้ายกเลิกก่อนจัดส่ง) และ "คืนสินค้า/คืนเงิน" (ลูกค้าคืนหลังได้รับของแล้ว) — ทั้งคู่แปลว่าต้องคืนสต็อกเหมือนกัน
+      const isCancelledOrReturned = status.includes('ยกเลิก') || status.includes('คืน');
+      if(mode === 'sale'){
+        if(isCancelledOrReturned) return; // ข้ามสถานะยกเลิก/คืนสินค้าตามที่ร้านขอ
+        if(status.includes('ยังไม่ชำระ')) return; // ข้ามสถานะยังไม่ชำระด้วย (ยังไม่นับเป็นยอดขายจนกว่าจะจ่ายเงิน) สถานะอื่นนับเป็นยอดขายหมด
+      } else if(mode === 'cancelled'){
+        if(!isCancelledOrReturned) return; // โหมดหาออเดอร์ยกเลิก/คืนสินค้า เอาเฉพาะ 2 สถานะนี้เท่านั้น
+      }
       const orderDateRaw = String(row['วันที่ทำการสั่งซื้อ']||'').trim();
       const title = String(row['ชื่อสินค้า']||'').trim();
       const optionStr = String(row['ชื่อตัวเลือก']||'').trim();
@@ -4225,6 +4248,103 @@ function confirmImportOrders(){
   closeImportOrdersModal();
   renderSalesList(); renderDashboard(); renderProductList();
   toast(`นำเข้ายอดขายจาก Shopee แล้ว ${rows.length} บิล (${totalQty} คู่)`);
+}
+
+/* ============ ยกเลิก/คืนสินค้าจากไฟล์ Shopee (คืนสต็อก) ============
+   ใช้ไฟล์รายงานคำสั่งซื้อไฟล์เดียวกับตอนนำเข้ายอดขาย แต่รอบนี้มองหา "ออเดอร์เลขเดียวกับที่เคยนำเข้าไปแล้ว
+   แต่ตอนนี้สถานะเปลี่ยนเป็นยกเลิก หรือ คืนสินค้า/คืนเงิน" — แปลว่าตอนนำเข้าครั้งก่อนยังไม่ยกเลิก/คืน แต่ทีหลังลูกค้า
+   ยกเลิกก่อนได้รับของ หรือได้รับของแล้วค่อยคืน จึงต้องคืนสต็อกกลับและลบบิลขายนั้นออก (คนละกรณีกับปุ่ม "คืนสินค้า"
+   ที่ทำทีละบิลเอง อันนี้ทำจากไฟล์ Shopee ได้ทีเดียวหลายบิล) */
+let cancelOrdersParsedRows = [];
+function handleCancelOrdersExcelFile(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = (e)=>{
+    try{
+      const workbook = XLSX.read(new Uint8Array(e.target.result), { type:'array' });
+      const cancelledRows = extractShopeeOrderRows(workbook, 'cancelled');
+      if(!cancelledRows.length){
+        toast('ไม่พบรายการที่สถานะเป็น "ยกเลิก" หรือ "คืนสินค้า" ในไฟล์นี้');
+        event.target.value = '';
+        return;
+      }
+      // เอาเฉพาะเลขคำสั่งซื้อที่ "เคยนำเข้าเป็นบิลขายไว้แล้วจริง" (เทียบจาก sales.orderId) เท่านั้น
+      // ออเดอร์ที่ยกเลิกแต่ไม่เคยนำเข้ามาก่อน ไม่ต้องทำอะไร (ไม่เคยตัดสต็อกไปตั้งแต่แรก)
+      const cancelledIds = new Set(cancelledRows.map(r=>r.orderId));
+      const sales = loadSales();
+      const matchedSales = sales.filter(s => s.orderId && cancelledIds.has(normalizeOrderId(s.orderId)));
+      cancelOrdersParsedRows = matchedSales.map(s => ({ sale: s, include: true }));
+      openCancelOrdersModal(cancelledRows.length, cancelledIds.size);
+    }catch(err){
+      console.error(err);
+      toast('อ่านไฟล์ไม่สำเร็จ ตรวจสอบว่าเป็นไฟล์รายงานคำสั่งซื้อ Shopee ที่ถูกต้องไหม');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+  event.target.value = '';
+}
+function openCancelOrdersModal(cancelledRowCount, cancelledOrderCount){
+  document.getElementById('cancelOrdersSummary').textContent =
+    `พบ ${cancelledOrderCount} เลขคำสั่งซื้อที่ยกเลิก/คืนสินค้าในไฟล์ — ตรงกับบิลที่เคยนำเข้าไว้แล้ว ${cancelOrdersParsedRows.length} บิล`;
+  renderCancelOrdersPreview();
+  document.getElementById('cancel-orders-modal').classList.add('open');
+}
+function closeCancelOrdersModal(){
+  document.getElementById('cancel-orders-modal').classList.remove('open');
+  cancelOrdersParsedRows = [];
+}
+function toggleCancelOrderRow(i, checked){ cancelOrdersParsedRows[i].include = checked; }
+function renderCancelOrdersPreview(){
+  const el = document.getElementById('cancelOrdersPreviewList');
+  if(cancelOrdersParsedRows.length === 0){
+    el.innerHTML = `<div class="empty">ไม่มีบิลที่เคยนำเข้าไว้ตรงกับเลขคำสั่งซื้อที่ยกเลิก/คืนสินค้าในไฟล์นี้ (แปลว่าออเดอร์พวกนี้ยังไม่เคยถูกนำเข้าเป็นยอดขายมาก่อน ไม่ต้องทำอะไร)</div>`;
+    return;
+  }
+  el.innerHTML = cancelOrdersParsedRows.map((r,i)=>{
+    const it = r.sale.items[0] || {};
+    return `<div class="cart-item">
+      <label style="display:flex;align-items:center;gap:10px;width:100%;cursor:pointer;">
+        <input type="checkbox" ${r.include?'checked':''} onchange="toggleCancelOrderRow(${i}, this.checked)">
+        <div style="flex:1;">
+          <div>${escapeAttr(it.name||'-')} × ${it.qty||0}</div>
+          <div class="muted" style="font-size:12px;">เลขคำสั่งซื้อ ${escapeAttr(r.sale.orderId)} · ฿${(r.sale.total||0).toFixed(2)}</div>
+        </div>
+      </label>
+    </div>`;
+  }).join('');
+}
+function confirmCancelOrders(){
+  const rows = cancelOrdersParsedRows.filter(r=>r.include);
+  if(!rows.length){ toast('ไม่มีรายการที่เลือกไว้'); return; }
+  const products = loadProducts();
+  let sales = loadSales();
+  let restoredCount = 0, unresolvedCount = 0;
+  const unresolvedNames = [];
+  rows.forEach(r=>{
+    const sale = r.sale;
+    const it = sale.items[0];
+    if(it){
+      let p = products.find(pp=>pp.id===it.productId);
+      if(!p) p = products.find(pp => composeDisplayName(pp.name, pp.model, pp.color, pp.size) === it.name);
+      if(p){
+        recordStockTransaction(products, p.id, 'RETURN', it.qty, BASE_UNIT, `ยกเลิก/คืนสินค้า Shopee บิล ${sale.orderId}`);
+        restoredCount++;
+      } else {
+        unresolvedCount++;
+        unresolvedNames.push(`${it.name} (เลขคำสั่งซื้อ ${sale.orderId})`);
+      }
+    }
+    sales = sales.filter(s=>s.id !== sale.id); // เอาบิลที่ยกเลิกออกจากรายการขายไปเลย ไม่ใช่แค่คืนสต็อกเฉยๆ
+  });
+  saveProducts(products);
+  saveSales(sales);
+  closeCancelOrdersModal();
+  renderSalesList(); renderDashboard(); renderProductList(); renderOutOfStockBanner();
+  toast(`ยกเลิก/คืนสินค้า ${rows.length} บิล คืนสต็อกสำเร็จ ${restoredCount} รายการ${unresolvedCount ? ` (คืนสต็อกไม่ได้ ${unresolvedCount} รายการ เพราะหาสินค้าที่ตรงกันในสต็อกไม่เจอ)` : ''}`);
+  if(unresolvedNames.length){
+    alert(`⚠️ คืนสต็อกอัตโนมัติไม่ได้ ${unresolvedNames.length} รายการ (สินค้าถูกลบ/แก้ไขจนหาไม่เจอแล้ว) แต่บิลถูกลบออกจากยอดขายให้แล้ว รบกวนเพิ่มสต็อกคืนเองด้วยมือ:\n\n${unresolvedNames.join('\n')}`);
+  }
 }
 
 function openImportModal(){
