@@ -4071,30 +4071,54 @@ function buildLocalSkuIndex(products){
   return idx;
 }
 
-// จับคู่ 1 แถวจากไฟล์ Shopee กับสินค้าในระบบ: เทียบ SKU ก่อน ถ้าไม่เจอค่อย fallback ไปหาโดยชื่อ+สี/ไซส์
+// จับคู่ 1 แถวจากไฟล์ Shopee กับสินค้าในระบบ — ใช้หลักการเดียวกับตอน "นำเข้ายอดขายจากไฟล์คำสั่งซื้อ Shopee" (matchOrderRowToProduct ด้านล่าง)
+// คือเช็คว่า "รหัสสินค้า" (p.code) ปรากฏอยู่ในชื่อสินค้าเต็มจากไฟล์ Shopee ไหม แล้วกรองซ้ำด้วยสี/ไซส์ (canonicalColor + normalizeVariantText)
+// เหตุผลที่ไม่ใช้ SKU เป็นตัวจับคู่หลัก: ไฟล์ "แก้ไขสต็อกจำนวนมาก" ของ Shopee มักกรอกคอลัมน์ "เลข SKU" เป็น SKU ระดับสีเดียว
+// ใช้ร่วมกันข้ามหลายไซส์ (ไม่ unique ต่อไซส์) ถ้าเอา SKU มาจับคู่ตรงๆ จะเจอ "ซ้ำ/ไม่ตรง" แทบทุกแถวทั้งที่จริงๆ เป็นสินค้าเดียวกัน
+// SKU จึงใช้เป็นแค่ทางเลือกสำรองท้ายสุด (เผื่อสินค้าไม่มี "รหัส" ให้เทียบกับชื่อ หรือรหัสไม่ปรากฏในชื่อไฟล์ Shopee)
 function matchShopeeStockRow(products, skuIndex, row){
-  const key = normalizeSkuKey(row.sku);
-  if(key && skuIndex[key] && skuIndex[key].length === 1){
-    const p = skuIndex[key][0];
+  const title = row.productName || '';
+  const oc = canonicalColor(row.color);
+  const os = normalizeVariantText(row.size);
+  const byCode = products.filter(p => codeAppearsInTitle(p.code, title));
+  const byCodeVariant = byCode.filter(p => canonicalColor(p.color)===oc && normalizeVariantText(p.size)===os);
+  if(byCodeVariant.length === 1){
+    const p = byCodeVariant[0];
     const localStock = (p.stock===null || p.stock===undefined) ? null : Number(p.stock);
     if(localStock === null) return { status:'local-not-tracked', product:p };
     if(localStock === row.stock) return { status:'match', product:p, localStock };
     return { status:'mismatch', product:p, localStock };
   }
-  if(key && skuIndex[key] && skuIndex[key].length > 1){
-    return { status:'ambiguous-sku', candidates: skuIndex[key] };
+  if(byCodeVariant.length > 1){
+    return { status:'ambiguous-product', candidates: byCodeVariant };
   }
-  const query = (row.productName || '').trim();
+  if(byCode.length > 0){
+    // เจอ "รหัส" ตรงกัน (สินค้ารุ่นเดียวกัน) แต่หาสี/ไซส์ที่ตรงกันไม่เจอเลยสักตัว
+    return { status:'variant-not-found', candidates: byCode };
+  }
+  // ไม่เจอ "รหัส" ในชื่อสินค้าเลย ลอง fallback ด้วย SKU (เผื่อสินค้านี้ไม่มีรหัส/รหัสไม่ปรากฏในชื่อ)
+  const key = normalizeSkuKey(row.sku);
+  const skuCandidates = key ? (skuIndex[key] || []) : [];
+  if(skuCandidates.length === 1){
+    const p = skuCandidates[0];
+    const localStock = (p.stock===null || p.stock===undefined) ? null : Number(p.stock);
+    if(localStock === null) return { status:'local-not-tracked', product:p, matchedBy:'sku' };
+    if(localStock === row.stock) return { status:'match', product:p, localStock, matchedBy:'sku' };
+    return { status:'mismatch', product:p, localStock, matchedBy:'sku' };
+  }
+  // สุดท้ายลอง fallback ด้วยชื่อสินค้าเต็ม (เผื่อสะกด/รูปแบบรหัสไม่ตรงตามที่คาดไว้)
+  const query = title.trim();
   if(query){
     const { exact, similar } = searchProductFamiliesIn(products, query);
     const families = exact.length ? exact : similar;
     if(families.length){
-      const lc = (row.color||'').trim().toLowerCase(), ls = (row.size||'').trim().toLowerCase();
       for(const fam of families){
-        const variant = fam.products.find(p=>(p.color||'').trim().toLowerCase()===lc && (p.size||'').trim().toLowerCase()===ls);
+        const variant = fam.products.find(p=>canonicalColor(p.color)===oc && normalizeVariantText(p.size)===os);
         if(variant){
           const localStock = (variant.stock===null || variant.stock===undefined) ? null : Number(variant.stock);
-          return { status: key ? 'sku-mismatch' : 'sku-missing', product:variant, localStock };
+          if(localStock === null) return { status:'local-not-tracked', product:variant, matchedBy:'name' };
+          if(localStock === row.stock) return { status:'match', product:variant, localStock, matchedBy:'name' };
+          return { status:'mismatch', product:variant, localStock, matchedBy:'name' };
         }
       }
       return { status:'name-found-variant-missing', families };
@@ -4105,15 +4129,15 @@ function matchShopeeStockRow(products, skuIndex, row){
 
 function shopeeCompareReasonText(r){
   const m = r.match;
+  const by = m.matchedBy === 'sku' ? ' (จับคู่ด้วย SKU สำรอง เพราะไม่พบรหัสในชื่อสินค้า)' : m.matchedBy === 'name' ? ' (จับคู่ด้วยชื่อสินค้า เพราะไม่พบรหัสในชื่อ)' : '';
   switch(m.status){
-    case 'match': return '✅ ตรงกัน';
-    case 'mismatch': return `⚠️ จำนวนไม่ตรงกัน — ในระบบ ${m.localStock} คู่ / Shopee ${r.row.stock} คู่`;
-    case 'local-not-tracked': return 'ℹ️ พบ SKU ตรงกัน แต่สินค้านี้ในระบบไม่ได้ตั้งให้ติดตามสต็อก (ไม่มีตัวเลขสต็อก)';
-    case 'ambiguous-sku': return `⚠️ SKU "${r.row.sku}" ซ้ำกันในระบบ ${m.candidates.length} รายการ ไม่สามารถเทียบอัตโนมัติได้ ต้องแก้ SKU ให้ไม่ซ้ำก่อน`;
-    case 'sku-mismatch': return `⚠️ พบสินค้าชื่อ/สี/ไซส์ตรงกันในระบบ แต่ SKU ไม่ตรงกัน — ในระบบ "${m.product.sku||'(ว่าง)'}" / Shopee "${r.row.sku||'(ว่าง)'}"`;
-    case 'sku-missing': return '⚠️ พบสินค้าชื่อ/สี/ไซส์ตรงกันในระบบ แต่ยังไม่ได้กรอก SKU ไว้ในระบบ';
+    case 'match': return `✅ ตรงกัน${by}`;
+    case 'mismatch': return `⚠️ จำนวนไม่ตรงกัน — ในระบบ ${m.localStock} คู่ / Shopee ${r.row.stock} คู่${by}`;
+    case 'local-not-tracked': return `ℹ️ พบสินค้าตรงกัน แต่ในระบบไม่ได้ตั้งให้ติดตามสต็อก (ไม่มีตัวเลขสต็อก)${by}`;
+    case 'ambiguous-product': return `⚠️ พบสินค้าที่รหัส+สี+ไซส์ตรงกันในระบบซ้ำกัน ${m.candidates.length} รายการ ไม่สามารถเทียบอัตโนมัติได้ ต้องตรวจสอบรายการซ้ำในระบบก่อน`;
+    case 'variant-not-found': return `❓ พบรุ่นสินค้าตรงกันในระบบ (${m.candidates.length} รายการ) แต่หาสี/ไซส์ "${r.row.variationName}" ที่ตรงกันไม่เจอ (สะกดสี/ไซส์อาจไม่ตรงกัน หรือยังไม่ได้ลงไซส์นี้ในระบบ)`;
     case 'name-found-variant-missing': return `❓ พบชื่อสินค้าใกล้เคียงในระบบ แต่หาสี/ไซส์ "${r.row.variationName}" ที่ตรงกันไม่เจอ (สะกดสี/ไซส์อาจไม่ตรงกัน)`;
-    case 'not-found': return '❌ หาไม่เจอในระบบเลย ทั้งจาก SKU และชื่อสินค้า (อาจสะกดชื่อคนละแบบ, เป็นสินค้าที่ยังไม่ได้ลงในระบบ, หรือ SKU พิมพ์ผิด)';
+    case 'not-found': return '❌ หาไม่เจอในระบบเลย ทั้งจากรหัสสินค้าในชื่อ, SKU, และชื่อสินค้า (อาจเป็นสินค้าที่ยังไม่ได้ลงในระบบ หรือสินค้าในระบบไม่ได้กรอกช่อง "รหัส" ไว้)';
     default: return '';
   }
 }
@@ -4181,9 +4205,9 @@ function groupShopeeCompareResults(results){
   results.forEach(r=>{
     switch(r.match.status){
       case 'match': g.match.push(r); break;
-      case 'mismatch': case 'ambiguous-sku': g.mismatch.push(r); break;
+      case 'mismatch': case 'ambiguous-product': g.mismatch.push(r); break;
       case 'local-not-tracked': g.notTracked.push(r); break;
-      case 'sku-mismatch': case 'sku-missing': case 'name-found-variant-missing': g.needsCheck.push(r); break;
+      case 'variant-not-found': case 'name-found-variant-missing': g.needsCheck.push(r); break;
       default: g.notFound.push(r);
     }
   });
