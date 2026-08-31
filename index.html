@@ -4296,8 +4296,20 @@ function adjustCompareRowStock(idx, delta){
 // ส่งรายการ "จำนวนไม่ตรงกัน" (จับคู่กับสินค้าในระบบได้แน่นอนแล้ว) ไปเก็บใน Supabase ตาราง shopee_compare_queue
 // ให้หน้าเช็คสต็อคพนักงาน (stocktake.html) ดึงไปแสดงต่อได้ทันที เพราะพนักงานไม่มีไฟล์ Shopee มาอัปโหลดเอง
 // รายการเดิมที่ยังไม่ถูกพนักงานตัดสินใจ (status 'open') จะถูกแทนที่ด้วยชุดล่าสุดนี้ — ส่วนที่พนักงานติ๊ก "รอส่งออก" ไว้แล้ว (status 'queued_export') จะไม่ถูกแตะ
+// แบ่งอาเรย์เป็นชุดย่อยขนาด size — ใช้กันคำขอ Supabase ที่มีรายการเป็นร้อยๆ ตัวใหญ่เกินไปจนพัง/ค้าง (payload ใหญ่ หรือ query string ยาวเกินตอนใช้ .in())
+function chunkArray(arr, size){
+  const out = [];
+  for(let i=0;i<arr.length;i+=size) out.push(arr.slice(i, i+size));
+  return out;
+}
+
+let pushShopeeMismatchInFlight = false;
+// ส่งรายการ "จำนวนไม่ตรงกัน" ไป Supabase เป็นชุดย่อยครั้งละไม่เกิน 200 แถว (กันคำขอใหญ่เกินไปตอนมีเป็นร้อยๆ รายการจนหมดเวลา/พังกลางทาง)
+// อัปเสิร์ตชุดใหม่ "ก่อน" แล้วค่อยลบของเก่าที่ไม่อยู่ในชุดใหม่ทีหลัง (ไม่ใช่ลบก่อนแล้วค่อยเพิ่ม) กันเคสพังกลางทางแล้วรายการหายไปเฉยๆ ไม่เหลือให้พนักงานเห็นเลย
+// มี flag กันกดซ้ำระหว่างกำลังส่งอยู่ และมี timeout ทุกคำขอ (withSyncTimeout) พร้อม toast แจ้งผลเสมอไม่ว่าสำเร็จหรือพัง
 async function pushShopeeMismatchToStocktake(){
   if(!supabaseClient || !currentOwnerId){ toast('ยังไม่ได้เชื่อมต่อ Supabase'); return; }
+  if(pushShopeeMismatchInFlight){ toast('กำลังส่งอยู่ รอสักครู่แล้วลองใหม่'); return; }
   const g = groupShopeeCompareResults(shopeeCompareResults);
   const list = sortMismatchList(g.mismatch);
   if(!list.length){ toast('ไม่มีรายการที่จำนวนไม่ตรงกัน'); return; }
@@ -4312,15 +4324,28 @@ async function pushShopeeMismatchToStocktake(){
       status: 'open', updated_at: new Date().toISOString()
     };
   });
+  pushShopeeMismatchInFlight = true;
+  toast(`กำลังส่ง ${rows.length} รายการ...`);
   try{
-    const del = await supabaseClient.from('shopee_compare_queue').delete().eq('owner_id', currentOwnerId).eq('status', 'open');
-    if(del.error) throw del.error;
-    const { error } = await supabaseClient.from('shopee_compare_queue').upsert(rows);
-    if(error) throw error;
+    for(const chunk of chunkArray(rows, 200)){
+      const { error } = await withSyncTimeout(supabaseClient.from('shopee_compare_queue').upsert(chunk), 20000);
+      if(error) throw error;
+    }
+    const { data: oldOpen, error: selErr } = await withSyncTimeout(
+      supabaseClient.from('shopee_compare_queue').select('id').eq('owner_id', currentOwnerId).eq('status', 'open'), 20000);
+    if(selErr) throw selErr;
+    const newIdSet = new Set(rows.map(r=>r.id));
+    const staleIds = (oldOpen || []).map(r=>r.id).filter(id => !newIdSet.has(id));
+    for(const chunk of chunkArray(staleIds, 200)){
+      const { error } = await withSyncTimeout(supabaseClient.from('shopee_compare_queue').delete().eq('owner_id', currentOwnerId).in('id', chunk), 20000);
+      if(error) throw error;
+    }
     toast(`ส่งไปหน้าเช็คสต็อคพนักงานแล้ว ${rows.length} รายการ`);
   }catch(err){
     console.error(err);
     toast('ส่งไม่สำเร็จ: ' + ((err && err.message) || String(err)));
+  }finally{
+    pushShopeeMismatchInFlight = false;
   }
 }
 
@@ -4382,8 +4407,11 @@ async function downloadShopeeUpdateFile(){
   toast(`สร้างไฟล์อัปเดต ${totalCount} รายการแล้ว อัปโหลดกลับเข้า Shopee ได้เลย` + (skipped.length ? ` (ข้าม ${skipped.length} รายการจากหน้าเช็คสต็อคที่ไม่พบในไฟล์นี้)` : ''));
   const doneIds = localQueued.map(r=>r.match.product.id).concat(usable.map(u=>u.row.id));
   if(doneIds.length && supabaseClient && currentOwnerId){
-    try{ await supabaseClient.from('shopee_compare_queue').delete().eq('owner_id', currentOwnerId).in('id', doneIds); }
-    catch(e){ console.error(e); }
+    // ลบทีละชุดไม่เกิน 200 id กัน query ยาวเกินไปตอนมีเป็นร้อยๆ รายการ
+    for(const chunk of chunkArray(doneIds, 200)){
+      try{ await withSyncTimeout(supabaseClient.from('shopee_compare_queue').delete().eq('owner_id', currentOwnerId).in('id', chunk), 20000); }
+      catch(e){ console.error(e); }
+    }
   }
 }
 

@@ -578,6 +578,8 @@ function toast(msg){
   window.__toastTimer = setTimeout(()=>el.classList.remove('show'), 2200);
 }
 function escapeAttr(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+// เอาไว้ใส่ค่าในสตริง JS ที่ฝังอยู่ใน attribute onclick/onchange (เช่น onclick="fn('...')") กัน id ที่มี ' หรือ \ หลุดออกมาทำลาย syntax
+function escapeJsStr(s){ return String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
 function escapeHtml(s){ return escapeAttr(s); }
 
 /* ============ จัดกลุ่มสินค้าเป็น รุ่น+สี (การ์ดละ 1 รูป) ============ */
@@ -976,31 +978,43 @@ async function fetchShopeeCompareQueue(){
 
 // นับจริงแล้วตรงกับ Shopee (ระบบผิด) → ถามยืนยันอีกครั้งก่อนเสมอ แล้วปรับสต็อกในระบบให้ตรง Shopee ทันที (บันทึก transaction ปกติ มีแจ้งเตือนไปเจ้าของร้านด้วย)
 // จากนั้นลบแถวนี้ออกจากคิวถาวร เพราะจบแล้ว ไม่ต้องส่งออกอะไรต่อ (Shopee ถูกอยู่แล้ว)
-async function confirmFixToShopee(idx){
-  const row = shopeeQueueRows[idx];
-  if(!row) return;
+// รับ "id" (ไม่ใช่ index) เสมอ — กันปัญหาตำแหน่งเลื่อนถ้าผู้ใช้กดหลายรายการรัวๆ ระหว่างที่การ์ดก่อนหน้ายังทำงาน (มี await ค้างอยู่) จนลิสต์เปลี่ยนตำแหน่งกลางคัน
+// ครอบทั้งฟังก์ชันด้วย try/catch เสมอ กันเคสที่ localStorage เต็ม (ประวัติปรับสต็อกสะสมมาก ๆ) หรือเน็ตหลุดกลางทาง ทำให้ค้าง/พังเงียบๆ โดยไม่มี toast แจ้งเลย
+async function confirmFixToShopee(id){
+  const row = shopeeQueueRows.find(r => r.id === id);
+  if(!row){ toast('รายการนี้ถูกดำเนินการไปแล้ว หรือถูกลบไปแล้ว'); renderShopeeQueueResult(); return; }
   if(!confirm(`ยืนยันว่านับสต็อกจริงแล้วตรงกับ Shopee (${row.shopee_stock}) ไม่ใช่ตัวเลขในระบบ (${row.our_stock}) ใช่ไหม?\nระบบจะปรับสต็อกในระบบเป็น ${row.shopee_stock} ทันที`)) return;
-  const products = loadProducts();
-  const tx = recordStockTransaction(products, row.id, 'ADJUSTMENT', Math.max(0, row.shopee_stock), BASE_UNIT, 'ปรับจากหน้าเช็คสต็อกพนักงาน', { setAbsolute: true });
-  if(!tx){ toast('ไม่พบสินค้านี้ในระบบแล้ว (อาจถูกลบไปแล้ว)'); return; }
-  saveProducts(products);
   try{
-    if(supabaseClient && currentOwnerId) await supabaseClient.from('shopee_compare_queue').delete().eq('owner_id', currentOwnerId).eq('id', row.id);
-  }catch(e){ console.error(e); }
-  shopeeQueueRows.splice(idx, 1);
-  toast(`ปรับสต็อกเป็น ${tx.stockAfter} ตรงกับ Shopee แล้ว`);
+    // เช็คซ้ำอีกทีเผื่อระหว่างที่กล่องยืนยันค้างอยู่ มีการดำเนินการอื่นกับรายการนี้ไปแล้ว (เช่น ติ๊ก/ยกเลิกจากอีกจุด)
+    if(!shopeeQueueRows.find(r => r.id === id)){ toast('รายการนี้ถูกดำเนินการไปแล้ว'); renderShopeeQueueResult(); return; }
+    const products = loadProducts();
+    const tx = recordStockTransaction(products, row.id, 'ADJUSTMENT', Math.max(0, row.shopee_stock), BASE_UNIT, 'ปรับจากหน้าเช็คสต็อกพนักงาน', { setAbsolute: true });
+    if(!tx){ toast('ไม่พบสินค้านี้ในระบบแล้ว (อาจถูกลบไปแล้ว)'); renderShopeeQueueResult(); return; }
+    saveProducts(products);
+    if(supabaseClient && currentOwnerId){
+      const { error } = await supabaseClient.from('shopee_compare_queue').delete().eq('owner_id', currentOwnerId).eq('id', row.id);
+      if(error) throw error;
+    }
+    const i = shopeeQueueRows.findIndex(r => r.id === id);
+    if(i !== -1) shopeeQueueRows.splice(i, 1);
+    toast(`ปรับสต็อกเป็น ${tx.stockAfter} ตรงกับ Shopee แล้ว`);
+  }catch(err){
+    console.error(err);
+    toast('เกิดข้อผิดพลาด ปรับสต็อกไม่สำเร็จ: ' + ((err && err.message) || String(err)));
+  }
   renderShopeeQueueResult();
 }
 
 // นับจริงแล้วตรงกับระบบ (Shopee ผิด) → ถามยืนยันอีกครั้งก่อนเข้าคิว "รอ export ไป Shopee" ที่เจ้าของร้านจะรวมไฟล์ส่งออกทีหลัง (ยกเลิกติ๊กคืนเป็น 'open' ได้โดยไม่ต้องยืนยัน)
-async function confirmQueueForExport(idx, checked){
-  const row = shopeeQueueRows[idx];
-  if(!row) return;
+async function confirmQueueForExport(id, checked){
+  const row = shopeeQueueRows.find(r => r.id === id);
+  if(!row){ toast('รายการนี้ถูกดำเนินการไปแล้ว หรือถูกลบไปแล้ว'); renderShopeeQueueResult(); return; }
   if(checked){
     if(!confirm(`ยืนยันว่านับสต็อกจริงแล้วตรงกับระบบ (${row.our_stock}) ไม่ใช่ Shopee (${row.shopee_stock}) ใช่ไหม?\nรายการนี้จะถูกส่งไปรอเจ้าของร้านอัปเดตขึ้น Shopee`)){
       renderShopeeQueueResult();
       return;
     }
+    if(!shopeeQueueRows.find(r => r.id === id)){ toast('รายการนี้ถูกดำเนินการไปแล้ว'); renderShopeeQueueResult(); return; }
   }
   const newStatus = checked ? 'queued_export' : 'open';
   const prevStatus = row.status;
@@ -1030,12 +1044,12 @@ function renderShopeeQueueResult(){
     return;
   }
   const cardsHtml = sorted.map(row=>{
-    const idx = shopeeQueueRows.indexOf(row);
     const label = [row.brand, row.model, row.color].filter(Boolean).join(' · ') || '(ไม่มีชื่อ)';
     const diff = row.our_stock - row.shopee_stock;
     const diffCls = diff > 0 ? 'diff-pos' : (diff < 0 ? 'diff-neg' : '');
     const diffText = diff === 0 ? 'เท่ากันแล้ว' : diff > 0 ? `ระบบมากกว่า Shopee ${diff}` : `ระบบน้อยกว่า Shopee ${Math.abs(diff)}`;
     const queued = row.status === 'queued_export';
+    const idJs = escapeJsStr(row.id);
     return `<div class="shopee-recon-card">
       <div class="shopee-recon-name">${escapeHtml(label)}</div>
       <div class="shopee-recon-sub">เบอร์ ${escapeHtml(row.size||'-')} · SKU: ${escapeHtml(row.sku||'-')}</div>
@@ -1046,10 +1060,10 @@ function renderShopeeQueueResult(){
       </div>
       <div class="shopee-recon-actions">
         <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:400;">
-          <input type="checkbox" style="width:auto;" ${queued?'checked':''} onchange="confirmQueueForExport(${idx}, this.checked)">
+          <input type="checkbox" style="width:auto;" ${queued?'checked':''} onchange="confirmQueueForExport('${idJs}', this.checked)">
           นับจริงตรงกับระบบ → รอส่งออกไป Shopee
         </label>
-        <button type="button" class="btn btn-outline" style="font-size:12px;padding:6px 10px;" onclick="confirmFixToShopee(${idx})">✅ นับจริงตรงกับ Shopee — แก้จำนวนตาม Shopee</button>
+        <button type="button" class="btn btn-outline" style="font-size:12px;padding:6px 10px;" onclick="confirmFixToShopee('${idJs}')">✅ นับจริงตรงกับ Shopee — แก้จำนวนตาม Shopee</button>
       </div>
     </div>`;
   }).join('');
