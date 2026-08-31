@@ -116,6 +116,14 @@
   table.report-table th{color:var(--muted);font-weight:700;font-size:11.5px;text-transform:uppercase;letter-spacing:.02em;}
   .diff-pos{color:var(--success);font-weight:700;}
   .diff-neg{color:var(--danger);font-weight:700;}
+  .shopee-recon-card{border:1px solid var(--border);border-radius:12px;padding:10px 12px;margin-bottom:8px;}
+  .shopee-recon-name{font-weight:700;font-size:13.5px;margin-bottom:2px;}
+  .shopee-recon-sub{font-size:12px;color:var(--muted);margin-bottom:6px;}
+  .shopee-recon-nums{display:flex;gap:14px;font-size:12.5px;margin-bottom:8px;flex-wrap:wrap;}
+  .shopee-recon-actions{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;}
+  .mini-stepper{display:flex;align-items:center;gap:4px;}
+  .mini-step-btn{width:26px;height:26px;flex:none;border-radius:8px;border:1px solid var(--border);background:var(--fill);font-size:16px;line-height:1;font-weight:700;color:var(--primary);cursor:pointer;padding:0;}
+  .mini-step-btn:active{background:var(--border);}
   .report-tabs{display:flex;gap:6px;margin-bottom:12px;}
   .report-tab-btn{flex:1;padding:9px;border-radius:9px;border:1px solid var(--border);background:#fff;color:var(--muted);
     font-size:13px;font-weight:600;cursor:pointer;}
@@ -1095,7 +1103,7 @@ function processShopeeUpdateFile(){
       const p = candidates[0];
       const ourStock = (typeof p.stock === 'number') ? p.stock : 0;
       if(ourStock !== shopeeStock){
-        toUpdate.push({ rowIndex: r, shopeeStock, ourStock, name: p.name, model: p.model, color: p.color, size: p.size });
+        toUpdate.push({ rowIndex: r, shopeeStock, ourStock, id: p.id, name: p.name, brand: p.brand, model: p.model, color: p.color, size: p.size, sku: p.sku, queued: true });
       } else {
         unchanged.push({ rowIndex: r });
       }
@@ -1109,27 +1117,94 @@ function processShopeeUpdateFile(){
   shopeeSheetMeta.firstDataRowIndex = firstDataRowIndex;
   shopeeUpdateRows = toUpdate;
   renderShopeeUpdateResult(toUpdate, unchanged, unmatched, ambiguous);
-  document.getElementById('shopeeDownloadBtn').disabled = toUpdate.length === 0;
 }
-function renderShopeeUpdateResult(toUpdate, unchanged, unmatched, ambiguous){
+// เรียงรายการ "ต้องอัปเดต" ตาม ยี่ห้อ → รุ่น → สี → เบอร์ ให้เช็คเป็นชุดๆ ง่ายขึ้น
+function sortShopeeToUpdateList(list){
+  return list.slice().sort((a,b)=>{
+    const ka = [a.brand||'', a.model||'', a.color||'', String(a.size||'').padStart(4,'0')].join('|').toLowerCase();
+    const kb = [b.brand||'', b.model||'', b.color||'', String(b.size||'').padStart(4,'0')].join('|').toLowerCase();
+    return ka < kb ? -1 : ka > kb ? 1 : 0;
+  });
+}
+function queuedShopeeUpdateCount(){
+  return shopeeUpdateRows.filter(u=>u.queued!==false).length;
+}
+function updateShopeeDownloadBtn(){
+  const btn = document.getElementById('shopeeDownloadBtn');
+  const n = queuedShopeeUpdateCount();
+  btn.disabled = n === 0;
+  btn.textContent = n ? `⬇️ ดาวน์โหลดไฟล์อัปเดต Shopee (${n})` : '⬇️ ดาวน์โหลดไฟล์อัปเดต Shopee';
+}
+// ติ๊ก/ยกเลิกติ๊ก "รวมในไฟล์อัปเดต Shopee" ต่อรายการ (ค่าเริ่มต้นติ๊กไว้หมด เผื่อกดดาวน์โหลดได้เลยเหมือนเดิม)
+function toggleShopeeToUpdateQueue(idx, checked){
+  const u = shopeeUpdateRows[idx];
+  if(!u) return;
+  u.queued = checked;
+  updateShopeeDownloadBtn();
+}
+// ปรับสต็อกในระบบตรงจากการ์ดเทียบ Shopee ทีละ 1 (เผื่อ Shopee ถูก ระบบผิด) ใช้ note เดียวกับตอนพนักงานปรับสต็อกจากหน้านี้ปกติ
+// เพื่อให้เจ้าของร้านเห็นแจ้งเตือนที่กระดิ่งใน index.html ด้วยเหมือนการปรับสต็อกอื่นๆ จากหน้าเช็คสต็อก — ปรับจนตัวเลขตรงกับ Shopee แล้วรายการจะหลุดออกจากลิสต์ "ต้องอัปเดต" เอง
+function adjustShopeeToUpdateStock(idx, delta){
+  const u = shopeeUpdateRows[idx];
+  if(!u) return;
+  const products = loadProducts();
+  const tx = recordStockTransaction(products, u.id, 'ADJUSTMENT', Math.max(0, u.ourStock + delta), BASE_UNIT, 'ปรับจากหน้าเช็คสต็อกพนักงาน', { setAbsolute: true });
+  if(!tx) return;
+  saveProducts(products);
+  if(tx.stockAfter === u.shopeeStock){
+    shopeeUpdateRows.splice(idx, 1);
+    toast(`ปรับตรงกับ Shopee แล้ว (${tx.stockAfter}) — ตัดออกจากลิสต์ต้องอัปเดต`);
+  } else {
+    u.ourStock = tx.stockAfter;
+  }
+  renderShopeeUpdateResult(shopeeUpdateRows, [], null, null, true);
+}
+function renderShopeeUpdateResult(toUpdate, unchanged, unmatched, ambiguous, keepStats){
   const el = document.getElementById('shopeeUpdateResult');
-  const rowsHtml = toUpdate.map(u=>{
-    const label = [u.name, u.model, u.color].filter(Boolean).join(' · ');
-    return `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(u.size||'-')}</td><td>${u.shopeeStock}</td><td><strong>${u.ourStock}</strong></td></tr>`;
+  // keepStats: เรียกซ้ำหลังปรับสต็อก +/- แล้ว ไม่มี unchanged/unmatched/ambiguous ชุดใหม่มาให้ ใช้ตัวเลขเดิมที่เคยแสดงไว้แทน
+  if(keepStats){ unmatched = renderShopeeUpdateResult._lastUnmatched || []; ambiguous = renderShopeeUpdateResult._lastAmbiguous || []; unchanged = renderShopeeUpdateResult._lastUnchanged || []; }
+  else { renderShopeeUpdateResult._lastUnmatched = unmatched; renderShopeeUpdateResult._lastAmbiguous = ambiguous; renderShopeeUpdateResult._lastUnchanged = unchanged; }
+  const sorted = sortShopeeToUpdateList(toUpdate);
+  const queuedCount = queuedShopeeUpdateCount();
+  const cardsHtml = sorted.map(u=>{
+    const idx = shopeeUpdateRows.indexOf(u);
+    const label = [u.brand, u.model, u.color].filter(Boolean).join(' · ') || u.name;
+    const diff = u.ourStock - u.shopeeStock;
+    const diffCls = diff > 0 ? 'diff-pos' : (diff < 0 ? 'diff-neg' : '');
+    const diffText = diff === 0 ? 'เท่ากันแล้ว' : diff > 0 ? `ระบบมากกว่า Shopee ${diff}` : `ระบบน้อยกว่า Shopee ${Math.abs(diff)}`;
+    return `<div class="shopee-recon-card">
+      <div class="shopee-recon-name">${escapeHtml(label)}</div>
+      <div class="shopee-recon-sub">เบอร์ ${escapeHtml(u.size||'-')} · SKU: ${escapeHtml(u.sku||'-')}</div>
+      <div class="shopee-recon-nums">
+        <div>ระบบ <strong>${u.ourStock}</strong></div>
+        <div>Shopee <strong>${u.shopeeStock}</strong></div>
+        <div class="${diffCls}">${diffText}</div>
+      </div>
+      <div class="shopee-recon-actions">
+        <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:400;">
+          <input type="checkbox" style="width:auto;" ${u.queued!==false?'checked':''} onchange="toggleShopeeToUpdateQueue(${idx}, this.checked)">
+          รวมในไฟล์อัปเดต Shopee
+        </label>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span class="muted" style="font-size:11px;">Shopee ถูก? ปรับระบบ:</span>
+          <div class="mini-stepper">
+            <button type="button" class="mini-step-btn" onclick="adjustShopeeToUpdateStock(${idx},-1)" aria-label="ลด 1">−</button>
+            <button type="button" class="mini-step-btn" onclick="adjustShopeeToUpdateStock(${idx},1)" aria-label="เพิ่ม 1">+</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
   }).join('');
   const total = toUpdate.length + unchanged.length + unmatched.length + ambiguous.length;
 
   let html = `<div class="muted" style="font-size:12.5px;margin-bottom:10px;">
-    พบ ${total} รายการในไฟล์ · ต้องอัปเดต <strong>${toUpdate.length}</strong> รายการ · ตรงกันอยู่แล้ว ${unchanged.length} รายการ
+    พบ ${total} รายการในไฟล์ · ต้องอัปเดต <strong>${toUpdate.length}</strong> รายการ (ในคิวดาวน์โหลด ${queuedCount}) · ตรงกันอยู่แล้ว ${unchanged.length} รายการ
     ${unmatched.length ? ` · หาสินค้าตรงกันไม่เจอ ${unmatched.length} รายการ` : ''}
     ${ambiguous.length ? ` · จับคู่ได้มากกว่า 1 (ข้ามไว้ก่อน) ${ambiguous.length} รายการ` : ''}
   </div>`;
 
-  html += toUpdate.length
-    ? `<div style="overflow-x:auto;"><table class="report-table">
-        <thead><tr><th>สินค้า</th><th>เบอร์</th><th>Shopee เดิม</th><th>จะเปลี่ยนเป็น</th></tr></thead>
-        <tbody>${rowsHtml}</tbody>
-      </table></div>`
+  html += sorted.length
+    ? `<div style="margin-bottom:6px;font-size:12px;color:var(--muted);">เรียงตาม ยี่ห้อ/รุ่น/สี/เบอร์</div>${cardsHtml}`
     : `<div class="empty-state">ไม่มีรายการที่ต้องอัปเดต (ตัวเลขในไฟล์ตรงกับระบบเราหมดแล้ว)</div>`;
 
   if(unmatched.length){
@@ -1143,15 +1218,17 @@ function renderShopeeUpdateResult(toUpdate, unchanged, unmatched, ambiguous){
       + ambiguous.map(u=>`<div class="muted" style="font-size:12px;margin-bottom:4px;">${escapeHtml(u.productName)} — สี ${escapeHtml(u.color||'-')} เบอร์ ${escapeHtml(u.size||'-')} (พบ ${u.count} รายการที่ตรงเงื่อนไข)</div>`).join('');
   }
   el.innerHTML = html;
+  updateShopeeDownloadBtn();
 }
 function downloadShopeeUpdateFile(){
-  if(!shopeeSheetMeta || shopeeUpdateRows.length === 0){ toast('ไม่มีรายการให้ดาวน์โหลด'); return; }
+  const queuedRows = shopeeUpdateRows.filter(u=>u.queued!==false);
+  if(!shopeeSheetMeta || queuedRows.length === 0){ toast('ไม่มีรายการในคิวให้ดาวน์โหลด (ติ๊ก "รวมในไฟล์อัปเดต Shopee" ก่อน)'); return; }
   const { rows2d, headerRowIndex, colIndex, firstDataRowIndex, sheetName } = shopeeSheetMeta;
   const stockCol = colIndex['คลัง'];
   const outRows = [];
   const keepUntil = (firstDataRowIndex !== null ? firstDataRowIndex : headerRowIndex + 1);
   for(let i=0;i<keepUntil;i++) outRows.push(rows2d[i]);
-  shopeeUpdateRows.forEach(u=>{
+  queuedRows.forEach(u=>{
     const row = rows2d[u.rowIndex].slice();
     row[stockCol] = u.ourStock;
     outRows.push(row);
@@ -1161,7 +1238,7 @@ function downloadShopeeUpdateFile(){
   XLSX.utils.book_append_sheet(wb, ws, sheetName || 'Sheet1');
   const stamp = new Date().toISOString().slice(0,16).replace(/[:T]/g,'-');
   XLSX.writeFile(wb, `shopee_stock_update_${stamp}.xlsx`);
-  toast(`สร้างไฟล์อัปเดต ${shopeeUpdateRows.length} รายการแล้ว อัปโหลดกลับเข้า Shopee ได้เลย`);
+  toast(`สร้างไฟล์อัปเดต ${queuedRows.length} รายการแล้ว อัปโหลดกลับเข้า Shopee ได้เลย`);
 }
 
 function renderReportBody(){
