@@ -101,8 +101,8 @@
   #scanner-modal.open,#voice-modal.open{display:flex;}
   #reader{width:90vw;max-width:400px;background:#000;border-radius:20px;overflow:hidden;}
   .modal-close{margin-top:18px;}
-  #confirm-modal, #bulk-modal, #import-modal, #import-orders-modal, #cancel-orders-modal{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:55;display:none;align-items:center;justify-content:center;padding:16px;overflow-y:auto;backdrop-filter:blur(2px);}
-  #confirm-modal.open, #bulk-modal.open, #import-modal.open, #import-orders-modal.open, #cancel-orders-modal.open{display:flex;}
+  #confirm-modal, #bulk-modal, #import-modal, #import-orders-modal, #cancel-orders-modal, #shopee-compare-modal{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:55;display:none;align-items:center;justify-content:center;padding:16px;overflow-y:auto;backdrop-filter:blur(2px);}
+  #confirm-modal.open, #bulk-modal.open, #import-modal.open, #import-orders-modal.open, #cancel-orders-modal.open, #shopee-compare-modal.open{display:flex;}
   .import-row{background:var(--fill);border-radius:12px;padding:12px;margin-bottom:8px;transition:opacity .15s;}
   .import-row .field{margin-bottom:8px;}
   .import-row .field:last-child{margin-bottom:0;}
@@ -571,6 +571,10 @@
         <button class="btn btn-outline btn-full" onclick="document.getElementById('cancelOrdersExcelFile').click()">↩️ ยกเลิก/คืนสินค้าจากไฟล์เดิม (คืนสต็อก)</button>
       </div>
       <input type="file" id="cancelOrdersExcelFile" accept=".xlsx,.xls" style="display:none;" onchange="handleCancelOrdersExcelFile(event)">
+      <div class="btn-row" style="margin-bottom:12px;">
+        <button class="btn btn-outline btn-full" onclick="document.getElementById('shopeeStockCompareFile').click()">🔍 เทียบสต็อก Shopee กับสต็อกในระบบ</button>
+      </div>
+      <input type="file" id="shopeeStockCompareFile" accept=".xlsx,.xls" style="display:none;" onchange="handleShopeeStockCompareFile(event)">
 
       <div class="collapse-header" data-collapse-toggle="collapseStockTools" onclick="toggleCollapse('collapseStockTools')">
         <h3>เครื่องมือเพิ่มเติม</h3>
@@ -935,6 +939,19 @@
     <div class="btn-row">
       <button class="btn btn-outline" onclick="closeCancelOrdersModal()">ปิด</button>
       <button class="btn btn-primary" onclick="confirmCancelOrders()">คืนสต็อกรายการที่เลือก</button>
+    </div>
+  </div>
+</div>
+
+<!-- เทียบสต็อก Shopee กับสต็อกในระบบ -->
+<div id="shopee-compare-modal">
+  <div class="confirm-card" style="max-width:560px;">
+    <h3>🔍 ผลเทียบสต็อก Shopee</h3>
+    <div class="confirm-sub" id="shopeeCompareSummary">กำลังอ่านไฟล์...</div>
+    <div class="btn-row" style="margin-bottom:10px;" id="shopeeCompareTopActions"></div>
+    <div id="shopeeCompareList" style="max-height:60vh;overflow-y:auto;margin-bottom:14px;"></div>
+    <div class="btn-row">
+      <button class="btn btn-primary btn-full" onclick="closeShopeeCompareModal()">ปิด</button>
     </div>
   </div>
 </div>
@@ -1343,7 +1360,7 @@ async function pullFromSupabaseAndRefresh(){
 }
 // เช็คว่ามี modal/sheet ไหนเปิดค้างอยู่ไหม (กำลังแก้ไข/กำลังพิมพ์อะไรอยู่) กันดึงข้อมูลใหม่มาเขียนทับหน้าจอระหว่างที่ผู้ใช้ทำงานค้างอยู่
 function isAnyModalOpen(){
-  return !!document.querySelector('.sheet-overlay.open, #scanner-modal.open, #voice-modal.open, #confirm-modal.open, #bulk-modal.open, #import-modal.open, #import-orders-modal.open, #cancel-orders-modal.open, #image-lightbox.open');
+  return !!document.querySelector('.sheet-overlay.open, #scanner-modal.open, #voice-modal.open, #confirm-modal.open, #bulk-modal.open, #import-modal.open, #import-orders-modal.open, #cancel-orders-modal.open, #shopee-compare-modal.open, #image-lightbox.open');
 }
 // ดึงข้อมูลล่าสุดจาก Supabase เป็นระยะๆ ระหว่างเปิดแอพค้างไว้ (เหมือนที่ stocktake.html มีอยู่แล้ว) เพื่อให้เห็นของที่เพิ่ม/แก้จากเครื่องอื่น (เช่น เบอร์ใหม่ที่พนักงานเพิ่มจากหน้าเช็คสต็อก)
 // โดยไม่ต้องปิดเปิดแอพใหม่เอง — ทำงานเงียบๆ ไม่มี toast กวนใจ และข้ามการ re-render ถ้ามี modal/sheet เปิดอยู่กันข้อมูลสลับระหว่างพิมพ์
@@ -3969,6 +3986,277 @@ function handleImportExcelFile(event){
       } else {
         importParsedRows = rows;
         openImportModal();
+      }
+    } catch(err){
+      toast('อ่านไฟล์ Excel ไม่สำเร็จ: ' + (err && err.message ? err.message : err));
+    }
+    event.target.value = '';
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+/* ============ เทียบสต็อก Shopee กับสต็อกในระบบ ============
+   อ่านไฟล์ Excel ที่ดาวน์โหลดจาก Shopee (เช่นไฟล์ "mass_update_sales_info...xlsx" ที่ Shopee ให้ตอนแก้ไขสต็อกทีละหลายรายการ)
+   หา header row จากชื่อคอลัมน์ระบบ (et_title_variation_sku / et_title_variation_stock ฯลฯ) แทนการอิงตำแหน่งคอลัมน์ตายตัว
+   กันกรณี Shopee เปลี่ยนเรียงคอลัมน์ หรือไฟล์ locale อื่น แล้วเทียบจำนวนคงเหลือ (คลัง) กับสต็อกในระบบทีละ SKU
+   จับคู่ด้วย SKU ก่อน ถ้าไม่เจอ ลองหาโดยชื่อสินค้า+สี/ไซส์ (ใช้ตัว matching engine เดียวกับตอนนำเข้าไฟล์สินค้า)
+   ถ้ายังหาไม่เจอเลย จะบอกเหตุผลที่หาไม่เจอ พร้อมปุ่มคัดลอกข้อความไปวางถาม Claude เทียบกับไฟล์ Shopee ต่อได้ */
+let shopeeCompareResults = [];
+
+function normalizeSkuKey(s){
+  return String(s||'').trim().toUpperCase().replace(/\s+/g,'');
+}
+
+// สแกนทุกชีทหา header row ที่มีคอลัมน์ et_title_variation_sku + et_title_variation_stock (แถวคำอธิบาย/ตัวอย่างในไฟล์ Shopee จะไม่มีคอลัมน์นี้)
+function extractShopeeStockCompareRows(workbook){
+  let best = [];
+  workbook.SheetNames.forEach(sheetName=>{
+    const ws = workbook.Sheets[sheetName];
+    let rows;
+    try{ rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''}); } catch(e){ return; }
+    if(!rows.length) return;
+    let headerRowIdx = -1, col = null;
+    for(let i=0;i<Math.min(rows.length,6);i++){
+      const hdr = (rows[i]||[]).map(c=>String(c||'').trim().toLowerCase());
+      const iSku = hdr.indexOf('et_title_variation_sku');
+      const iStock = hdr.indexOf('et_title_variation_stock');
+      if(iSku !== -1 && iStock !== -1){
+        headerRowIdx = i;
+        col = {
+          productId: hdr.indexOf('et_title_product_id'),
+          productName: hdr.indexOf('et_title_product_name'),
+          variationId: hdr.indexOf('et_title_variation_id'),
+          variationName: hdr.indexOf('et_title_variation_name'),
+          parentSku: hdr.indexOf('et_title_parent_sku'),
+          variationSku: iSku,
+          stock: iStock
+        };
+        break;
+      }
+    }
+    if(headerRowIdx === -1) return; // ชีทนี้ไม่ใช่ฟอร์แมตไฟล์แก้ไขสต็อกของ Shopee ข้ามไป
+    const matched = [];
+    for(let i=headerRowIdx+1;i<rows.length;i++){
+      const row = rows[i] || [];
+      const variationId = String(col.variationId!==-1 ? (row[col.variationId]||'') : '').trim();
+      const stock = toNumOrNull(row[col.stock]);
+      // แถวข้อมูลจริงต้องมีรหัสตัวเลือกสินค้า (ตัวเลขล้วน) และคลังเป็นตัวเลข กันแถวคำแนะนำ/ตัวอย่างที่ปนมา
+      if(!/^\d+$/.test(variationId) || stock === null) continue;
+      const parentSku = col.parentSku!==-1 ? String(row[col.parentSku]||'').trim() : '';
+      const variationSku = String(row[col.variationSku]||'').trim();
+      const variationName = col.variationName!==-1 ? String(row[col.variationName]||'').trim() : '';
+      const parsed = parseOptionColorSize(variationName);
+      matched.push({
+        productId: col.productId!==-1 ? String(row[col.productId]||'').trim() : '',
+        productName: col.productName!==-1 ? String(row[col.productName]||'').trim() : '',
+        variationId, variationName,
+        color: parsed.color, size: parsed.size,
+        parentSku, variationSku,
+        sku: variationSku || parentSku,
+        stock
+      });
+    }
+    if(matched.length > best.length) best = matched;
+  });
+  return best;
+}
+
+function buildLocalSkuIndex(products){
+  const idx = {};
+  products.forEach(p=>{
+    const key = normalizeSkuKey(p.sku);
+    if(!key) return;
+    (idx[key] = idx[key] || []).push(p);
+  });
+  return idx;
+}
+
+// จับคู่ 1 แถวจากไฟล์ Shopee กับสินค้าในระบบ: เทียบ SKU ก่อน ถ้าไม่เจอค่อย fallback ไปหาโดยชื่อ+สี/ไซส์
+function matchShopeeStockRow(products, skuIndex, row){
+  const key = normalizeSkuKey(row.sku);
+  if(key && skuIndex[key] && skuIndex[key].length === 1){
+    const p = skuIndex[key][0];
+    const localStock = (p.stock===null || p.stock===undefined) ? null : Number(p.stock);
+    if(localStock === null) return { status:'local-not-tracked', product:p };
+    if(localStock === row.stock) return { status:'match', product:p, localStock };
+    return { status:'mismatch', product:p, localStock };
+  }
+  if(key && skuIndex[key] && skuIndex[key].length > 1){
+    return { status:'ambiguous-sku', candidates: skuIndex[key] };
+  }
+  const query = (row.productName || '').trim();
+  if(query){
+    const { exact, similar } = searchProductFamiliesIn(products, query);
+    const families = exact.length ? exact : similar;
+    if(families.length){
+      const lc = (row.color||'').trim().toLowerCase(), ls = (row.size||'').trim().toLowerCase();
+      for(const fam of families){
+        const variant = fam.products.find(p=>(p.color||'').trim().toLowerCase()===lc && (p.size||'').trim().toLowerCase()===ls);
+        if(variant){
+          const localStock = (variant.stock===null || variant.stock===undefined) ? null : Number(variant.stock);
+          return { status: key ? 'sku-mismatch' : 'sku-missing', product:variant, localStock };
+        }
+      }
+      return { status:'name-found-variant-missing', families };
+    }
+  }
+  return { status:'not-found' };
+}
+
+function shopeeCompareReasonText(r){
+  const m = r.match;
+  switch(m.status){
+    case 'match': return '✅ ตรงกัน';
+    case 'mismatch': return `⚠️ จำนวนไม่ตรงกัน — ในระบบ ${m.localStock} คู่ / Shopee ${r.row.stock} คู่`;
+    case 'local-not-tracked': return 'ℹ️ พบ SKU ตรงกัน แต่สินค้านี้ในระบบไม่ได้ตั้งให้ติดตามสต็อก (ไม่มีตัวเลขสต็อก)';
+    case 'ambiguous-sku': return `⚠️ SKU "${r.row.sku}" ซ้ำกันในระบบ ${m.candidates.length} รายการ ไม่สามารถเทียบอัตโนมัติได้ ต้องแก้ SKU ให้ไม่ซ้ำก่อน`;
+    case 'sku-mismatch': return `⚠️ พบสินค้าชื่อ/สี/ไซส์ตรงกันในระบบ แต่ SKU ไม่ตรงกัน — ในระบบ "${m.product.sku||'(ว่าง)'}" / Shopee "${r.row.sku||'(ว่าง)'}"`;
+    case 'sku-missing': return '⚠️ พบสินค้าชื่อ/สี/ไซส์ตรงกันในระบบ แต่ยังไม่ได้กรอก SKU ไว้ในระบบ';
+    case 'name-found-variant-missing': return `❓ พบชื่อสินค้าใกล้เคียงในระบบ แต่หาสี/ไซส์ "${r.row.variationName}" ที่ตรงกันไม่เจอ (สะกดสี/ไซส์อาจไม่ตรงกัน)`;
+    case 'not-found': return '❌ หาไม่เจอในระบบเลย ทั้งจาก SKU และชื่อสินค้า (อาจสะกดชื่อคนละแบบ, เป็นสินค้าที่ยังไม่ได้ลงในระบบ, หรือ SKU พิมพ์ผิด)';
+    default: return '';
+  }
+}
+
+function copyTextToClipboard(text, okMsg){
+  const done = ()=> toast(okMsg || 'คัดลอกแล้ว วางลงแชท Claude ได้เลย');
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(done).catch(()=>fallbackCopyText(text, done));
+  } else {
+    fallbackCopyText(text, done);
+  }
+}
+function fallbackCopyText(text, done){
+  try{
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    done();
+  }catch(e){
+    toast('คัดลอกไม่สำเร็จ ลองแตะค้างที่ข้อความแล้วคัดลอกเองแทน');
+  }
+}
+
+function shopeeCompareRowPromptText(r){
+  const row = r.row;
+  return [
+    'ช่วยเทียบรายการสินค้านี้จากไฟล์ Shopee ที่แนบมาให้หน่อยว่าทำไมระบบสต็อกของฉันหาไม่เจอ/ไม่ตรงกัน:',
+    `- ชื่อสินค้า (Shopee): ${row.productName || '(ไม่มี)'}`,
+    `- ตัวเลือก (สี/ไซส์): ${row.variationName || '(ไม่มี)'}`,
+    `- SKU (Shopee): ${row.sku || '(ไม่มี)'}`,
+    `- Parent SKU: ${row.parentSku || '(ไม่มี)'}`,
+    `- รหัสสินค้า Product ID: ${row.productId || '(ไม่มี)'}`,
+    `- รหัสตัวเลือก Variation ID: ${row.variationId || '(ไม่มี)'}`,
+    `- จำนวนคงเหลือใน Shopee: ${row.stock}`,
+    `- ที่ระบบตรวจไม่พบ/ไม่ตรง เพราะ: ${shopeeCompareReasonText(r).replace(/^[✅⚠️ℹ️❓❌]+\s*/,'')}`,
+    '',
+    'ช่วยเปิดไฟล์ Shopee ที่แนบมาดูแถวนี้ (ค้นด้วย SKU หรือรหัสตัวเลือกด้านบน) แล้วบอกทีว่าจริงๆ ตรงกับสินค้าตัวไหนในระบบของฉัน หรือมีจุดไหนสะกด/พิมพ์ไม่ตรงกัน พร้อมแนะนำวิธีแก้ให้ตรงกันด้วย'
+  ].join('\n');
+}
+
+function copyShopeeCompareRowPrompt(idx){
+  const r = shopeeCompareResults[idx];
+  if(!r) return;
+  copyTextToClipboard(shopeeCompareRowPromptText(r));
+}
+
+function shopeeCompareFullReportText(){
+  const groups = groupShopeeCompareResults(shopeeCompareResults);
+  const lines = [`สรุปผลเทียบสต็อก Shopee กับสต็อกในระบบ (${new Date().toLocaleString('th-TH')})`,
+    `ทั้งหมด ${shopeeCompareResults.length} รายการ — ตรงกัน ${groups.match.length}, จำนวนไม่ตรง ${groups.mismatch.length}, หาไม่เจอ/ต้องตรวจสอบ ${groups.notFound.length + groups.needsCheck.length}`,
+    ''];
+  groups.mismatch.concat(groups.needsCheck).concat(groups.notFound).forEach(r=>{
+    lines.push(`• ${r.row.productName || '(ไม่มีชื่อ)'} [${r.row.variationName || '-'}] SKU:${r.row.sku||'-'} — ${shopeeCompareReasonText(r)}`);
+  });
+  return lines.join('\n');
+}
+function copyShopeeCompareFullReport(){
+  copyTextToClipboard(shopeeCompareFullReportText(), 'คัดลอกสรุปทั้งหมดแล้ว วางลงแชท Claude พร้อมไฟล์ Shopee ได้เลย');
+}
+
+function groupShopeeCompareResults(results){
+  const g = { match:[], mismatch:[], notFound:[], needsCheck:[], notTracked:[] };
+  results.forEach(r=>{
+    switch(r.match.status){
+      case 'match': g.match.push(r); break;
+      case 'mismatch': case 'ambiguous-sku': g.mismatch.push(r); break;
+      case 'local-not-tracked': g.notTracked.push(r); break;
+      case 'sku-mismatch': case 'sku-missing': case 'name-found-variant-missing': g.needsCheck.push(r); break;
+      default: g.notFound.push(r);
+    }
+  });
+  return g;
+}
+
+function shopeeCompareRowCardHtml(r, idx, showCopy){
+  const row = r.row;
+  return `<div class="import-row" style="margin-bottom:8px;">
+    <div style="font-weight:700;font-size:13.5px;margin-bottom:2px;">${escapeAttr(row.productName || '(ไม่มีชื่อ)')}</div>
+    <div class="muted" style="font-size:12px;margin-bottom:6px;">${escapeAttr(row.variationName||'-')} · SKU: ${escapeAttr(row.sku||'-')} · คงเหลือ Shopee: ${row.stock}</div>
+    <div style="font-size:12.5px;margin-bottom:${showCopy?'8px':'0'};">${shopeeCompareReasonText(r)}</div>
+    ${showCopy ? `<div class="btn-row"><button class="btn btn-outline" style="font-size:12px;padding:6px 10px;" onclick="copyShopeeCompareRowPrompt(${idx})">📋 คัดลอกไปถาม Claude</button></div>` : ''}
+  </div>`;
+}
+
+function renderShopeeCompareModal(){
+  const g = groupShopeeCompareResults(shopeeCompareResults);
+  document.getElementById('shopeeCompareSummary').textContent =
+    `ทั้งหมด ${shopeeCompareResults.length} รายการ — ✅ ตรงกัน ${g.match.length} · ⚠️ ไม่ตรง/ต้องตรวจสอบ ${g.mismatch.length + g.needsCheck.length} · ❌ หาไม่เจอ ${g.notFound.length}`;
+  document.getElementById('shopeeCompareTopActions').innerHTML =
+    `<button class="btn btn-outline btn-full" style="font-size:12.5px;" onclick="copyShopeeCompareFullReport()">📋 คัดลอกสรุปทั้งหมดไปถาม Claude</button>`;
+  const idxOf = r => shopeeCompareResults.indexOf(r);
+  let html = '';
+  if(g.mismatch.length){
+    html += `<h4 style="margin:10px 0 6px;font-size:13.5px;">⚠️ จำนวนไม่ตรงกัน (${g.mismatch.length})</h4>`;
+    html += g.mismatch.map(r=>shopeeCompareRowCardHtml(r, idxOf(r), false)).join('');
+  }
+  if(g.needsCheck.length){
+    html += `<h4 style="margin:10px 0 6px;font-size:13.5px;">❓ ต้องตรวจสอบ (${g.needsCheck.length})</h4>`;
+    html += g.needsCheck.map(r=>shopeeCompareRowCardHtml(r, idxOf(r), true)).join('');
+  }
+  if(g.notFound.length){
+    html += `<h4 style="margin:10px 0 6px;font-size:13.5px;">❌ หาไม่เจอในระบบ (${g.notFound.length})</h4>`;
+    html += g.notFound.map(r=>shopeeCompareRowCardHtml(r, idxOf(r), true)).join('');
+  }
+  if(g.notTracked.length){
+    html += `<h4 style="margin:10px 0 6px;font-size:13.5px;">ℹ️ ไม่ได้ติดตามสต็อกในระบบ (${g.notTracked.length})</h4>`;
+    html += g.notTracked.map(r=>shopeeCompareRowCardHtml(r, idxOf(r), false)).join('');
+  }
+  if(g.match.length){
+    html += `<details style="margin-top:10px;"><summary style="font-size:13px;font-weight:700;cursor:pointer;">✅ ตรงกันแล้ว (${g.match.length}) — แตะเพื่อดู</summary>`;
+    html += g.match.map(r=>shopeeCompareRowCardHtml(r, idxOf(r), false)).join('');
+    html += `</details>`;
+  }
+  if(!html) html = '<div class="muted">ไม่พบข้อมูลที่เทียบได้</div>';
+  document.getElementById('shopeeCompareList').innerHTML = html;
+}
+
+function openShopeeCompareModal(){
+  renderShopeeCompareModal();
+  document.getElementById('shopee-compare-modal').classList.add('open');
+}
+function closeShopeeCompareModal(){
+  document.getElementById('shopee-compare-modal').classList.remove('open');
+}
+
+function handleShopeeStockCompareFile(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = (e)=>{
+    try{
+      const data = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, {type:'array'});
+      const rows = extractShopeeStockCompareRows(workbook);
+      if(!rows.length){
+        toast('ไม่พบข้อมูลสต็อกในไฟล์นี้ — ต้องเป็นไฟล์แก้ไขสต็อกสินค้าจำนวนมากของ Shopee (mass_update_sales_info) ที่มีคอลัมน์ "เลข SKU" และ "คลัง"');
+      } else {
+        const products = loadProducts();
+        const skuIndex = buildLocalSkuIndex(products);
+        shopeeCompareResults = rows.map(row => ({ row, match: matchShopeeStockRow(products, skuIndex, row) }));
+        openShopeeCompareModal();
       }
     } catch(err){
       toast('อ่านไฟล์ Excel ไม่สำเร็จ: ' + (err && err.message ? err.message : err));
