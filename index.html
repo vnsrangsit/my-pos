@@ -4002,14 +4002,18 @@ function handleImportExcelFile(event){
    จับคู่ด้วย SKU ก่อน ถ้าไม่เจอ ลองหาโดยชื่อสินค้า+สี/ไซส์ (ใช้ตัว matching engine เดียวกับตอนนำเข้าไฟล์สินค้า)
    ถ้ายังหาไม่เจอเลย จะบอกเหตุผลที่หาไม่เจอ พร้อมปุ่มคัดลอกข้อความไปวางถาม Claude เทียบกับไฟล์ Shopee ต่อได้ */
 let shopeeCompareResults = [];
+let shopeeCompareSheetMeta = null; // โครงสร้างไฟล์ Shopee ดิบที่เพิ่งอัปโหลด ใช้ตอนสร้างไฟล์อัปเดตกลับขึ้น Shopee
 
 function normalizeSkuKey(s){
   return String(s||'').trim().toUpperCase().replace(/\s+/g,'');
 }
 
 // สแกนทุกชีทหา header row ที่มีคอลัมน์ et_title_variation_sku + et_title_variation_stock (แถวคำอธิบาย/ตัวอย่างในไฟล์ Shopee จะไม่มีคอลัมน์นี้)
+// คืนค่า { rows, sheetMeta } — sheetMeta เก็บโครงสร้างไฟล์ดิบไว้ (rows2d, ชื่อชีท, ตำแหน่งคอลัมน์คลัง, แถวแรกที่เป็นข้อมูลจริง)
+// เพื่อให้ตอน "ดาวน์โหลดไฟล์อัปเดตขึ้น Shopee" เอาไปแก้แค่ตัวเลขคอลัมน์คลังในแถวเดิม แล้วคงโครงสร้างไฟล์เดิมทั้งหมดไว้
+// (หัวตาราง/แถวคำแนะนำด้านบนต้องอยู่ครบ ไม่งั้น Shopee อาจไม่ยอมรับไฟล์ตอนอัปโหลดกลับ) — แต่ละแถวข้อมูลเก็บ rowIndex (ตำแหน่งใน rows2d) ไว้ด้วย
 function extractShopeeStockCompareRows(workbook){
-  let best = [];
+  let best = null;
   workbook.SheetNames.forEach(sheetName=>{
     const ws = workbook.Sheets[sheetName];
     let rows;
@@ -4036,12 +4040,14 @@ function extractShopeeStockCompareRows(workbook){
     }
     if(headerRowIdx === -1) return; // ชีทนี้ไม่ใช่ฟอร์แมตไฟล์แก้ไขสต็อกของ Shopee ข้ามไป
     const matched = [];
+    let firstDataRowIndex = null;
     for(let i=headerRowIdx+1;i<rows.length;i++){
       const row = rows[i] || [];
       const variationId = String(col.variationId!==-1 ? (row[col.variationId]||'') : '').trim();
       const stock = toNumOrNull(row[col.stock]);
       // แถวข้อมูลจริงต้องมีรหัสตัวเลือกสินค้า (ตัวเลขล้วน) และคลังเป็นตัวเลข กันแถวคำแนะนำ/ตัวอย่างที่ปนมา
       if(!/^\d+$/.test(variationId) || stock === null) continue;
+      if(firstDataRowIndex === null) firstDataRowIndex = i;
       const parentSku = col.parentSku!==-1 ? String(row[col.parentSku]||'').trim() : '';
       const variationSku = String(row[col.variationSku]||'').trim();
       const variationName = col.variationName!==-1 ? String(row[col.variationName]||'').trim() : '';
@@ -4053,12 +4059,15 @@ function extractShopeeStockCompareRows(workbook){
         color: parsed.color, size: parsed.size,
         parentSku, variationSku,
         sku: variationSku || parentSku,
-        stock
+        stock,
+        rowIndex: i
       });
     }
-    if(matched.length > best.length) best = matched;
+    if(!best || matched.length > best.rows.length){
+      best = { rows: matched, sheetMeta: { rows2d: rows, sheetName, stockCol: col.stock, firstDataRowIndex } };
+    }
   });
-  return best;
+  return best || { rows: [], sheetMeta: null };
 }
 
 function buildLocalSkuIndex(products){
@@ -4205,13 +4214,23 @@ function groupShopeeCompareResults(results){
   results.forEach(r=>{
     switch(r.match.status){
       case 'match': g.match.push(r); break;
-      case 'mismatch': case 'ambiguous-product': g.mismatch.push(r); break;
+      case 'mismatch': g.mismatch.push(r); break;
       case 'local-not-tracked': g.notTracked.push(r); break;
-      case 'variant-not-found': case 'name-found-variant-missing': g.needsCheck.push(r); break;
+      case 'ambiguous-product': case 'variant-not-found': case 'name-found-variant-missing': g.needsCheck.push(r); break;
       default: g.notFound.push(r);
     }
   });
   return g;
+}
+
+// เรียงรายการ "จำนวนไม่ตรงกัน" ตาม ยี่ห้อ → รุ่น → สี → เบอร์ ตามที่ร้านขอ ให้เช็คเป็นชุดๆ ง่ายขึ้น (ทุกแถวกลุ่มนี้จับคู่กับสินค้าในระบบได้แล้วแน่นอน จึงมี .match.product เสมอ)
+function sortMismatchList(list){
+  return list.slice().sort((a,b)=>{
+    const pa = a.match.product, pb = b.match.product;
+    const ka = [pa.brand||'', pa.model||'', pa.color||'', String(pa.size||'').padStart(4,'0')].join('|').toLowerCase();
+    const kb = [pb.brand||'', pb.model||'', pb.color||'', String(pb.size||'').padStart(4,'0')].join('|').toLowerCase();
+    return ka < kb ? -1 : ka > kb ? 1 : 0;
+  });
 }
 
 function shopeeCompareRowCardHtml(r, idx, showCopy){
@@ -4224,17 +4243,120 @@ function shopeeCompareRowCardHtml(r, idx, showCopy){
   </div>`;
 }
 
+// การ์ดสำหรับกลุ่ม "จำนวนไม่ตรงกัน" โดยเฉพาะ — มีให้ตัดสินใจ 2 ทาง:
+// 1) ติ๊ก "ระบบถูก" → เข้าคิวไว้สร้างไฟล์อัปเดตขึ้น Shopee (เอาตัวเลขในระบบไปทับ Shopee)
+// 2) กด +/- ปรับสต็อกในระบบเอง (ใช้ adjustStockStep เดิมที่หน้าสต็อกใช้อยู่แล้ว) เผื่อ Shopee ถูก จะได้แก้ในระบบให้ตรงโดยไม่ต้องพิมพ์เลขใหม่เอง
+function shopeeMismatchRowCardHtml(r, idx){
+  const row = r.row, p = r.match.product;
+  const diff = r.match.localStock - row.stock;
+  const diffText = diff === 0 ? 'เท่ากันแล้ว' : diff > 0 ? `ระบบมากกว่า Shopee ${diff}` : `ระบบน้อยกว่า Shopee ${Math.abs(diff)}`;
+  const label = [p.brand, p.model, p.color].filter(Boolean).join(' · ') || p.name;
+  return `<div class="import-row" style="margin-bottom:8px;">
+    <div style="font-weight:700;font-size:13.5px;margin-bottom:2px;">${escapeAttr(label)}</div>
+    <div class="muted" style="font-size:12px;margin-bottom:6px;">เบอร์ ${escapeAttr(p.size||'-')} · SKU: ${escapeAttr(p.sku||row.sku||'-')}</div>
+    <div class="sku-card-grid" style="margin-bottom:8px;">
+      <div><div class="g-label">ระบบ</div><strong>${r.match.localStock}</strong></div>
+      <div><div class="g-label">Shopee</div><strong>${row.stock}</strong></div>
+      <div style="grid-column:span 2;"><div class="g-label">ส่วนต่าง</div><strong>${diffText}</strong></div>
+    </div>
+    <div class="btn-row" style="align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+      <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;">
+        <input type="checkbox" ${r.queued?'checked':''} onchange="toggleShopeeUpdateQueue(${idx}, this.checked)">
+        ระบบถูก → คิวอัปเดตขึ้น Shopee
+      </label>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span class="muted" style="font-size:11px;">Shopee ถูก? ปรับระบบ:</span>
+        <div class="stock-stepper">
+          <button type="button" class="stock-step-btn" onclick="adjustCompareRowStock(${idx},-1)" aria-label="ลด 1">−</button>
+          <button type="button" class="stock-step-btn" onclick="adjustCompareRowStock(${idx},1)" aria-label="เพิ่ม 1">+</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function toggleShopeeUpdateQueue(idx, checked){
+  const r = shopeeCompareResults[idx];
+  if(!r) return;
+  r.queued = checked;
+  renderShopeeCompareModal();
+}
+
+// ปรับสต็อกในระบบทีละ 1 ตรงจากการ์ดเทียบสต็อก (ใช้ adjustStockStep เดิม กันพิมพ์เลขเองผิด) แล้วคำนวณผลเทียบแถวนี้ใหม่ทันทีจากสต็อกล่าสุด
+function adjustCompareRowStock(idx, delta){
+  const r = shopeeCompareResults[idx];
+  if(!r || !r.match.product) return;
+  adjustStockStep(r.match.product.id, delta);
+  const products = loadProducts();
+  const skuIndex = buildLocalSkuIndex(products);
+  shopeeCompareResults[idx] = { row: r.row, match: matchShopeeStockRow(products, skuIndex, r.row), queued: r.queued };
+  renderShopeeCompareModal();
+}
+
+// สร้างไฟล์อัปเดตกลับขึ้น Shopee จากรายการที่ติ๊ก "ระบบถูก" ไว้ — เอาโครงสร้างไฟล์ Shopee ต้นฉบับที่อัปโหลดมา (หัวตาราง/แถวคำแนะนำ) มาแก้แค่ตัวเลขคอลัมน์ "คลัง"
+// ในแถวที่ติ๊กไว้ ให้เป็นค่าล่าสุดจากระบบ แล้วดาวน์โหลดเป็น .xlsx ชื่อ shopee_stock_update_... (ฟอร์แมตเดียวกับที่ stocktake.html ใช้อยู่) เอาไปอัปโหลดกลับเข้า Shopee ได้เลย
+function downloadShopeeUpdateFile(){
+  const queuedRows = shopeeCompareResults.filter(r=>r.queued && r.match.product);
+  if(!shopeeCompareSheetMeta || !queuedRows.length){ toast('ยังไม่ได้ติ๊กรายการที่จะอัปเดตขึ้น Shopee เลย'); return; }
+  const products = loadProducts();
+  const { rows2d, sheetName, stockCol, firstDataRowIndex } = shopeeCompareSheetMeta;
+  const keepUntil = (firstDataRowIndex !== null ? firstDataRowIndex : 0);
+  const outRows = [];
+  for(let i=0;i<keepUntil;i++) outRows.push(rows2d[i]);
+  queuedRows.forEach(r=>{
+    const fresh = products.find(p=>p.id === r.match.product.id);
+    const stockNow = (fresh && typeof fresh.stock === 'number') ? fresh.stock : r.match.localStock;
+    const outRow = rows2d[r.row.rowIndex].slice();
+    outRow[stockCol] = stockNow;
+    outRows.push(outRow);
+  });
+  const ws = XLSX.utils.aoa_to_sheet(outRows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, sheetName || 'Sheet1');
+  const stamp = new Date().toISOString().slice(0,16).replace(/[:T]/g,'-');
+  XLSX.writeFile(wb, `shopee_stock_update_${stamp}.xlsx`);
+  toast(`สร้างไฟล์อัปเดต ${queuedRows.length} รายการแล้ว อัปโหลดกลับเข้า Shopee ได้เลย`);
+}
+
+// ดาวน์โหลดรายการ "จำนวนไม่ตรงกัน" ทั้งหมดเป็น CSV เรียงตามยี่ห้อ/รุ่น/สี/เบอร์ ไว้เช็ค/พิมพ์ดูนอกจอได้
+function downloadShopeeMismatchChecklistCsv(){
+  const g = groupShopeeCompareResults(shopeeCompareResults);
+  const list = sortMismatchList(g.mismatch);
+  if(!list.length){ toast('ไม่มีรายการที่จำนวนไม่ตรงกัน'); return; }
+  const header = ['ยี่ห้อ','รุ่น','สี','เบอร์','SKU','ระบบ','Shopee','ส่วนต่าง'];
+  const lines = [header.join(',')];
+  list.forEach(r=>{
+    const p = r.match.product;
+    const diff = r.match.localStock - r.row.stock;
+    const cells = [p.brand||'', p.model||'', p.color||'', p.size||'', p.sku||r.row.sku||'', r.match.localStock, r.row.stock, diff]
+      .map(v=>`"${String(v).replace(/"/g,'""')}"`);
+    lines.push(cells.join(','));
+  });
+  const csv = '﻿' + lines.join('\r\n'); // ใส่ BOM กันตัวหนังสือไทยเพี้ยนตอนเปิดด้วย Excel
+  const blob = new Blob([csv], { type:'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `shopee_mismatch_checklist_${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 function renderShopeeCompareModal(){
   const g = groupShopeeCompareResults(shopeeCompareResults);
+  const sortedMismatch = sortMismatchList(g.mismatch);
+  const queuedCount = shopeeCompareResults.filter(r=>r.queued).length;
   document.getElementById('shopeeCompareSummary').textContent =
-    `ทั้งหมด ${shopeeCompareResults.length} รายการ — ✅ ตรงกัน ${g.match.length} · ⚠️ ไม่ตรง/ต้องตรวจสอบ ${g.mismatch.length + g.needsCheck.length} · ❌ หาไม่เจอ ${g.notFound.length}`;
-  document.getElementById('shopeeCompareTopActions').innerHTML =
-    `<button class="btn btn-outline btn-full" style="font-size:12.5px;" onclick="copyShopeeCompareFullReport()">📋 คัดลอกสรุปทั้งหมดไปถาม Claude</button>`;
+    `ทั้งหมด ${shopeeCompareResults.length} รายการ — ✅ ตรงกัน ${g.match.length} · ⚠️ จำนวนไม่ตรง ${g.mismatch.length} · ❓ ต้องตรวจสอบ ${g.needsCheck.length} · ❌ หาไม่เจอ ${g.notFound.length}${queuedCount ? ` · 🛒 คิวอัปเดต Shopee ${queuedCount}` : ''}`;
+  document.getElementById('shopeeCompareTopActions').innerHTML = `
+    <button class="btn btn-outline" style="font-size:12px;flex:1;" onclick="copyShopeeCompareFullReport()">📋 คัดลอกสรุปไปถาม Claude</button>
+    ${g.mismatch.length ? `<button class="btn btn-outline" style="font-size:12px;flex:1;" onclick="downloadShopeeMismatchChecklistCsv()">📄 รายการไม่ตรง (CSV)</button>` : ''}
+    ${queuedCount ? `<button class="btn btn-primary" style="font-size:12px;flex:1;" onclick="downloadShopeeUpdateFile()">⬆️ ไฟล์อัปเดต Shopee (${queuedCount})</button>` : ''}
+  `;
   const idxOf = r => shopeeCompareResults.indexOf(r);
   let html = '';
-  if(g.mismatch.length){
-    html += `<h4 style="margin:10px 0 6px;font-size:13.5px;">⚠️ จำนวนไม่ตรงกัน (${g.mismatch.length})</h4>`;
-    html += g.mismatch.map(r=>shopeeCompareRowCardHtml(r, idxOf(r), false)).join('');
+  if(sortedMismatch.length){
+    html += `<h4 style="margin:10px 0 6px;font-size:13.5px;">⚠️ จำนวนไม่ตรงกัน (${sortedMismatch.length}) — เรียงตาม ยี่ห้อ/รุ่น/สี/เบอร์</h4>`;
+    html += sortedMismatch.map(r=>shopeeMismatchRowCardHtml(r, idxOf(r))).join('');
   }
   if(g.needsCheck.length){
     html += `<h4 style="margin:10px 0 6px;font-size:13.5px;">❓ ต้องตรวจสอบ (${g.needsCheck.length})</h4>`;
@@ -4273,13 +4395,14 @@ function handleShopeeStockCompareFile(event){
     try{
       const data = new Uint8Array(e.target.result);
       const workbook = XLSX.read(data, {type:'array'});
-      const rows = extractShopeeStockCompareRows(workbook);
+      const { rows, sheetMeta } = extractShopeeStockCompareRows(workbook);
       if(!rows.length){
         toast('ไม่พบข้อมูลสต็อกในไฟล์นี้ — ต้องเป็นไฟล์แก้ไขสต็อกสินค้าจำนวนมากของ Shopee (mass_update_sales_info) ที่มีคอลัมน์ "เลข SKU" และ "คลัง"');
       } else {
         const products = loadProducts();
         const skuIndex = buildLocalSkuIndex(products);
-        shopeeCompareResults = rows.map(row => ({ row, match: matchShopeeStockRow(products, skuIndex, row) }));
+        shopeeCompareSheetMeta = sheetMeta;
+        shopeeCompareResults = rows.map(row => ({ row, match: matchShopeeStockRow(products, skuIndex, row), queued: false }));
         openShopeeCompareModal();
       }
     } catch(err){
