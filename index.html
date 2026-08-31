@@ -4293,20 +4293,83 @@ function adjustCompareRowStock(idx, delta){
   renderShopeeCompareModal();
 }
 
-// สร้างไฟล์อัปเดตกลับขึ้น Shopee จากรายการที่ติ๊ก "ระบบถูก" ไว้ — เอาโครงสร้างไฟล์ Shopee ต้นฉบับที่อัปโหลดมา (หัวตาราง/แถวคำแนะนำ) มาแก้แค่ตัวเลขคอลัมน์ "คลัง"
-// ในแถวที่ติ๊กไว้ ให้เป็นค่าล่าสุดจากระบบ แล้วดาวน์โหลดเป็น .xlsx ชื่อ shopee_stock_update_... (ฟอร์แมตเดียวกับที่ stocktake.html ใช้อยู่) เอาไปอัปโหลดกลับเข้า Shopee ได้เลย
-function downloadShopeeUpdateFile(){
-  const queuedRows = shopeeCompareResults.filter(r=>r.queued && r.match.product);
-  if(!shopeeCompareSheetMeta || !queuedRows.length){ toast('ยังไม่ได้ติ๊กรายการที่จะอัปเดตขึ้น Shopee เลย'); return; }
+// ส่งรายการ "จำนวนไม่ตรงกัน" (จับคู่กับสินค้าในระบบได้แน่นอนแล้ว) ไปเก็บใน Supabase ตาราง shopee_compare_queue
+// ให้หน้าเช็คสต็อคพนักงาน (stocktake.html) ดึงไปแสดงต่อได้ทันที เพราะพนักงานไม่มีไฟล์ Shopee มาอัปโหลดเอง
+// รายการเดิมที่ยังไม่ถูกพนักงานตัดสินใจ (status 'open') จะถูกแทนที่ด้วยชุดล่าสุดนี้ — ส่วนที่พนักงานติ๊ก "รอส่งออก" ไว้แล้ว (status 'queued_export') จะไม่ถูกแตะ
+async function pushShopeeMismatchToStocktake(){
+  if(!supabaseClient || !currentOwnerId){ toast('ยังไม่ได้เชื่อมต่อ Supabase'); return; }
+  const g = groupShopeeCompareResults(shopeeCompareResults);
+  const list = sortMismatchList(g.mismatch);
+  if(!list.length){ toast('ไม่มีรายการที่จำนวนไม่ตรงกัน'); return; }
+  if(!confirm(`ส่งรายการที่จำนวนไม่ตรงกัน ${list.length} รายการ ไปหน้าเช็คสต็อคพนักงานหรือไม่?\n(รายการเดิมในหน้านั้นที่พนักงานยังไม่ได้เช็ค จะถูกแทนที่ด้วยชุดนี้)`)) return;
+  const rows = list.map(r=>{
+    const p = r.match.product;
+    return {
+      id: p.id, owner_id: currentOwnerId,
+      brand: p.brand || null, model: p.model || null, color: p.color || null, size: p.size || null,
+      sku: p.sku || r.row.sku || null,
+      our_stock: r.match.localStock, shopee_stock: r.row.stock,
+      status: 'open', updated_at: new Date().toISOString()
+    };
+  });
+  try{
+    const del = await supabaseClient.from('shopee_compare_queue').delete().eq('owner_id', currentOwnerId).eq('status', 'open');
+    if(del.error) throw del.error;
+    const { error } = await supabaseClient.from('shopee_compare_queue').upsert(rows);
+    if(error) throw error;
+    toast(`ส่งไปหน้าเช็คสต็อคพนักงานแล้ว ${rows.length} รายการ`);
+  }catch(err){
+    console.error(err);
+    toast('ส่งไม่สำเร็จ: ' + ((err && err.message) || String(err)));
+  }
+}
+
+// สร้างไฟล์อัปเดตกลับขึ้น Shopee — รวม 2 แหล่ง: 1) รายการที่ติ๊ก "ระบบถูก" ไว้ในเครื่องนี้เอง 2) รายการที่พนักงานหน้าเช็คสต็อคยืนยันมาแล้วว่า "นับจริงตรงกับระบบ"
+// (ดึงจาก Supabase status 'queued_export' แล้วจับคู่กับไฟล์ Shopee ที่โหลดอยู่ตอนนี้ใหม่ผ่าน shopeeCompareResults กันแถวเลื่อนตำแหน่งถ้าอัปโหลดไฟล์คนละไฟล์)
+// เอาโครงสร้างไฟล์ Shopee ต้นฉบับ (หัวตาราง/แถวคำแนะนำ) มาแก้แค่ตัวเลขคอลัมน์ "คลัง" ในแถวที่เกี่ยวข้อง ให้เป็นค่าล่าสุดจากระบบ แล้วดาวน์โหลดเป็น .xlsx
+async function downloadShopeeUpdateFile(){
+  const localQueued = shopeeCompareResults.filter(r=>r.queued && r.match.product);
+  let remoteQueued = [];
+  if(supabaseClient && currentOwnerId){
+    try{
+      const { data, error } = await supabaseClient.from('shopee_compare_queue').select('*')
+        .eq('owner_id', currentOwnerId).eq('status', 'queued_export');
+      if(error) throw error;
+      remoteQueued = data || [];
+    }catch(err){
+      console.error(err);
+      toast('ดึงรายการที่พนักงานส่งมาไม่สำเร็จ: ' + ((err && err.message) || ''));
+    }
+  }
+  const localIds = new Set(localQueued.map(r=>r.match.product.id));
+  const usable = [], skipped = [];
+  remoteQueued.forEach(row=>{
+    if(localIds.has(row.id)) return; // ติ๊กไว้ในเครื่องนี้อยู่แล้วเหมือนกัน ใช้ตัวที่ติ๊กในเครื่องนี้แทน กันซ้ำ
+    const match = shopeeCompareResults.find(r => r.match.product && r.match.product.id === row.id);
+    if(match) usable.push({ row, match }); else skipped.push(row);
+  });
+  if(!shopeeCompareSheetMeta || (!localQueued.length && !usable.length)){
+    toast(skipped.length
+      ? `มีรายการจากหน้าเช็คสต็อครออยู่ ${skipped.length} รายการ แต่ไม่พบในไฟล์ Shopee ที่โหลดอยู่ตอนนี้ — อัปโหลดไฟล์ Shopee ล่าสุดอีกครั้งก่อน`
+      : 'ยังไม่มีรายการในคิวอัปเดต Shopee เลย');
+    return;
+  }
   const products = loadProducts();
   const { rows2d, sheetName, stockCol, firstDataRowIndex } = shopeeCompareSheetMeta;
   const keepUntil = (firstDataRowIndex !== null ? firstDataRowIndex : 0);
   const outRows = [];
   for(let i=0;i<keepUntil;i++) outRows.push(rows2d[i]);
-  queuedRows.forEach(r=>{
+  localQueued.forEach(r=>{
     const fresh = products.find(p=>p.id === r.match.product.id);
     const stockNow = (fresh && typeof fresh.stock === 'number') ? fresh.stock : r.match.localStock;
     const outRow = rows2d[r.row.rowIndex].slice();
+    outRow[stockCol] = stockNow;
+    outRows.push(outRow);
+  });
+  usable.forEach(({row, match})=>{
+    const fresh = products.find(p=>p.id === row.id);
+    const stockNow = (fresh && typeof fresh.stock === 'number') ? fresh.stock : row.our_stock;
+    const outRow = rows2d[match.row.rowIndex].slice();
     outRow[stockCol] = stockNow;
     outRows.push(outRow);
   });
@@ -4315,7 +4378,13 @@ function downloadShopeeUpdateFile(){
   XLSX.utils.book_append_sheet(wb, ws, sheetName || 'Sheet1');
   const stamp = new Date().toISOString().slice(0,16).replace(/[:T]/g,'-');
   XLSX.writeFile(wb, `shopee_stock_update_${stamp}.xlsx`);
-  toast(`สร้างไฟล์อัปเดต ${queuedRows.length} รายการแล้ว อัปโหลดกลับเข้า Shopee ได้เลย`);
+  const totalCount = localQueued.length + usable.length;
+  toast(`สร้างไฟล์อัปเดต ${totalCount} รายการแล้ว อัปโหลดกลับเข้า Shopee ได้เลย` + (skipped.length ? ` (ข้าม ${skipped.length} รายการจากหน้าเช็คสต็อคที่ไม่พบในไฟล์นี้)` : ''));
+  const doneIds = localQueued.map(r=>r.match.product.id).concat(usable.map(u=>u.row.id));
+  if(doneIds.length && supabaseClient && currentOwnerId){
+    try{ await supabaseClient.from('shopee_compare_queue').delete().eq('owner_id', currentOwnerId).in('id', doneIds); }
+    catch(e){ console.error(e); }
+  }
 }
 
 // ดาวน์โหลดรายการ "จำนวนไม่ตรงกัน" ทั้งหมดเป็น CSV เรียงตามยี่ห้อ/รุ่น/สี/เบอร์ ไว้เช็ค/พิมพ์ดูนอกจอได้
@@ -4350,6 +4419,7 @@ function renderShopeeCompareModal(){
   document.getElementById('shopeeCompareTopActions').innerHTML = `
     <button class="btn btn-outline" style="font-size:12px;flex:1;" onclick="copyShopeeCompareFullReport()">📋 คัดลอกสรุปไปถาม Claude</button>
     ${g.mismatch.length ? `<button class="btn btn-outline" style="font-size:12px;flex:1;" onclick="downloadShopeeMismatchChecklistCsv()">📄 รายการไม่ตรง (CSV)</button>` : ''}
+    ${g.mismatch.length && supabaseClient && currentOwnerId ? `<button class="btn btn-outline" style="font-size:12px;flex:1;" onclick="pushShopeeMismatchToStocktake()">📤 ส่งไปหน้าเช็คสต็อค</button>` : ''}
     ${queuedCount ? `<button class="btn btn-primary" style="font-size:12px;flex:1;" onclick="downloadShopeeUpdateFile()">⬆️ ไฟล์อัปเดต Shopee (${queuedCount})</button>` : ''}
   `;
   const idxOf = r => shopeeCompareResults.indexOf(r);
