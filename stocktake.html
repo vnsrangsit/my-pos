@@ -978,7 +978,14 @@ async function fetchShopeeCompareQueue(){
     const { data, error } = await supabaseClient.from('shopee_compare_queue').select('*')
       .eq('owner_id', currentOwnerId).in('status', ['open','queued_export']);
     if(error) throw error;
-    shopeeQueueRows = data || [];
+    // รายการที่ "ยังไม่ได้ตัดสินใจ" (open) ให้โชว์เลขสต็อกล่าสุดในระบบเสมอ เผื่อมีคนขาย/ปรับสต็อกไปแล้วหลังจากเจ้าของร้านส่งมาเทียบตอนแรก
+    // ส่วนรายการที่ "รอส่งออกไป Shopee" แล้ว (queued_export) ไม่แตะเลข — นั่นคือค่าที่ตัดสินใจส่งไปแล้ว ไม่ควรขยับเองจนพนักงานงง
+    const products = loadProducts();
+    shopeeQueueRows = (data || []).map(row=>{
+      if(row.status === 'queued_export') return row;
+      const p = products.find(pp => pp.id === row.id);
+      return (p && typeof p.stock === 'number') ? { ...row, our_stock: p.stock } : row;
+    });
     renderShopeeQueueResult();
   }catch(err){
     console.error(err);
@@ -990,13 +997,27 @@ async function fetchShopeeCompareQueue(){
 // จากนั้นลบแถวนี้ออกจากคิวถาวร เพราะจบแล้ว ไม่ต้องส่งออกอะไรต่อ (Shopee ถูกอยู่แล้ว)
 // รับ "id" (ไม่ใช่ index) เสมอ — กันปัญหาตำแหน่งเลื่อนถ้าผู้ใช้กดหลายรายการรัวๆ ระหว่างที่การ์ดก่อนหน้ายังทำงาน (มี await ค้างอยู่) จนลิสต์เปลี่ยนตำแหน่งกลางคัน
 // ครอบทั้งฟังก์ชันด้วย try/catch เสมอ กันเคสที่ localStorage เต็ม (ประวัติปรับสต็อกสะสมมาก ๆ) หรือเน็ตหลุดกลางทาง ทำให้ค้าง/พังเงียบๆ โดยไม่มี toast แจ้งเลย
+// เช็คสดจาก Supabase ว่ารายการนี้ยังอยู่จริงไหมก่อนลงมือจริง (ไม่ใช่แค่เช็คในเครื่องตัวเอง) — กันเคสมีพนักงานหลายคน/หลายเครื่องเห็นลิสต์เดียวกัน
+// แล้วบังเอิญกดรายการเดิมพร้อมกัน เครื่องที่กดหลังจะได้รู้ว่ามีคนจัดการไปแล้วจริงๆ ไม่ใช่แค่ข้อมูลเก่าค้างอยู่ในเครื่องตัวเอง
+async function fetchLiveQueueRow(id){
+  if(!supabaseClient || !currentOwnerId) return undefined; // ออฟไลน์/ยังไม่ล็อกอิน ข้ามการเช็คสด ใช้ข้อมูลในเครื่องแทน
+  const { data, error } = await supabaseClient.from('shopee_compare_queue').select('*').eq('owner_id', currentOwnerId).eq('id', id).maybeSingle();
+  if(error) throw error;
+  return data || null;
+}
+
 async function confirmFixToShopee(id){
   const row = shopeeQueueRows.find(r => r.id === id);
   if(!row){ toast('รายการนี้ถูกดำเนินการไปแล้ว หรือถูกลบไปแล้ว'); renderShopeeQueueResult(); return; }
   if(!confirm(`ยืนยันว่านับสต็อกจริงแล้วตรงกับ Shopee (${row.shopee_stock}) ไม่ใช่ตัวเลขในระบบ (${row.our_stock}) ใช่ไหม?\nระบบจะปรับสต็อกในระบบเป็น ${row.shopee_stock} ทันที`)) return;
   try{
-    // เช็คซ้ำอีกทีเผื่อระหว่างที่กล่องยืนยันค้างอยู่ มีการดำเนินการอื่นกับรายการนี้ไปแล้ว (เช่น ติ๊ก/ยกเลิกจากอีกจุด)
-    if(!shopeeQueueRows.find(r => r.id === id)){ toast('รายการนี้ถูกดำเนินการไปแล้ว'); renderShopeeQueueResult(); return; }
+    // เช็คสดอีกทีเผื่อระหว่างที่กล่องยืนยันค้างอยู่ มีการดำเนินการอื่นกับรายการนี้ไปแล้ว (จากเครื่องนี้เอง หรือเครื่อง/พนักงานคนอื่น)
+    const live = await fetchLiveQueueRow(id);
+    if(live === null){
+      toast('รายการนี้ถูกดำเนินการไปแล้ว (อาจจากอีกเครื่อง/คนหนึ่ง)');
+      const i = shopeeQueueRows.findIndex(r => r.id === id); if(i !== -1) shopeeQueueRows.splice(i, 1);
+      renderShopeeQueueResult(); return;
+    }
     const products = loadProducts();
     const tx = recordStockTransaction(products, row.id, 'ADJUSTMENT', Math.max(0, row.shopee_stock), BASE_UNIT, 'ปรับจากหน้าเช็คสต็อกพนักงาน', { setAbsolute: true });
     if(!tx){ toast('ไม่พบสินค้านี้ในระบบแล้ว (อาจถูกลบไปแล้ว)'); renderShopeeQueueResult(); return; }
@@ -1024,7 +1045,18 @@ async function confirmQueueForExport(id, checked){
       renderShopeeQueueResult();
       return;
     }
-    if(!shopeeQueueRows.find(r => r.id === id)){ toast('รายการนี้ถูกดำเนินการไปแล้ว'); renderShopeeQueueResult(); return; }
+    try{
+      const live = await fetchLiveQueueRow(id);
+      if(live === null){
+        toast('รายการนี้ถูกดำเนินการไปแล้ว (อาจจากอีกเครื่อง/คนหนึ่ง)');
+        const i = shopeeQueueRows.findIndex(r => r.id === id); if(i !== -1) shopeeQueueRows.splice(i, 1);
+        renderShopeeQueueResult(); return;
+      }
+    }catch(err){
+      console.error(err);
+      toast('เช็คสถานะรายการไม่สำเร็จ: ' + ((err && err.message) || ''));
+      return;
+    }
   }
   const newStatus = checked ? 'queued_export' : 'open';
   const prevStatus = row.status;
@@ -1056,7 +1088,12 @@ async function confirmActualCount(id){
   if(!Number.isFinite(actual) || actual < 0){ toast('กรอกจำนวนไม่ถูกต้อง (ต้องเป็นตัวเลขไม่ติดลบ)'); return; }
   if(!confirm(`ยืนยันว่านับสต็อกจริงได้ ${actual} คู่ (ไม่ตรงทั้งระบบและ Shopee) ใช่ไหม?\nระบบจะปรับสต็อกในระบบเป็น ${actual} ทันที และส่งจำนวนนี้ไปรอเจ้าของร้านอัปเดตขึ้น Shopee ด้วย`)) return;
   try{
-    if(!shopeeQueueRows.find(r => r.id === id)){ toast('รายการนี้ถูกดำเนินการไปแล้ว'); renderShopeeQueueResult(); return; }
+    const live = await fetchLiveQueueRow(id);
+    if(live === null){
+      toast('รายการนี้ถูกดำเนินการไปแล้ว (อาจจากอีกเครื่อง/คนหนึ่ง)');
+      const i = shopeeQueueRows.findIndex(r => r.id === id); if(i !== -1) shopeeQueueRows.splice(i, 1);
+      renderShopeeQueueResult(); return;
+    }
     const products = loadProducts();
     const tx = recordStockTransaction(products, row.id, 'ADJUSTMENT', actual, BASE_UNIT, 'ปรับจากหน้าเช็คสต็อกพนักงาน', { setAbsolute: true });
     if(!tx){ toast('ไม่พบสินค้านี้ในระบบแล้ว (อาจถูกลบไปแล้ว)'); renderShopeeQueueResult(); return; }
