@@ -577,6 +577,7 @@
       <div class="btn-row" style="margin-bottom:12px;">
         <button class="btn btn-outline btn-full" onclick="document.getElementById('shopeeStockCompareFile').click()">🔍 เทียบสต็อก Shopee กับสต็อกในระบบ</button>
       </div>
+      <span id="shopeeQueueIndicator" style="display:none;font-size:12px;color:var(--danger);margin:-6px 0 10px;font-weight:700;"></span>
       <input type="file" id="shopeeStockCompareFile" accept=".xlsx,.xls" style="display:none;" onchange="handleShopeeStockCompareFile(event)">
 
       <div class="collapse-header" data-collapse-toggle="collapseStockTools" onclick="toggleCollapse('collapseStockTools')">
@@ -1447,8 +1448,28 @@ async function pollStocktakeNotifications(){
 function startStocktakeNotifPolling(){
   updateStocktakeBell();
   pollStocktakeNotifications();
+  pollShopeeQueueIndicator();
   if(stocktakeNotifPollTimer) clearInterval(stocktakeNotifPollTimer);
-  stocktakeNotifPollTimer = setInterval(pollStocktakeNotifications, 45000);
+  stocktakeNotifPollTimer = setInterval(()=>{ pollStocktakeNotifications(); pollShopeeQueueIndicator(); }, 45000);
+}
+// ติ๊ก "ตรงระบบ" ของพนักงาน (queued_export) ไม่ได้สร้างแถวใน stock_transactions เลย (แค่เปลี่ยนสถานะรอ) จึงไม่เข้าเงื่อนไขกระดิ่งแจ้งเตือนข้างบน
+// เลยต้องมีตัวเช็คแยกต่างหาก วิ่งบนตัวจับเวลาเดียวกัน (ทำงานตลอดที่เปิดหน้านี้ค้างไว้ ไม่ต้องเปิดหน้าเทียบสต็อก Shopee ก็เห็น) โชว์เป็นข้อความเตือนใต้ปุ่มเทียบสต็อกแทน
+async function pollShopeeQueueIndicator(){
+  if(!supabaseClient || !currentOwnerId) return;
+  const el = document.getElementById('shopeeQueueIndicator');
+  if(!el) return;
+  try{
+    const { count, error } = await supabaseClient.from('shopee_compare_queue')
+      .select('id', { count: 'exact', head: true })
+      .eq('owner_id', currentOwnerId).eq('status', 'queued_export');
+    if(error) throw error;
+    if(count > 0){
+      el.style.display = 'block';
+      el.textContent = `🛒 พนักงานส่งมารอส่งออกไป Shopee ${count} รายการ — กด "เทียบสต็อก Shopee" ด้านบนเพื่อดู`;
+    } else {
+      el.style.display = 'none';
+    }
+  }catch(err){ console.error(err); }
 }
 function openStocktakeNotifSheet(){
   const unread = loadStocktakeNotifUnread().slice().reverse();
