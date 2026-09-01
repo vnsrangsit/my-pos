@@ -120,10 +120,20 @@
   .shopee-recon-name{font-weight:700;font-size:13.5px;margin-bottom:2px;}
   .shopee-recon-sub{font-size:12px;color:var(--muted);margin-bottom:6px;}
   .shopee-recon-nums{display:flex;gap:14px;font-size:12.5px;margin-bottom:8px;flex-wrap:wrap;}
-  .shopee-recon-actions{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;}
-  .mini-stepper{display:flex;align-items:center;gap:4px;}
-  .mini-step-btn{width:26px;height:26px;flex:none;border-radius:8px;border:1px solid var(--border);background:var(--fill);font-size:16px;line-height:1;font-weight:700;color:var(--primary);cursor:pointer;padding:0;}
-  .mini-step-btn:active{background:var(--border);}
+  /* 3 ทางเลือกแบบปุ่มเท่ากัน กดง่าย อ่านง่าย ไม่ยาว — ใช้แทนแถวติ๊ก+ปุ่มยาวๆ แบบเดิม */
+  .shopee-recon-choice{display:flex;gap:6px;}
+  .choice-btn{flex:1;min-width:0;padding:7px 2px;border-radius:10px;border:1px solid var(--border);background:#fff;
+    font-size:11px;font-weight:700;line-height:1.3;cursor:pointer;color:var(--muted);text-align:center;}
+  .choice-btn:active{background:var(--fill);}
+  .choice-shopee{border-color:#cfe8d8;color:var(--success);}
+  .choice-shopee:active{background:var(--success-tint);}
+  .choice-system{border-color:#cdd6e3;color:var(--primary);}
+  .choice-system:active{background:var(--fill);}
+  .choice-other{border-color:#e9d3b8;color:#B0700F;}
+  .choice-other:active{background:#FBF1E1;}
+  .shopee-recon-queued{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;
+    font-size:12.5px;background:var(--fill);border-radius:10px;padding:8px 10px;}
+  .shopee-recon-undo{background:none;border:none;color:var(--danger);font-size:12px;font-weight:700;cursor:pointer;padding:0;text-decoration:underline;flex:none;}
   .report-tabs{display:flex;gap:6px;margin-bottom:12px;}
   .report-tab-btn{flex:1;padding:9px;border-radius:9px;border:1px solid var(--border);background:#fff;color:var(--muted);
     font-size:13px;font-weight:600;cursor:pointer;}
@@ -234,8 +244,8 @@
 
       <div id="reportTabShopee" class="report-tab-content">
         <div class="muted" style="font-size:12px;margin-bottom:10px;">
-          รายการที่ตัวเลขสต็อกไม่ตรงกับ Shopee (เจ้าของร้านอัปโหลดไฟล์เทียบสต็อกแล้วส่งมาให้ที่นี่) เช็คสต็อกจริงแล้วเลือกทางใดทางหนึ่งต่อรายการ:
-          นับจริงตรงกับ <strong>Shopee</strong> → กด "แก้จำนวนตาม Shopee" จบเลย · นับจริงตรงกับ <strong>ระบบ</strong> (Shopee ผิด) → ติ๊ก "รอส่งออกไป Shopee" ให้เจ้าของร้านรวมไฟล์ส่งออกทีหลัง
+          รายการที่ตัวเลขสต็อกไม่ตรงกับ Shopee (เจ้าของร้านอัปโหลดไฟล์เทียบสต็อกแล้วส่งมาให้ที่นี่) นับสต็อกจริงแล้วเลือก 1 ใน 3 ต่อรายการ:
+          นับได้ตรง <strong>Shopee</strong> จบเลย · นับได้ตรง <strong>ระบบ</strong> รอเจ้าของร้านส่งออกทีหลัง · หรือนับได้ <strong>เลขอื่น</strong> (ทั้งคู่ผิด) กรอกจำนวนจริง
         </div>
         <button type="button" class="btn btn-outline btn-full" onclick="fetchShopeeCompareQueue()">🔄 ดึงรายการล่าสุดจากเจ้าของร้าน</button>
         <div id="shopeeUpdateResult" style="margin-top:12px;"></div>
@@ -1035,6 +1045,38 @@ async function confirmQueueForExport(id, checked){
   renderShopeeQueueResult();
 }
 
+// นับจริงแล้วไม่ตรงทั้งระบบและ Shopee (ทั้งคู่ผิด) → ให้กรอกจำนวนจริงที่นับได้ ถามยืนยันอีกครั้งก่อนเสมอ แล้วปรับสต็อกในระบบเป็นจำนวนนั้นทันที
+// และส่งจำนวนที่ถูกต้องนี้เข้าคิว "รอ export ไป Shopee" ต่อเลย (เพราะ Shopee ก็ต้องแก้เป็นเลขนี้เหมือนกัน ไม่ใช่แค่ในระบบเรา)
+async function confirmActualCount(id){
+  const row = shopeeQueueRows.find(r => r.id === id);
+  if(!row){ toast('รายการนี้ถูกดำเนินการไปแล้ว หรือถูกลบไปแล้ว'); renderShopeeQueueResult(); return; }
+  const input = prompt(`นับสต็อกจริงได้เท่าไหร่? (ระบบ ${row.our_stock} / Shopee ${row.shopee_stock})`, '');
+  if(input === null || input.trim() === '') return;
+  const actual = Math.round(Number(input));
+  if(!Number.isFinite(actual) || actual < 0){ toast('กรอกจำนวนไม่ถูกต้อง (ต้องเป็นตัวเลขไม่ติดลบ)'); return; }
+  if(!confirm(`ยืนยันว่านับสต็อกจริงได้ ${actual} คู่ (ไม่ตรงทั้งระบบและ Shopee) ใช่ไหม?\nระบบจะปรับสต็อกในระบบเป็น ${actual} ทันที และส่งจำนวนนี้ไปรอเจ้าของร้านอัปเดตขึ้น Shopee ด้วย`)) return;
+  try{
+    if(!shopeeQueueRows.find(r => r.id === id)){ toast('รายการนี้ถูกดำเนินการไปแล้ว'); renderShopeeQueueResult(); return; }
+    const products = loadProducts();
+    const tx = recordStockTransaction(products, row.id, 'ADJUSTMENT', actual, BASE_UNIT, 'ปรับจากหน้าเช็คสต็อกพนักงาน', { setAbsolute: true });
+    if(!tx){ toast('ไม่พบสินค้านี้ในระบบแล้ว (อาจถูกลบไปแล้ว)'); renderShopeeQueueResult(); return; }
+    saveProducts(products);
+    row.our_stock = tx.stockAfter;
+    row.status = 'queued_export';
+    if(supabaseClient && currentOwnerId){
+      const { error } = await supabaseClient.from('shopee_compare_queue')
+        .update({ our_stock: tx.stockAfter, status: 'queued_export', updated_at: new Date().toISOString() })
+        .eq('owner_id', currentOwnerId).eq('id', row.id);
+      if(error) throw error;
+    }
+    toast(`ปรับสต็อกในระบบเป็น ${tx.stockAfter} แล้ว และส่งเข้าคิวรอส่งออกไป Shopee ด้วยจำนวนนี้`);
+  }catch(err){
+    console.error(err);
+    toast('เกิดข้อผิดพลาด: ' + ((err && err.message) || String(err)));
+  }
+  renderShopeeQueueResult();
+}
+
 function renderShopeeQueueResult(){
   const el = document.getElementById('shopeeUpdateResult');
   const sorted = sortShopeeToUpdateList(shopeeQueueRows);
@@ -1050,6 +1092,17 @@ function renderShopeeQueueResult(){
     const diffText = diff === 0 ? 'เท่ากันแล้ว' : diff > 0 ? `ระบบมากกว่า Shopee ${diff}` : `ระบบน้อยกว่า Shopee ${Math.abs(diff)}`;
     const queued = row.status === 'queued_export';
     const idJs = escapeJsStr(row.id);
+    // นับจริงมี 3 ทางเสมอ: ตรง Shopee / ตรงระบบ / ไม่ตรงทั้งคู่ (นับได้เลขอื่น) — ถ้าตัดสินใจแล้ว (เข้าคิวรอส่งออก) โชว์เป็นสถานะสั้นๆ พร้อมปุ่มยกเลิกแทนปุ่ม 3 ทาง กันรกตา
+    const actionsHtml = queued
+      ? `<div class="shopee-recon-queued">
+          <span>🕒 รอส่งออกไป Shopee — ยืนยันจำนวนจริง <strong>${row.our_stock}</strong></span>
+          <button type="button" class="shopee-recon-undo" onclick="confirmQueueForExport('${idJs}', false)">ยกเลิก</button>
+        </div>`
+      : `<div class="shopee-recon-choice">
+          <button type="button" class="choice-btn choice-shopee" onclick="confirmFixToShopee('${idJs}')">✅ นับได้<br>ตรง Shopee</button>
+          <button type="button" class="choice-btn choice-system" onclick="confirmQueueForExport('${idJs}', true)">📦 นับได้<br>ตรงระบบ</button>
+          <button type="button" class="choice-btn choice-other" onclick="confirmActualCount('${idJs}')">✏️ นับได้<br>เลขอื่น</button>
+        </div>`;
     return `<div class="shopee-recon-card">
       <div class="shopee-recon-name">${escapeHtml(label)}</div>
       <div class="shopee-recon-sub">เบอร์ ${escapeHtml(row.size||'-')} · SKU: ${escapeHtml(row.sku||'-')}</div>
@@ -1058,13 +1111,7 @@ function renderShopeeQueueResult(){
         <div>Shopee <strong>${row.shopee_stock}</strong></div>
         <div class="${diffCls}">${diffText}</div>
       </div>
-      <div class="shopee-recon-actions">
-        <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:400;">
-          <input type="checkbox" style="width:auto;" ${queued?'checked':''} onchange="confirmQueueForExport('${idJs}', this.checked)">
-          นับจริงตรงกับระบบ → รอส่งออกไป Shopee
-        </label>
-        <button type="button" class="btn btn-outline" style="font-size:12px;padding:6px 10px;" onclick="confirmFixToShopee('${idJs}')">✅ นับจริงตรงกับ Shopee — แก้จำนวนตาม Shopee</button>
-      </div>
+      ${actionsHtml}
     </div>`;
   }).join('');
   el.innerHTML = `<div class="muted" style="font-size:12.5px;margin-bottom:10px;">
