@@ -1392,11 +1392,27 @@ let stocktakeNotifPollTimer = null;
 function loadStocktakeNotifUnread(){ try{ return JSON.parse(localStorage.getItem(STOCKTAKE_NOTIF_UNREAD_KEY) || '[]'); }catch(e){ return []; } }
 function saveStocktakeNotifUnread(list){ localStorage.setItem(STOCKTAKE_NOTIF_UNREAD_KEY, JSON.stringify(list)); }
 
+// รวมรายการแจ้งเตือนที่เป็นสินค้าเดียวกันให้เหลือแถวเดียว โชว์ยอดสุทธิ (ก่อนอันแรกสุด -> หลังอันล่าสุด)
+// กันงงกรณีพนักงานแก้ตัวเลขสินค้าเดียวกันหลายรอบก่อนพอใจ เช่น 1->0 แล้ว 0->2 อยากให้เห็นแค่ "1 → 2 (+1)" แถวเดียว ไม่ใช่ 2 แถวแยกกัน
+function mergeStocktakeNotifByProduct(list){
+  const groups = new Map();
+  list.forEach(t=>{
+    const key = t.productId || t.id;
+    if(!groups.has(key)) groups.set(key, { ...t, editCount: 1 });
+    else {
+      const g = groups.get(key);
+      g.stockAfter = t.stockAfter; // ค่าหลังของครั้งล่าสุดชนะ (ก่อนของครั้งแรกสุดคงเดิม)
+      g.timestamp = t.timestamp;
+      g.editCount++;
+    }
+  });
+  return Array.from(groups.values());
+}
 function updateStocktakeBell(){
   const btn = document.getElementById('stocktakeBellBtn');
   const badge = document.getElementById('stocktakeBellBadge');
   if(!btn || !badge) return;
-  const unread = loadStocktakeNotifUnread();
+  const unread = mergeStocktakeNotifByProduct(loadStocktakeNotifUnread());
   if(unread.length > 0){
     btn.style.display = 'flex';
     badge.textContent = unread.length > 99 ? '99+' : String(unread.length);
@@ -1472,7 +1488,7 @@ async function pollShopeeQueueIndicator(){
   }catch(err){ console.error(err); }
 }
 function openStocktakeNotifSheet(){
-  const unread = loadStocktakeNotifUnread().slice().reverse();
+  const unread = mergeStocktakeNotifByProduct(loadStocktakeNotifUnread()).reverse();
   const el = document.getElementById('stocktakeNotifBody');
   if(unread.length === 0){
     el.innerHTML = '<div class="empty" style="padding:30px 0;">ยังไม่มีการปรับสต็อกใหม่จากพนักงาน</div>';
@@ -1485,10 +1501,11 @@ function openStocktakeNotifSheet(){
         const diff = t.stockAfter - t.stockBefore;
         const diffText = diff > 0 ? `+${diff}` : String(diff);
         const diffColor = diff > 0 ? 'var(--success)' : (diff < 0 ? 'var(--danger)' : 'var(--muted)');
+        const editNote = t.editCount > 1 ? ` <span style="color:var(--muted);">(แก้ ${t.editCount} ครั้งก่อนสรุป)</span>` : '';
         return `<div style="padding:10px 0;border-bottom:1px solid var(--border);">
           <div style="font-weight:700;font-size:13.5px;">${escapeAttr(label)} เบอร์ ${escapeAttr(t.size||'-')}</div>
           <div style="font-size:12.5px;color:var(--muted);margin-top:2px;">${t.stockBefore} → ${t.stockAfter}
-            <span style="color:${diffColor};font-weight:700;">(${diffText})</span> · ${time}</div>
+            <span style="color:${diffColor};font-weight:700;">(${diffText})</span>${editNote} · ${time}</div>
         </div>`;
       }).join('')}`;
   }
