@@ -4327,20 +4327,28 @@ async function pushShopeeMismatchToStocktake(){
   pushShopeeMismatchInFlight = true;
   toast(`กำลังส่ง ${rows.length} รายการ...`);
   try{
-    for(const chunk of chunkArray(rows, 200)){
+    // ห้ามทับรายการที่พนักงานตัดสินใจไปแล้วว่า "ตรงระบบ รอส่งออก" (status 'queued_export') — upsert ปกติจะรีเซ็ตกลับเป็น 'open' โดยไม่ตั้งใจถ้าสินค้าเดิมยังไม่ตรงอยู่ในไฟล์รอบใหม่ด้วย
+    const { data: queuedRows, error: qErr } = await withSyncTimeout(
+      supabaseClient.from('shopee_compare_queue').select('id').eq('owner_id', currentOwnerId).eq('status', 'queued_export'), 20000);
+    if(qErr) throw qErr;
+    const queuedIds = new Set((queuedRows || []).map(r=>r.id));
+    const rowsToPush = rows.filter(r => !queuedIds.has(r.id));
+    const skippedQueued = rows.length - rowsToPush.length;
+
+    for(const chunk of chunkArray(rowsToPush, 200)){
       const { error } = await withSyncTimeout(supabaseClient.from('shopee_compare_queue').upsert(chunk), 20000);
       if(error) throw error;
     }
     const { data: oldOpen, error: selErr } = await withSyncTimeout(
       supabaseClient.from('shopee_compare_queue').select('id').eq('owner_id', currentOwnerId).eq('status', 'open'), 20000);
     if(selErr) throw selErr;
-    const newIdSet = new Set(rows.map(r=>r.id));
+    const newIdSet = new Set(rowsToPush.map(r=>r.id));
     const staleIds = (oldOpen || []).map(r=>r.id).filter(id => !newIdSet.has(id));
     for(const chunk of chunkArray(staleIds, 200)){
       const { error } = await withSyncTimeout(supabaseClient.from('shopee_compare_queue').delete().eq('owner_id', currentOwnerId).in('id', chunk), 20000);
       if(error) throw error;
     }
-    toast(`ส่งไปหน้าเช็คสต็อคพนักงานแล้ว ${rows.length} รายการ`);
+    toast(`ส่งไปหน้าเช็คสต็อคพนักงานแล้ว ${rowsToPush.length} รายการ` + (skippedQueued ? ` (ข้าม ${skippedQueued} รายการที่พนักงานตัดสินใจรอส่งออกไว้แล้ว ไม่ทับ)` : ''));
   }catch(err){
     console.error(err);
     toast('ส่งไม่สำเร็จ: ' + ((err && err.message) || String(err)));
