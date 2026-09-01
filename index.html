@@ -4421,6 +4421,10 @@ async function downloadShopeeUpdateFile(){
       catch(e){ console.error(e); }
     }
   }
+  // เคลียร์ติ๊กในเครื่องนี้ + ลดตัวนับคิวจากพนักงานลง กันโชว์ตัวเลข/ปุ่มค้างเป็นของเก่าหลังดาวน์โหลดสำเร็จแล้ว (ไม่งั้นกดซ้ำจะได้ไฟล์รายการซ้ำเดิมอีกรอบ)
+  localQueued.forEach(r=>{ r.queued = false; });
+  shopeeCompareRemoteQueuedCount = Math.max(0, shopeeCompareRemoteQueuedCount - usable.length);
+  renderShopeeCompareModal();
 }
 
 // ดาวน์โหลดรายการ "จำนวนไม่ตรงกัน" ทั้งหมดเป็น CSV เรียงตามยี่ห้อ/รุ่น/สี/เบอร์ ไว้เช็ค/พิมพ์ดูนอกจอได้
@@ -4449,14 +4453,17 @@ function downloadShopeeMismatchChecklistCsv(){
 function renderShopeeCompareModal(){
   const g = groupShopeeCompareResults(shopeeCompareResults);
   const sortedMismatch = sortMismatchList(g.mismatch);
-  const queuedCount = shopeeCompareResults.filter(r=>r.queued).length;
+  const localQueuedCount = shopeeCompareResults.filter(r=>r.queued).length;
+  const totalQueuedCount = localQueuedCount + shopeeCompareRemoteQueuedCount;
   document.getElementById('shopeeCompareSummary').textContent =
-    `ทั้งหมด ${shopeeCompareResults.length} รายการ — ✅ ตรงกัน ${g.match.length} · ⚠️ จำนวนไม่ตรง ${g.mismatch.length} · ❓ ต้องตรวจสอบ ${g.needsCheck.length} · ❌ หาไม่เจอ ${g.notFound.length}${queuedCount ? ` · 🛒 คิวอัปเดต Shopee ${queuedCount}` : ''}`;
+    `ทั้งหมด ${shopeeCompareResults.length} รายการ — ✅ ตรงกัน ${g.match.length} · ⚠️ จำนวนไม่ตรง ${g.mismatch.length} · ❓ ต้องตรวจสอบ ${g.needsCheck.length} · ❌ หาไม่เจอ ${g.notFound.length}`
+    + (totalQueuedCount ? ` · 🛒 คิวอัปเดต Shopee ${totalQueuedCount}${shopeeCompareRemoteQueuedCount ? ` (พนักงานส่งมา ${shopeeCompareRemoteQueuedCount})` : ''}` : '');
   document.getElementById('shopeeCompareTopActions').innerHTML = `
     <button class="btn btn-outline" style="font-size:12px;flex:1;" onclick="copyShopeeCompareFullReport()">📋 คัดลอกสรุปไปถาม Claude</button>
     ${g.mismatch.length ? `<button class="btn btn-outline" style="font-size:12px;flex:1;" onclick="downloadShopeeMismatchChecklistCsv()">📄 รายการไม่ตรง (CSV)</button>` : ''}
     ${g.mismatch.length && supabaseClient && currentOwnerId ? `<button class="btn btn-outline" style="font-size:12px;flex:1;" onclick="pushShopeeMismatchToStocktake()">📤 ส่งไปหน้าเช็คสต็อค</button>` : ''}
-    ${queuedCount ? `<button class="btn btn-primary" style="font-size:12px;flex:1;" onclick="downloadShopeeUpdateFile()">⬆️ ไฟล์อัปเดต Shopee (${queuedCount})</button>` : ''}
+    ${supabaseClient && currentOwnerId ? `<button class="btn btn-outline" style="font-size:12px;flex:1;" onclick="refreshShopeeRemoteQueuedCount()">🔄 เช็คคิวจากพนักงาน</button>` : ''}
+    ${totalQueuedCount ? `<button class="btn btn-primary" style="font-size:12px;flex:1;" onclick="downloadShopeeUpdateFile()">⬆️ ไฟล์อัปเดต Shopee (${totalQueuedCount})</button>` : ''}
   `;
   const idxOf = r => shopeeCompareResults.indexOf(r);
   let html = '';
@@ -4485,9 +4492,27 @@ function renderShopeeCompareModal(){
   document.getElementById('shopeeCompareList').innerHTML = html;
 }
 
+// จำนวนรายการที่พนักงานหน้าเช็คสต็อคติ๊ก "รอส่งออกไป Shopee" ไว้แล้ว (คนละตัวกับที่ติ๊กในเครื่องนี้เอง) — ต้องดึงจาก Supabase มาแสดง
+// ไม่งั้นถ้าเจ้าของร้านไม่ได้ติ๊กอะไรในเครื่องนี้เองเลย ปุ่ม "ไฟล์อัปเดต Shopee" จะไม่โผล่ให้กดเลย ทั้งที่จริงมีรายการรอส่งออกจากพนักงานอยู่
+let shopeeCompareRemoteQueuedCount = 0;
+async function refreshShopeeRemoteQueuedCount(){
+  if(!supabaseClient || !currentOwnerId){ shopeeCompareRemoteQueuedCount = 0; return; }
+  try{
+    const { count, error } = await supabaseClient.from('shopee_compare_queue')
+      .select('id', { count: 'exact', head: true })
+      .eq('owner_id', currentOwnerId).eq('status', 'queued_export');
+    if(error) throw error;
+    shopeeCompareRemoteQueuedCount = count || 0;
+  }catch(err){
+    console.error(err);
+  }
+  renderShopeeCompareModal();
+}
+
 function openShopeeCompareModal(){
   renderShopeeCompareModal();
   document.getElementById('shopee-compare-modal').classList.add('open');
+  refreshShopeeRemoteQueuedCount();
 }
 function closeShopeeCompareModal(){
   document.getElementById('shopee-compare-modal').classList.remove('open');
