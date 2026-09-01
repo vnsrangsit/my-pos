@@ -952,7 +952,7 @@
   <div class="confirm-card" style="max-width:560px;">
     <h3>🔍 ผลเทียบสต็อก Shopee</h3>
     <div class="confirm-sub" id="shopeeCompareSummary">กำลังอ่านไฟล์...</div>
-    <div class="btn-row" style="margin-bottom:10px;" id="shopeeCompareTopActions"></div>
+    <div class="btn-row" style="margin-bottom:10px;flex-wrap:wrap;" id="shopeeCompareTopActions"></div>
     <div id="shopeeCompareList" style="max-height:60vh;overflow-y:auto;margin-bottom:14px;"></div>
     <div class="btn-row">
       <button class="btn btn-primary btn-full" onclick="closeShopeeCompareModal()">ปิด</button>
@@ -4521,11 +4521,11 @@ function renderShopeeCompareModal(){
     `ทั้งหมด ${shopeeCompareResults.length} รายการ — ✅ ตรงกัน ${g.match.length} · ⚠️ จำนวนไม่ตรง ${g.mismatch.length} · ❓ ต้องตรวจสอบ ${g.needsCheck.length} · ❌ หาไม่เจอ ${g.notFound.length}`
     + (totalQueuedCount ? ` · 🛒 คิวอัปเดต Shopee ${totalQueuedCount}${remoteQueuedCount ? ` (พนักงานส่งมา ${remoteQueuedCount})` : ''}` : '');
   document.getElementById('shopeeCompareTopActions').innerHTML = `
-    <button class="btn btn-outline" style="font-size:12px;flex:1;" onclick="copyShopeeCompareFullReport()">📋 คัดลอกสรุปไปถาม Claude</button>
-    ${g.mismatch.length ? `<button class="btn btn-outline" style="font-size:12px;flex:1;" onclick="downloadShopeeMismatchChecklistCsv()">📄 รายการไม่ตรง (CSV)</button>` : ''}
-    ${g.mismatch.length && supabaseClient && currentOwnerId ? `<button class="btn btn-outline" style="font-size:12px;flex:1;" onclick="pushShopeeMismatchToStocktake()">📤 ส่งไปหน้าเช็คสต็อค</button>` : ''}
-    ${supabaseClient && currentOwnerId ? `<button class="btn btn-outline" style="font-size:12px;flex:1;" onclick="refreshShopeeRemoteQueuedCount()">🔄 เช็คคิวจากพนักงาน</button>` : ''}
-    ${totalQueuedCount ? `<button class="btn btn-primary" style="font-size:12px;flex:1;" onclick="downloadShopeeUpdateFile()">⬆️ ไฟล์อัปเดต Shopee (${totalQueuedCount})</button>` : ''}
+    <button class="btn btn-outline" style="font-size:12px;flex:1 1 45%;min-width:130px;" onclick="copyShopeeCompareFullReport()">📋 คัดลอกสรุปไปถาม Claude</button>
+    ${g.mismatch.length ? `<button class="btn btn-outline" style="font-size:12px;flex:1 1 45%;min-width:130px;" onclick="downloadShopeeMismatchChecklistCsv()">📄 รายการไม่ตรง (CSV)</button>` : ''}
+    ${g.mismatch.length && supabaseClient && currentOwnerId ? `<button class="btn btn-outline" style="font-size:12px;flex:1 1 45%;min-width:130px;" onclick="pushShopeeMismatchToStocktake()">📤 ส่งไปหน้าเช็คสต็อค</button>` : ''}
+    ${supabaseClient && currentOwnerId ? `<button class="btn btn-outline" style="font-size:12px;flex:1 1 45%;min-width:130px;" onclick="refreshShopeeRemoteQueuedCount()">🔄 เช็คคิวจากพนักงาน</button>` : ''}
+    ${totalQueuedCount ? `<button class="btn btn-primary" style="font-size:12px;flex:1 1 100%;" onclick="downloadShopeeUpdateFile()">⬆️ ไฟล์อัปเดต Shopee (${totalQueuedCount})</button>` : ''}
   `;
   const idxOf = r => shopeeCompareResults.indexOf(r);
   let html = '';
