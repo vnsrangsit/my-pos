@@ -343,7 +343,18 @@ let syncFlushAgainRequested = false;
 function loadProducts(){ return JSON.parse(localStorage.getItem(DB_KEYS.products) || '[]'); }
 function saveProducts(list){ const old = loadProducts(); localStorage.setItem(DB_KEYS.products, JSON.stringify(list)); diffAndEnqueue('products', old, list, p=>p.id, toProductRow); }
 function loadStockTransactions(){ return JSON.parse(localStorage.getItem(DB_KEYS.stockTx) || '[]'); }
-function saveStockTransactions(list){ const old = loadStockTransactions(); localStorage.setItem(DB_KEYS.stockTx, JSON.stringify(list)); diffAndEnqueue('stock_transactions', old, list, t=>t.id, toStockTxRow); }
+// เดิมถ้า localStorage เต็ม (โควต้าเบราว์เซอร์ ~5-10MB) setItem จะ throw แบบไม่ดัก -> ทั้งฟังก์ชันพัง diffAndEnqueue ไม่ถูกเรียกเลย
+// แปลว่านอกจากบันทึกในเครื่องไม่ได้แล้ว ยังไม่ส่งขึ้น Supabase ด้วย (ข้อมูลหายทั้งคู่กลางคันตอนเช็คสต็อก) จึงต้องดักไว้แยกจากการ sync ขึ้น Supabase
+function saveStockTransactions(list){
+  const old = loadStockTransactions();
+  try{
+    localStorage.setItem(DB_KEYS.stockTx, JSON.stringify(list));
+  }catch(err){
+    console.error('saveStockTransactions: บันทึกในเครื่องไม่สำเร็จ (พื้นที่เต็ม?)', err);
+    if(typeof toast === 'function') toast('⚠️ พื้นที่เก็บข้อมูลในเครื่องเต็ม บันทึกประวัติในเครื่องนี้ไม่ได้ แต่ระบบจะพยายามส่งขึ้น Supabase ต่อ');
+  }
+  diffAndEnqueue('stock_transactions', old, list, t=>t.id, toStockTxRow);
+}
 function loadDismissedOOS(){ return JSON.parse(localStorage.getItem(DB_KEYS.dismissedOutOfStock) || '[]'); }
 function saveDismissedOOS(list){ localStorage.setItem(DB_KEYS.dismissedOutOfStock, JSON.stringify(list)); }
 function clearDismissedOOS(productId){

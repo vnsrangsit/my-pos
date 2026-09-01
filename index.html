@@ -1880,7 +1880,18 @@ const TX_TYPES = {
   DELETED:    { label: 'ลบสินค้าออกจากระบบ', dir: 0 } // บันทึกไว้ก่อนลบสินค้าจริง เพื่อให้ยังตรวจสอบย้อนกลับได้ว่าเคยมีของเท่าไหร่ก่อนลบ
 };
 function loadStockTransactions(){ return JSON.parse(localStorage.getItem(DB_KEYS.stockTx) || '[]'); }
-function saveStockTransactions(list){ const old = loadStockTransactions(); localStorage.setItem(DB_KEYS.stockTx, JSON.stringify(list)); diffAndEnqueue('stock_transactions', old, list, t=>t.id, toStockTxRow); }
+// เดิมถ้า localStorage เต็ม (โควต้าเบราว์เซอร์ ~5-10MB) setItem จะ throw แบบไม่ดัก -> ทั้งฟังก์ชันพัง diffAndEnqueue ไม่ถูกเรียกเลย
+// แปลว่านอกจากบันทึกในเครื่องไม่ได้แล้ว ยังไม่ส่งขึ้น Supabase ด้วย (ข้อมูลหายทั้งคู่กลางคันตอนเช็คสต็อก) จึงต้องดักไว้แยกจากการ sync ขึ้น Supabase
+function saveStockTransactions(list){
+  const old = loadStockTransactions();
+  try{
+    localStorage.setItem(DB_KEYS.stockTx, JSON.stringify(list));
+  }catch(err){
+    console.error('saveStockTransactions: บันทึกในเครื่องไม่สำเร็จ (พื้นที่เต็ม?)', err);
+    if(typeof toast === 'function') toast('⚠️ พื้นที่เก็บข้อมูลในเครื่องเต็ม บันทึกประวัติในเครื่องนี้ไม่ได้ แต่ระบบจะพยายามส่งขึ้น Supabase ต่อ');
+  }
+  diffAndEnqueue('stock_transactions', old, list, t=>t.id, toStockTxRow);
+}
 function unitToBaseQty(qty, unit){
   const factor = UNIT_FACTORS[unit] !== undefined ? UNIT_FACTORS[unit] : 1;
   return (parseFloat(qty) || 0) * factor;
@@ -4464,8 +4475,13 @@ function downloadShopeeMismatchChecklistCsv(){
   list.forEach(r=>{
     const p = r.match.product;
     const diff = r.match.localStock - r.row.stock;
+    // กันค่าที่ขึ้นต้นด้วย =/+/-/@ ถูกตีความเป็นสูตรเวลาเปิดด้วย Excel/Sheets (formula injection) โดยเติม ' นำหน้าให้เป็น text เฉยๆ
     const cells = [p.brand||'', p.model||'', p.color||'', p.size||'', p.sku||r.row.sku||'', r.match.localStock, r.row.stock, diff]
-      .map(v=>`"${String(v).replace(/"/g,'""')}"`);
+      .map(v=>{
+        let s = String(v);
+        if(/^[=+\-@]/.test(s)) s = "'" + s;
+        return `"${s.replace(/"/g,'""')}"`;
+      });
     lines.push(cells.join(','));
   });
   const csv = '﻿' + lines.join('\r\n'); // ใส่ BOM กันตัวหนังสือไทยเพี้ยนตอนเปิดด้วย Excel
