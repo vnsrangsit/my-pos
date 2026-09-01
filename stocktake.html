@@ -133,6 +133,8 @@
   .choice-other:active{background:#FBF1E1;}
   .shopee-recon-queued{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;
     font-size:12.5px;background:var(--fill);border-radius:10px;padding:8px 10px;}
+  .shopee-recon-queued-btns{display:flex;align-items:center;gap:12px;flex:none;}
+  .shopee-recon-edit{background:none;border:none;color:var(--primary);font-size:12px;font-weight:700;cursor:pointer;padding:0;text-decoration:underline;flex:none;}
   .shopee-recon-undo{background:none;border:none;color:var(--danger);font-size:12px;font-weight:700;cursor:pointer;padding:0;text-decoration:underline;flex:none;}
   .report-tabs{display:flex;gap:6px;margin-bottom:12px;}
   .report-tab-btn{flex:1;padding:9px;border-radius:9px;border:1px solid var(--border);background:#fff;color:var(--muted);
@@ -1082,11 +1084,15 @@ async function confirmQueueForExport(id, checked){
 async function confirmActualCount(id){
   const row = shopeeQueueRows.find(r => r.id === id);
   if(!row){ toast('รายการนี้ถูกดำเนินการไปแล้ว หรือถูกลบไปแล้ว'); renderShopeeQueueResult(); return; }
-  const input = prompt(`นับสต็อกจริงได้เท่าไหร่? (ระบบ ${row.our_stock} / Shopee ${row.shopee_stock})`, '');
+  // ถ้ารายการนี้อยู่ในคิว "รอส่งออก" อยู่แล้ว (มาแก้ไขจำนวน) ให้เอาเลขที่เคยยืนยันไว้มาเป็นค่าเริ่มต้นในกล่องกรอก จะได้แก้ง่ายๆ ไม่ต้องพิมพ์ใหม่ทั้งหมด
+  const input = prompt(`นับสต็อกจริงได้เท่าไหร่? (ระบบ ${row.our_stock} / Shopee ${row.shopee_stock})`, row.status === 'queued_export' ? String(row.our_stock) : '');
   if(input === null || input.trim() === '') return;
   const actual = Math.round(Number(input));
   if(!Number.isFinite(actual) || actual < 0){ toast('กรอกจำนวนไม่ถูกต้อง (ต้องเป็นตัวเลขไม่ติดลบ)'); return; }
-  if(!confirm(`ยืนยันว่านับสต็อกจริงได้ ${actual} คู่ (ไม่ตรงทั้งระบบและ Shopee) ใช่ไหม?\nระบบจะปรับสต็อกในระบบเป็น ${actual} ทันที และส่งจำนวนนี้ไปรอเจ้าของร้านอัปเดตขึ้น Shopee ด้วย`)) return;
+  const confirmMsg = row.status === 'queued_export'
+    ? `ยืนยันแก้จำนวนที่รอส่งออกไป Shopee เป็น ${actual} คู่ ใช่ไหม?\nระบบจะปรับสต็อกในระบบเป็น ${actual} ทันที`
+    : `ยืนยันว่านับสต็อกจริงได้ ${actual} คู่ (ไม่ตรงทั้งระบบและ Shopee) ใช่ไหม?\nระบบจะปรับสต็อกในระบบเป็น ${actual} ทันที และส่งจำนวนนี้ไปรอเจ้าของร้านอัปเดตขึ้น Shopee ด้วย`;
+  if(!confirm(confirmMsg)) return;
   try{
     const live = await fetchLiveQueueRow(id);
     if(live === null){
@@ -1133,7 +1139,10 @@ function renderShopeeQueueResult(){
     const actionsHtml = queued
       ? `<div class="shopee-recon-queued">
           <span>🕒 รอส่งออกไป Shopee — ยืนยันจำนวนจริง <strong>${row.our_stock}</strong></span>
-          <button type="button" class="shopee-recon-undo" onclick="confirmQueueForExport('${idJs}', false)">ยกเลิก</button>
+          <span class="shopee-recon-queued-btns">
+            <button type="button" class="shopee-recon-edit" onclick="confirmActualCount('${idJs}')">✏️ แก้ไข</button>
+            <button type="button" class="shopee-recon-undo" onclick="confirmQueueForExport('${idJs}', false)">ยกเลิก</button>
+          </span>
         </div>`
       : `<div class="shopee-recon-choice">
           <button type="button" class="choice-btn choice-shopee" onclick="confirmFixToShopee('${idJs}')">✅ นับได้<br>ตรง Shopee</button>

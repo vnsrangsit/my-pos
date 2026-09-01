@@ -104,6 +104,9 @@
   #confirm-modal, #bulk-modal, #import-modal, #import-orders-modal, #cancel-orders-modal, #shopee-compare-modal{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:55;display:none;align-items:center;justify-content:center;padding:16px;overflow-y:auto;backdrop-filter:blur(2px);}
   #confirm-modal.open, #bulk-modal.open, #import-modal.open, #import-orders-modal.open, #cancel-orders-modal.open, #shopee-compare-modal.open{display:flex;}
   .import-row{background:var(--fill);border-radius:12px;padding:12px;margin-bottom:8px;transition:opacity .15s;}
+  .queued-review-row{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12.5px;padding:6px 0;border-bottom:1px solid var(--border);}
+  .queued-review-row:last-child{border-bottom:none;}
+  .queued-review-remove{background:none;border:none;color:var(--danger);font-size:14px;font-weight:700;cursor:pointer;padding:2px 6px;flex:none;}
   .import-row .field{margin-bottom:8px;}
   .import-row .field:last-child{margin-bottom:0;}
   .import-row-top{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-weight:700;font-size:13px;}
@@ -3898,6 +3901,8 @@ function escapeAttr(s){
   return String(s===null||s===undefined ? '' : s)
     .replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
+// เอาไว้ใส่ค่าในสตริง JS ที่ฝังอยู่ใน attribute onclick (เช่น onclick="fn('...')") กัน id ที่มี ' หรือ \ หลุดออกมาทำลาย syntax
+function escapeJsStr(s){ return String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
 function openImageLightbox(url){
   document.getElementById('imageLightboxImg').src = url;
   document.getElementById('image-lightbox').classList.add('open');
@@ -4423,7 +4428,8 @@ async function downloadShopeeUpdateFile(){
   }
   // เคลียร์ติ๊กในเครื่องนี้ + ลดตัวนับคิวจากพนักงานลง กันโชว์ตัวเลข/ปุ่มค้างเป็นของเก่าหลังดาวน์โหลดสำเร็จแล้ว (ไม่งั้นกดซ้ำจะได้ไฟล์รายการซ้ำเดิมอีกรอบ)
   localQueued.forEach(r=>{ r.queued = false; });
-  shopeeCompareRemoteQueuedCount = Math.max(0, shopeeCompareRemoteQueuedCount - usable.length);
+  const usedRemoteIds = new Set(usable.map(u=>u.row.id));
+  shopeeCompareRemoteQueuedRows = shopeeCompareRemoteQueuedRows.filter(r => !usedRemoteIds.has(r.id));
   renderShopeeCompareModal();
 }
 
@@ -4453,11 +4459,13 @@ function downloadShopeeMismatchChecklistCsv(){
 function renderShopeeCompareModal(){
   const g = groupShopeeCompareResults(shopeeCompareResults);
   const sortedMismatch = sortMismatchList(g.mismatch);
-  const localQueuedCount = shopeeCompareResults.filter(r=>r.queued).length;
-  const totalQueuedCount = localQueuedCount + shopeeCompareRemoteQueuedCount;
+  const localQueuedList = shopeeCompareResults.filter(r=>r.queued && r.match.product);
+  const localQueuedCount = localQueuedList.length;
+  const remoteQueuedCount = shopeeCompareRemoteQueuedRows.length;
+  const totalQueuedCount = localQueuedCount + remoteQueuedCount;
   document.getElementById('shopeeCompareSummary').textContent =
     `ทั้งหมด ${shopeeCompareResults.length} รายการ — ✅ ตรงกัน ${g.match.length} · ⚠️ จำนวนไม่ตรง ${g.mismatch.length} · ❓ ต้องตรวจสอบ ${g.needsCheck.length} · ❌ หาไม่เจอ ${g.notFound.length}`
-    + (totalQueuedCount ? ` · 🛒 คิวอัปเดต Shopee ${totalQueuedCount}${shopeeCompareRemoteQueuedCount ? ` (พนักงานส่งมา ${shopeeCompareRemoteQueuedCount})` : ''}` : '');
+    + (totalQueuedCount ? ` · 🛒 คิวอัปเดต Shopee ${totalQueuedCount}${remoteQueuedCount ? ` (พนักงานส่งมา ${remoteQueuedCount})` : ''}` : '');
   document.getElementById('shopeeCompareTopActions').innerHTML = `
     <button class="btn btn-outline" style="font-size:12px;flex:1;" onclick="copyShopeeCompareFullReport()">📋 คัดลอกสรุปไปถาม Claude</button>
     ${g.mismatch.length ? `<button class="btn btn-outline" style="font-size:12px;flex:1;" onclick="downloadShopeeMismatchChecklistCsv()">📄 รายการไม่ตรง (CSV)</button>` : ''}
@@ -4467,6 +4475,22 @@ function renderShopeeCompareModal(){
   `;
   const idxOf = r => shopeeCompareResults.indexOf(r);
   let html = '';
+  // ให้เจ้าของร้านทบทวนรายชื่อ+ตัวเลขที่กำลังจะส่งออกจริงก่อนกดดาวน์โหลด เผื่อมีรายการที่เช็คสต็อคผิดพลาดปนมา จะได้ตัดออกทัน (ทั้งจากที่ติ๊กในเครื่องนี้เอง และที่พนักงานส่งมา)
+  if(totalQueuedCount){
+    const localRows = localQueuedList.map(r=>{
+      const p = r.match.product;
+      const label = [p.brand, p.model, p.color, p.size].filter(Boolean).join(' · ') || p.name;
+      return `<div class="queued-review-row"><span>${escapeAttr(label)} — <strong>${p.stock}</strong> คู่ <span class="muted" style="font-size:11px;">(ติ๊กในเครื่องนี้)</span></span><button type="button" class="queued-review-remove" onclick="toggleShopeeUpdateQueue(${idxOf(r)}, false)">✕</button></div>`;
+    }).join('');
+    const remoteRows = shopeeCompareRemoteQueuedRows.map(row=>{
+      const label = [row.brand, row.model, row.color, row.size].filter(Boolean).join(' · ') || '(ไม่มีชื่อ)';
+      return `<div class="queued-review-row"><span>${escapeAttr(label)} — <strong>${row.our_stock}</strong> คู่ <span class="muted" style="font-size:11px;">(พนักงานส่งมา)</span></span><button type="button" class="queued-review-remove" onclick="cancelRemoteQueuedItem('${escapeJsStr(row.id)}')">✕</button></div>`;
+    }).join('');
+    html += `<details open style="margin:10px 0;border:1px solid var(--border);border-radius:10px;padding:8px 10px;">
+      <summary style="font-size:13px;font-weight:700;cursor:pointer;">🛒 รายการที่รอส่งออกไป Shopee (${totalQueuedCount}) — ทบทวนก่อนกดดาวน์โหลดจริง</summary>
+      <div style="margin-top:8px;">${localRows}${remoteRows}</div>
+    </details>`;
+  }
   if(sortedMismatch.length){
     html += `<h4 style="margin:10px 0 6px;font-size:13.5px;">⚠️ จำนวนไม่ตรงกัน (${sortedMismatch.length}) — เรียงตาม ยี่ห้อ/รุ่น/สี/เบอร์</h4>`;
     html += sortedMismatch.map(r=>shopeeMismatchRowCardHtml(r, idxOf(r))).join('');
@@ -4494,28 +4518,51 @@ function renderShopeeCompareModal(){
 
 // จำนวนรายการที่พนักงานหน้าเช็คสต็อคติ๊ก "รอส่งออกไป Shopee" ไว้แล้ว (คนละตัวกับที่ติ๊กในเครื่องนี้เอง) — ต้องดึงจาก Supabase มาแสดง
 // ไม่งั้นถ้าเจ้าของร้านไม่ได้ติ๊กอะไรในเครื่องนี้เองเลย ปุ่ม "ไฟล์อัปเดต Shopee" จะไม่โผล่ให้กดเลย ทั้งที่จริงมีรายการรอส่งออกจากพนักงานอยู่
-let shopeeCompareRemoteQueuedCount = 0;
+let shopeeCompareRemoteQueuedRows = []; // เก็บทั้งแถว (ไม่ใช่แค่จำนวน) ให้เจ้าของร้านทบทวนรายชื่อ+ตัวเลขที่พนักงานส่งมาก่อนกดส่งออกจริง
 async function refreshShopeeRemoteQueuedCount(){
-  if(!supabaseClient || !currentOwnerId){ shopeeCompareRemoteQueuedCount = 0; return; }
+  if(!supabaseClient || !currentOwnerId){ shopeeCompareRemoteQueuedRows = []; renderShopeeCompareModal(); return; }
   try{
-    const { count, error } = await supabaseClient.from('shopee_compare_queue')
-      .select('id', { count: 'exact', head: true })
+    const { data, error } = await supabaseClient.from('shopee_compare_queue').select('*')
       .eq('owner_id', currentOwnerId).eq('status', 'queued_export');
     if(error) throw error;
-    shopeeCompareRemoteQueuedCount = count || 0;
+    shopeeCompareRemoteQueuedRows = data || [];
   }catch(err){
     console.error(err);
+    toast('ดึงคิวจากพนักงานไม่สำเร็จ: ' + ((err && err.message) || ''));
   }
   renderShopeeCompareModal();
 }
 
+// เอารายการที่พนักงานติ๊ก "ตรงระบบ รอส่งออก" ไว้ ออกจากคิว (เผื่อเจ้าของร้านทบทวนแล้วเห็นว่าผิด) — ส่งกลับสถานะเป็น 'open' ให้พนักงานเช็คใหม่รอบหน้า ไม่ลบทิ้งเลย
+async function cancelRemoteQueuedItem(id){
+  if(!supabaseClient || !currentOwnerId) return;
+  if(!confirm('เอารายการนี้ออกจากคิวรอส่งออกไป Shopee หรือไม่?\n(จะส่งกลับไปให้พนักงานเช็คสต็อกใหม่อีกรอบ ไม่ได้ลบข้อมูลอะไรออกจากระบบ)')) return;
+  try{
+    const { error } = await withSyncTimeout(supabaseClient.from('shopee_compare_queue')
+      .update({ status: 'open', updated_at: new Date().toISOString() })
+      .eq('owner_id', currentOwnerId).eq('id', id), 20000);
+    if(error) throw error;
+    shopeeCompareRemoteQueuedRows = shopeeCompareRemoteQueuedRows.filter(r => r.id !== id);
+    toast('เอาออกจากคิวแล้ว ส่งกลับไปให้พนักงานเช็คใหม่');
+    renderShopeeCompareModal();
+  }catch(err){
+    console.error(err);
+    toast('ทำรายการไม่สำเร็จ: ' + ((err && err.message) || ''));
+  }
+}
+
+let shopeeCompareModalPollTimer = null;
 function openShopeeCompareModal(){
   renderShopeeCompareModal();
   document.getElementById('shopee-compare-modal').classList.add('open');
   refreshShopeeRemoteQueuedCount();
+  // ดึงคิวจากพนักงานอัตโนมัติทุก 30 วิระหว่างเปิดหน้านี้ค้างไว้ กันเคสพนักงานติ๊กอยู่คนละที่แล้วเจ้าของร้านไม่เห็นจนกว่าจะกดรีเฟรชเอง
+  if(shopeeCompareModalPollTimer) clearInterval(shopeeCompareModalPollTimer);
+  shopeeCompareModalPollTimer = setInterval(refreshShopeeRemoteQueuedCount, 30000);
 }
 function closeShopeeCompareModal(){
   document.getElementById('shopee-compare-modal').classList.remove('open');
+  if(shopeeCompareModalPollTimer){ clearInterval(shopeeCompareModalPollTimer); shopeeCompareModalPollTimer = null; }
 }
 
 function handleShopeeStockCompareFile(event){
