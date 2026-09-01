@@ -4411,8 +4411,32 @@ async function pushShopeeMismatchToStocktake(){
   }
 }
 
-// สร้างไฟล์อัปเดตกลับขึ้น Shopee — รวม 2 แหล่ง: 1) รายการที่ติ๊ก "ระบบถูก" ไว้ในเครื่องนี้เอง 2) รายการที่พนักงานหน้าเช็คสต็อคยืนยันมาแล้วว่า "นับจริงตรงกับระบบ"
-// (ดึงจาก Supabase status 'queued_export' แล้วจับคู่กับไฟล์ Shopee ที่โหลดอยู่ตอนนี้ใหม่ผ่าน shopeeCompareResults กันแถวเลื่อนตำแหน่งถ้าอัปโหลดไฟล์คนละไฟล์)
+// จำโครงสร้างไฟล์ Shopee (หัวตาราง/แถวคำแนะนำ + แถวดิบของแต่ละสินค้า) ไว้ถาวรใน Supabase ทุกครั้งที่เทียบไฟล์ Shopee สำเร็จ
+// เพื่อให้ครั้งต่อๆ ไปสร้างไฟล์อัปเดตขึ้น Shopee ได้โดยไม่ต้องอัปโหลดไฟล์ Shopee ซ้ำทุกครั้ง (ใช้ตอนมีแต่รายการที่พนักงานปรับสต็อกปกติเข้าคิวมา ไม่ได้มาจากการเทียบไฟล์รอบนี้)
+// แยก 2 ตาราง: shopee_export_meta เก็บโครงสร้างไฟล์ (หัวตาราง/ตำแหน่งคอลัมน์คลัง) 1 แถวต่อร้าน, shopee_export_rows เก็บแถวดิบ 1 แถวต่อสินค้า — ทำงานแบบไม่รอผล ไม่บล็อกการเปิดหน้าเทียบสต็อก
+async function persistShopeeExportTemplate(sheetMeta, results){
+  if(!supabaseClient || !currentOwnerId || !sheetMeta) return;
+  try{
+    const { rows2d, sheetName, stockCol, firstDataRowIndex } = sheetMeta;
+    const headerRows = rows2d.slice(0, firstDataRowIndex !== null ? firstDataRowIndex : 0);
+    const { error: metaErr } = await supabaseClient.from('shopee_export_meta').upsert({
+      owner_id: currentOwnerId, sheet_name: sheetName || null, header_rows: headerRows, stock_col: stockCol, updated_at: new Date().toISOString()
+    });
+    if(metaErr) throw metaErr;
+    const rowsToSave = results.filter(r=>r.match.product).map(r=>({
+      id: r.match.product.id, owner_id: currentOwnerId, row: rows2d[r.row.rowIndex], updated_at: new Date().toISOString()
+    }));
+    for(const chunk of chunkArray(rowsToSave, 200)){
+      const { error } = await supabaseClient.from('shopee_export_rows').upsert(chunk);
+      if(error) throw error;
+    }
+  }catch(err){
+    console.error('จำโครงสร้างไฟล์ Shopee ไม่สำเร็จ (ไม่กระทบการเทียบสต็อกที่ทำสำเร็จไปแล้ว):', err);
+  }
+}
+
+// สร้างไฟล์อัปเดตกลับขึ้น Shopee — รวม 3 แหล่ง: 1) รายการที่ติ๊ก "ระบบถูก" ไว้ในเครื่องนี้เอง 2) รายการที่พนักงานยืนยันมาแล้วว่า "นับจริงตรงกับระบบ"/ปรับสต็อกปกติที่เข้าคิวมา และจับคู่ได้กับไฟล์ Shopee ที่เพิ่งโหลดในเซสชันนี้
+// 3) รายการแบบเดียวกับข้อ 2 แต่ไม่มีไฟล์ Shopee โหลดอยู่ในเซสชันนี้เลย -> ดึงโครงสร้างแถวที่เคยจำไว้จาก Supabase (persistShopeeExportTemplate) มาใช้แทน ไม่ต้องอัปโหลดไฟล์ซ้ำทุกครั้ง
 // เอาโครงสร้างไฟล์ Shopee ต้นฉบับ (หัวตาราง/แถวคำแนะนำ) มาแก้แค่ตัวเลขคอลัมน์ "คลัง" ในแถวที่เกี่ยวข้อง ให้เป็นค่าล่าสุดจากระบบ แล้วดาวน์โหลดเป็น .xlsx
 async function downloadShopeeUpdateFile(){
   const localQueued = shopeeCompareResults.filter(r=>r.queued && r.match.product);
@@ -4429,20 +4453,46 @@ async function downloadShopeeUpdateFile(){
     }
   }
   const localIds = new Set(localQueued.map(r=>r.match.product.id));
-  const usable = [], skipped = [];
+  const usable = [], needTemplate = [];
   remoteQueued.forEach(row=>{
     if(localIds.has(row.id)) return; // ติ๊กไว้ในเครื่องนี้อยู่แล้วเหมือนกัน ใช้ตัวที่ติ๊กในเครื่องนี้แทน กันซ้ำ
     const match = shopeeCompareResults.find(r => r.match.product && r.match.product.id === row.id);
-    if(match) usable.push({ row, match }); else skipped.push(row);
+    if(match) usable.push({ row, match }); else needTemplate.push(row);
   });
-  if(!shopeeCompareSheetMeta || (!localQueued.length && !usable.length)){
-    toast(skipped.length
-      ? `มีรายการจากหน้าเช็คสต็อครออยู่ ${skipped.length} รายการ แต่ไม่พบในไฟล์ Shopee ที่โหลดอยู่ตอนนี้ — อัปโหลดไฟล์ Shopee ล่าสุดอีกครั้งก่อน`
+
+  // โครงสร้างไฟล์ Shopee: ใช้ของที่เพิ่งโหลดในเซสชันนี้ก่อนเสมอ ถ้าไม่มีเลย (ยังไม่ได้อัปโหลดไฟล์ในเซสชันนี้) ค่อยดึงจากที่เคยจำไว้ใน Supabase จากการเทียบครั้งก่อนๆ แทน
+  let sheetMeta = shopeeCompareSheetMeta;
+  const templateRowsById = {};
+  if(supabaseClient && currentOwnerId && (!sheetMeta || needTemplate.length)){
+    try{
+      if(!sheetMeta){
+        const { data: metaRow, error: metaErr } = await supabaseClient.from('shopee_export_meta').select('*').eq('owner_id', currentOwnerId).maybeSingle();
+        if(metaErr) throw metaErr;
+        if(metaRow) sheetMeta = { rows2d: metaRow.header_rows || [], sheetName: metaRow.sheet_name, stockCol: metaRow.stock_col, firstDataRowIndex: (metaRow.header_rows||[]).length };
+      }
+      if(needTemplate.length){
+        const ids = needTemplate.map(r=>r.id);
+        for(const chunk of chunkArray(ids, 200)){
+          const { data: rowsData, error: rowsErr } = await supabaseClient.from('shopee_export_rows').select('*').eq('owner_id', currentOwnerId).in('id', chunk);
+          if(rowsErr) throw rowsErr;
+          (rowsData || []).forEach(r => { templateRowsById[r.id] = r.row; });
+        }
+      }
+    }catch(err){
+      console.error(err);
+      toast('ดึงโครงสร้างไฟล์ Shopee ที่เคยจำไว้ไม่สำเร็จ: ' + ((err && err.message) || ''));
+    }
+  }
+  const stillSkipped = needTemplate.filter(row => !templateRowsById[row.id]);
+
+  if(!sheetMeta || (!localQueued.length && !usable.length && !Object.keys(templateRowsById).length)){
+    toast(stillSkipped.length
+      ? `มีรายการรออยู่ ${stillSkipped.length} รายการ แต่ยังไม่เคยเทียบกับไฟล์ Shopee มาก่อนเลย (ไม่รู้จักโครงสร้างแถว) — อัปโหลดไฟล์ Shopee อย่างน้อย 1 ครั้งก่อน`
       : 'ยังไม่มีรายการในคิวอัปเดต Shopee เลย');
     return;
   }
   const products = loadProducts();
-  const { rows2d, sheetName, stockCol, firstDataRowIndex } = shopeeCompareSheetMeta;
+  const { rows2d, sheetName, stockCol, firstDataRowIndex } = sheetMeta;
   const keepUntil = (firstDataRowIndex !== null ? firstDataRowIndex : 0);
   const outRows = [];
   for(let i=0;i<keepUntil;i++) outRows.push(rows2d[i]);
@@ -4460,14 +4510,25 @@ async function downloadShopeeUpdateFile(){
     outRow[stockCol] = stockNow;
     outRows.push(outRow);
   });
+  // รายการที่ไม่ได้อยู่ในไฟล์ที่โหลดตอนนี้เลย (เช่นมาจากพนักงานปรับสต็อกปกติ) แต่มีแถวต้นแบบที่เคยจำไว้จากก่อนหน้า -> ใช้แถวต้นแบบนั้นแทน ไม่ต้องข้าม
+  needTemplate.forEach(row=>{
+    const tmplRow = templateRowsById[row.id];
+    if(!tmplRow) return;
+    const fresh = products.find(p=>p.id === row.id);
+    const stockNow = (fresh && typeof fresh.stock === 'number') ? fresh.stock : row.our_stock;
+    const outRow = tmplRow.slice();
+    outRow[stockCol] = stockNow;
+    outRows.push(outRow);
+  });
   const ws = XLSX.utils.aoa_to_sheet(outRows);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, sheetName || 'Sheet1');
   const stamp = new Date().toISOString().slice(0,16).replace(/[:T]/g,'-');
   XLSX.writeFile(wb, `shopee_stock_update_${stamp}.xlsx`);
-  const totalCount = localQueued.length + usable.length;
-  toast(`สร้างไฟล์อัปเดต ${totalCount} รายการแล้ว อัปโหลดกลับเข้า Shopee ได้เลย` + (skipped.length ? ` (ข้าม ${skipped.length} รายการจากหน้าเช็คสต็อคที่ไม่พบในไฟล์นี้)` : ''));
-  const doneIds = localQueued.map(r=>r.match.product.id).concat(usable.map(u=>u.row.id));
+  const resolvedFromTemplate = needTemplate.filter(row => templateRowsById[row.id]);
+  const totalCount = localQueued.length + usable.length + resolvedFromTemplate.length;
+  toast(`สร้างไฟล์อัปเดต ${totalCount} รายการแล้ว อัปโหลดกลับเข้า Shopee ได้เลย` + (stillSkipped.length ? ` (ข้าม ${stillSkipped.length} รายการที่ยังไม่เคยเทียบกับ Shopee มาก่อนเลย)` : ''));
+  const doneIds = localQueued.map(r=>r.match.product.id).concat(usable.map(u=>u.row.id)).concat(resolvedFromTemplate.map(r=>r.id));
   if(doneIds.length && supabaseClient && currentOwnerId){
     // ลบทีละชุดไม่เกิน 200 id กัน query ยาวเกินไปตอนมีเป็นร้อยๆ รายการ
     for(const chunk of chunkArray(doneIds, 200)){
@@ -4477,7 +4538,7 @@ async function downloadShopeeUpdateFile(){
   }
   // เคลียร์ติ๊กในเครื่องนี้ + ลดตัวนับคิวจากพนักงานลง กันโชว์ตัวเลข/ปุ่มค้างเป็นของเก่าหลังดาวน์โหลดสำเร็จแล้ว (ไม่งั้นกดซ้ำจะได้ไฟล์รายการซ้ำเดิมอีกรอบ)
   localQueued.forEach(r=>{ r.queued = false; });
-  const usedRemoteIds = new Set(usable.map(u=>u.row.id));
+  const usedRemoteIds = new Set(usable.map(u=>u.row.id).concat(resolvedFromTemplate.map(r=>r.id)));
   shopeeCompareRemoteQueuedRows = shopeeCompareRemoteQueuedRows.filter(r => !usedRemoteIds.has(r.id));
   renderShopeeCompareModal();
 }
@@ -4635,6 +4696,7 @@ function handleShopeeStockCompareFile(event){
         const skuIndex = buildLocalSkuIndex(products);
         shopeeCompareSheetMeta = sheetMeta;
         shopeeCompareResults = rows.map(row => ({ row, match: matchShopeeStockRow(products, skuIndex, row), queued: false }));
+        persistShopeeExportTemplate(sheetMeta, shopeeCompareResults); // จำโครงสร้างไฟล์นี้ไว้ถาวร ไม่รอผล ไม่บล็อกการเปิดหน้าเทียบสต็อก
         openShopeeCompareModal();
       }
     } catch(err){
