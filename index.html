@@ -101,8 +101,11 @@
   #scanner-modal.open,#voice-modal.open{display:flex;}
   #reader{width:90vw;max-width:400px;background:#000;border-radius:20px;overflow:hidden;}
   .modal-close{margin-top:18px;}
-  #confirm-modal, #bulk-modal, #import-modal, #import-orders-modal, #cancel-orders-modal, #shopee-compare-modal{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:55;display:none;align-items:center;justify-content:center;padding:16px;overflow-y:auto;backdrop-filter:blur(2px);}
-  #confirm-modal.open, #bulk-modal.open, #import-modal.open, #import-orders-modal.open, #cancel-orders-modal.open, #shopee-compare-modal.open{display:flex;}
+  #confirm-modal, #bulk-modal, #import-modal, #import-orders-modal, #cancel-orders-modal, #shopee-compare-modal, #tiktok-compare-modal{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:55;display:none;align-items:center;justify-content:center;padding:16px;overflow-y:auto;backdrop-filter:blur(2px);}
+  #confirm-modal.open, #bulk-modal.open, #import-modal.open, #import-orders-modal.open, #cancel-orders-modal.open, #shopee-compare-modal.open, #tiktok-compare-modal.open{display:flex;}
+  .tiktok-compare-table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .tiktok-compare-table th, .tiktok-compare-table td{border:1px solid var(--border);padding:6px 7px;text-align:left;vertical-align:top;}
+  .tiktok-compare-table th{background:var(--bg-alt,#f5f5f5);position:sticky;top:0;}
   .import-row{background:var(--fill);border-radius:12px;padding:12px;margin-bottom:8px;transition:opacity .15s;}
   .queued-review-row{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12.5px;padding:6px 0;border-bottom:1px solid var(--border);}
   .queued-review-row:last-child{border-bottom:none;}
@@ -579,6 +582,10 @@
       </div>
       <span id="shopeeQueueIndicator" style="display:none;font-size:12px;color:var(--danger);margin:-6px 0 10px;font-weight:700;"></span>
       <input type="file" id="shopeeStockCompareFile" accept=".xlsx,.xls" style="display:none;" onchange="handleShopeeStockCompareFile(event)">
+      <div class="btn-row" style="margin-bottom:12px;">
+        <button class="btn btn-outline btn-full" onclick="document.getElementById('tiktokStockCompareFile').click()">🔍 จับคู่ไฟล์อัปเดตสต็อก TikTok กับสต็อกในระบบ</button>
+      </div>
+      <input type="file" id="tiktokStockCompareFile" accept=".xlsx,.xls" style="display:none;" onchange="handleTiktokStockCompareFile(event)">
 
       <div class="collapse-header" data-collapse-toggle="collapseStockTools" onclick="toggleCollapse('collapseStockTools')">
         <h3>เครื่องมือเพิ่มเติม</h3>
@@ -956,6 +963,18 @@
     <div id="shopeeCompareList" style="max-height:60vh;overflow-y:auto;margin-bottom:14px;"></div>
     <div class="btn-row">
       <button class="btn btn-primary btn-full" onclick="closeShopeeCompareModal()">ปิด</button>
+    </div>
+  </div>
+</div>
+
+<div id="tiktok-compare-modal">
+  <div class="confirm-card" style="max-width:720px;">
+    <h3>🔍 จับคู่ไฟล์อัปเดตสต็อก TikTok</h3>
+    <div class="confirm-sub" id="tiktokCompareSummary">กำลังอ่านไฟล์...</div>
+    <div class="btn-row" style="margin-bottom:10px;flex-wrap:wrap;" id="tiktokCompareTopActions"></div>
+    <div id="tiktokCompareTableWrap" style="max-height:60vh;overflow:auto;margin-bottom:14px;border:1px solid var(--border);border-radius:8px;"></div>
+    <div class="btn-row">
+      <button class="btn btn-primary btn-full" onclick="closeTiktokCompareModal()">ปิด</button>
     </div>
   </div>
 </div>
@@ -1364,7 +1383,7 @@ async function pullFromSupabaseAndRefresh(){
 }
 // เช็คว่ามี modal/sheet ไหนเปิดค้างอยู่ไหม (กำลังแก้ไข/กำลังพิมพ์อะไรอยู่) กันดึงข้อมูลใหม่มาเขียนทับหน้าจอระหว่างที่ผู้ใช้ทำงานค้างอยู่
 function isAnyModalOpen(){
-  return !!document.querySelector('.sheet-overlay.open, #scanner-modal.open, #voice-modal.open, #confirm-modal.open, #bulk-modal.open, #import-modal.open, #import-orders-modal.open, #cancel-orders-modal.open, #shopee-compare-modal.open, #image-lightbox.open');
+  return !!document.querySelector('.sheet-overlay.open, #scanner-modal.open, #voice-modal.open, #confirm-modal.open, #bulk-modal.open, #import-modal.open, #import-orders-modal.open, #cancel-orders-modal.open, #shopee-compare-modal.open, #tiktok-compare-modal.open, #image-lightbox.open');
 }
 // ดึงข้อมูลล่าสุดจาก Supabase เป็นระยะๆ ระหว่างเปิดแอพค้างไว้ (เหมือนที่ stocktake.html มีอยู่แล้ว) เพื่อให้เห็นของที่เพิ่ม/แก้จากเครื่องอื่น (เช่น เบอร์ใหม่ที่พนักงานเพิ่มจากหน้าเช็คสต็อก)
 // โดยไม่ต้องปิดเปิดแอพใหม่เอง — ทำงานเงียบๆ ไม่มี toast กวนใจ และข้ามการ re-render ถ้ามี modal/sheet เปิดอยู่กันข้อมูลสลับระหว่างพิมพ์
@@ -4706,6 +4725,266 @@ function handleShopeeStockCompareFile(event){
     event.target.value = '';
   };
   reader.readAsArrayBuffer(file);
+}
+
+/* ============ จับคู่ไฟล์อัปเดตสต็อก TikTok Seller Center กับสต็อกในระบบ ============
+   อ่านไฟล์ "batch edit sales information" ของ TikTok Seller Center (ชีท Template มีคอลัมน์ภายในเป็น
+   product_id/category/product_name/sku_id/variation_value/price/quantity/seller_sku — ไม่มีคอลัมน์สีแยกต่างหาก
+   เหมือน Shopee เพราะ variation_value ของ TikTok มีแค่ตัวเลขไซส์ ส่วนสีต้องเดาจากชื่อสินค้าแทน)
+   จับคู่ด้วยหลักการเดียวกับ Shopee: "รหัส" สินค้าปรากฏในชื่อสินค้า + ไซส์ตรงกัน (+สีตรงกันถ้าเดาสีจากชื่อได้)
+   ทางนี้เป็นการ "ดันสต็อกจากระบบไปทับไฟล์ TikKok" ทิศทางเดียว (ไม่มีขั้นตอนให้พนักงานเลือกแบบ Shopee)
+   จึงต้องคง "สมุดงาน" (workbook) เดิมทั้งเล่มไว้ (ชีท Instruction/HiddenStyle/SpecialProductListingType/TemplateConfig
+   ต้องอยู่ครบไม่งั้น TikTok อาจไม่ยอมรับไฟล์ตอนอัปโหลดกลับ) แก้แค่ค่าตัวเลขในเซลล์ "quantity" ของแถวที่จับคู่ได้เท่านั้น
+   แทนที่จะสร้างชีทใหม่ทั้งอันแบบที่ทำกับไฟล์ Shopee */
+let tiktokCompareResults = [];
+let tiktokCompareWorkbook = null; // เก็บสมุดงานทั้งเล่มไว้ทั้งเล่ม (ต้องเขียนกลับทั้งเล่มตอนดาวน์โหลด ไม่ใช่แค่ชีทข้อมูล)
+let tiktokCompareSheetInfo = null; // { sheetName, ws, qtyCol } ตำแหน่งคอลัมน์คลังในชีทข้อมูล ไว้ใช้ตอนเขียนค่าลับกลับ
+
+// ลองเดา "สี" จากข้อความชื่อสินค้า โดยสแกนแยกคำแล้วเทียบกับตารางคำพ้องสี (COLOR_SYNONYMS) เดียวกับที่ใช้ตอนเทียบไฟล์ Shopee
+// คืนค่าเป็นรหัสสีกลาง (เช่น 'black') ถ้าเดาไม่ได้เลยคืนค่าว่าง (แปลว่าจะไม่ใช้สีมากรองตอนจับคู่ อาศัยรหัส+ไซส์อย่างเดียว)
+let _tiktokColorValuesCache = null;
+function extractColorToken(text){
+  // คำนวณตอนเรียกใช้ครั้งแรกเท่านั้น (ไม่ใช่ตอนโหลดสคริปต์) เพราะ COLOR_SYNONYMS ประกาศอยู่ถัดลงไปด้านล่างของไฟล์
+  if(!_tiktokColorValuesCache) _tiktokColorValuesCache = new Set(Object.values(COLOR_SYNONYMS));
+  const words = String(text||'').split(/[^A-Za-zก-๙]+/).filter(Boolean);
+  for(const w of words){
+    const c = canonicalColor(w);
+    if(c && _tiktokColorValuesCache.has(c)) return c;
+  }
+  return '';
+}
+
+// สแกนทุกชีทหาชีท "Template" ของ TikTok — อิงคอลัมน์ภายใน (แถวที่ 1 ของไฟล์) แทนหัวตารางที่แสดงผล
+// (product_id/product_name/quantity) กันกรณี TikTok เปลี่ยนภาษา/ข้อความหัวตารางที่แสดงผลในอนาคต
+function findTiktokTemplateSheet(workbook){
+  let best = null;
+  workbook.SheetNames.forEach(sheetName=>{
+    const ws = workbook.Sheets[sheetName];
+    let rows;
+    try{ rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''}); }catch(e){ return; }
+    if(!rows.length) return;
+    let headerRowIdx = -1, col = null;
+    for(let i=0;i<Math.min(rows.length,4);i++){
+      const hdr = (rows[i]||[]).map(c=>String(c||'').trim().toLowerCase());
+      const iId = hdr.indexOf('product_id');
+      const iName = hdr.indexOf('product_name');
+      const iQty = hdr.indexOf('quantity');
+      if(iId!==-1 && iName!==-1 && iQty!==-1){
+        headerRowIdx = i;
+        col = {
+          productId: iId, category: hdr.indexOf('category'), name: iName,
+          skuId: hdr.indexOf('sku_id'), variation: hdr.indexOf('variation_value'),
+          price: hdr.indexOf('price'), qty: iQty, sellerSku: hdr.indexOf('seller_sku')
+        };
+        break;
+      }
+    }
+    if(headerRowIdx === -1) return;
+    if(!best || rows.length > best.rows.length) best = { rows, sheetName, ws, headerRowIdx, col };
+  });
+  return best;
+}
+
+// อ่านทุกแถวข้อมูลจริงจากชีท Template — แถวคำอธิบาย/หัวข้อแสดงผล/บังคับ-ไม่บังคับด้านบนจะถูกข้ามอัตโนมัติ
+// เพราะคอลัมน์ quantity ของแถวเหล่านั้นไม่ใช่ตัวเลข (toNumOrNull จะได้ null)
+function extractTiktokStockCompareRows(workbook){
+  const found = findTiktokTemplateSheet(workbook);
+  if(!found) return { rows: [], sheetInfo: null };
+  const { rows, sheetName, ws, headerRowIdx, col } = found;
+  const matched = [];
+  for(let i=headerRowIdx+1;i<rows.length;i++){
+    const row = rows[i] || [];
+    const qty = toNumOrNull(row[col.qty]);
+    const productId = col.productId!==-1 ? String(row[col.productId]||'').trim() : '';
+    const name = col.name!==-1 ? String(row[col.name]||'').trim() : '';
+    if(qty === null || !productId || !name) continue;
+    const variationRaw = col.variation!==-1 ? String(row[col.variation]||'').trim() : '';
+    matched.push({
+      rowIndex: i,
+      productId, name,
+      category: col.category!==-1 ? String(row[col.category]||'').trim() : '',
+      skuId: col.skuId!==-1 ? String(row[col.skuId]||'').trim() : '',
+      sizeRaw: variationRaw,
+      size: normalizeVariantText(variationRaw),
+      color: extractColorToken(name),
+      sellerSku: col.sellerSku!==-1 ? String(row[col.sellerSku]||'').trim() : '',
+      qty
+    });
+  }
+  return { rows: matched, sheetInfo: { sheetName, ws, qtyCol: col.qty } };
+}
+
+// จับคู่ 1 แถวจากไฟล์ TikTok กับสินค้าในระบบ — ใช้หลักการเดียวกับ matchShopeeStockRow ทุกประการ
+// ต่างกันแค่ตัวกรอง "สี" เป็นทางเลือก (ใช้ก็ต่อเมื่อเดาสีจากชื่อสินค้าได้เท่านั้น เพราะ TikTok ไม่มีคอลัมน์สีแยก)
+function matchTiktokStockRow(products, skuIndex, row){
+  const title = row.name || '';
+  const os = row.size;
+  const oc = row.color;
+  const byCode = products.filter(p => codeAppearsInTitle(effectiveProductCode(p), title));
+  const byCodeVariant = byCode.filter(p => normalizeVariantText(p.size)===os && (!oc || canonicalColor(p.color)===oc));
+  if(byCodeVariant.length === 1){
+    const p = byCodeVariant[0];
+    const localStock = (p.stock===null || p.stock===undefined) ? null : Number(p.stock);
+    if(localStock === null) return { status:'local-not-tracked', product:p };
+    if(localStock === row.qty) return { status:'match', product:p, localStock };
+    return { status:'mismatch', product:p, localStock };
+  }
+  if(byCodeVariant.length > 1){
+    return { status:'ambiguous-product', candidates: byCodeVariant };
+  }
+  if(byCode.length > 0){
+    return { status:'variant-not-found', candidates: byCode };
+  }
+  const key = normalizeSkuKey(row.sellerSku || row.skuId);
+  const skuCandidates = key ? (skuIndex[key] || []) : [];
+  if(skuCandidates.length === 1){
+    const p = skuCandidates[0];
+    const localStock = (p.stock===null || p.stock===undefined) ? null : Number(p.stock);
+    if(localStock === null) return { status:'local-not-tracked', product:p, matchedBy:'sku' };
+    if(localStock === row.qty) return { status:'match', product:p, localStock, matchedBy:'sku' };
+    return { status:'mismatch', product:p, localStock, matchedBy:'sku' };
+  }
+  const query = title.trim();
+  if(query){
+    const { exact, similar } = searchProductFamiliesIn(products, query);
+    const families = exact.length ? exact : similar;
+    if(families.length){
+      for(const fam of families){
+        const variant = fam.products.find(p=>normalizeVariantText(p.size)===os && (!oc || canonicalColor(p.color)===oc));
+        if(variant){
+          const localStock = (variant.stock===null || variant.stock===undefined) ? null : Number(variant.stock);
+          if(localStock === null) return { status:'local-not-tracked', product:variant, matchedBy:'name' };
+          if(localStock === row.qty) return { status:'match', product:variant, localStock, matchedBy:'name' };
+          return { status:'mismatch', product:variant, localStock, matchedBy:'name' };
+        }
+      }
+      return { status:'name-found-variant-missing', families };
+    }
+  }
+  return { status:'not-found' };
+}
+
+function tiktokCompareStatusText(status){
+  switch(status){
+    case 'match': return '✅ ตรงกันแล้ว';
+    case 'mismatch': return '⚠️ จะอัปเดต';
+    case 'local-not-tracked': return 'ℹ️ ไม่ได้ติดตามสต็อก';
+    case 'ambiguous-product': return '⚠️ ซ้ำในระบบ';
+    case 'variant-not-found': return '❓ หาไซส์/สีไม่เจอ';
+    case 'name-found-variant-missing': return '❓ หาไซส์/สีไม่เจอ';
+    default: return '❌ หาไม่เจอในระบบ';
+  }
+}
+
+function groupTiktokCompareResults(results){
+  const g = { match:[], mismatch:[], notFound:[], needsCheck:[], notTracked:[] };
+  results.forEach(r=>{
+    switch(r.match.status){
+      case 'match': g.match.push(r); break;
+      case 'mismatch': g.mismatch.push(r); break;
+      case 'local-not-tracked': g.notTracked.push(r); break;
+      case 'ambiguous-product': case 'variant-not-found': case 'name-found-variant-missing': g.needsCheck.push(r); break;
+      default: g.notFound.push(r);
+    }
+  });
+  return g;
+}
+
+// แสดงตารางสรุปให้เจ้าของร้านทบทวนก่อนกดดาวน์โหลดจริง ตามที่ขอ (ตัวไหนจับคู่ได้ไหม สต็อกเปลี่ยนแปลงเท่าไร)
+function renderTiktokCompareModal(){
+  const g = groupTiktokCompareResults(tiktokCompareResults);
+  const willUpdateCount = g.mismatch.length; // มีแค่กลุ่ม mismatch เท่านั้นที่ตัวเลขจะเปลี่ยนจริงตอนดาวน์โหลด (match คือเลขเท่ากันอยู่แล้ว)
+  document.getElementById('tiktokCompareSummary').textContent =
+    `ทั้งหมด ${tiktokCompareResults.length} รายการ — ✅ ตรงกันแล้ว ${g.match.length} · ⚠️ จะอัปเดต ${g.mismatch.length} · ❓ ต้องตรวจสอบ ${g.needsCheck.length} · ❌ หาไม่เจอ ${g.notFound.length}` +
+    (g.notTracked.length ? ` · ℹ️ ไม่ได้ติดตามสต็อก ${g.notTracked.length}` : '');
+  document.getElementById('tiktokCompareTopActions').innerHTML =
+    `<button class="btn btn-primary" style="font-size:12px;flex:1 1 100%;" onclick="downloadTiktokUpdateFile()" ${willUpdateCount||g.match.length ? '' : 'disabled'}>⬆️ ดาวน์โหลดไฟล์อัปเดต TikTok${willUpdateCount ? ` (${willUpdateCount} รายการจะเปลี่ยน)` : ''}</button>`;
+  const rowsSorted = tiktokCompareResults.slice().sort((a,b)=>{
+    const order = { 'mismatch':0, 'ambiguous-product':1, 'variant-not-found':1, 'name-found-variant-missing':1, 'not-found':2, 'local-not-tracked':3, 'match':4 };
+    const oa = order[a.match.status] ?? 5, ob = order[b.match.status] ?? 5;
+    return oa - ob;
+  });
+  const trs = rowsSorted.map(r=>{
+    const row = r.row, m = r.match;
+    const p = m.product;
+    const label = p ? (p.name || [p.brand, p.code, p.model, p.color].filter(Boolean).join(' · ')) : escapeAttr(row.name);
+    const sysStock = p ? ((p.stock===null||p.stock===undefined) ? '-' : p.stock) : '-';
+    const diff = (p && typeof p.stock === 'number') ? (p.stock - row.qty) : null;
+    const diffText = diff === null ? '-' : (diff > 0 ? `+${diff}` : String(diff));
+    const rowStyle = m.status === 'mismatch' ? 'background:rgba(255,180,0,.08);' : (m.status==='not-found'||m.status==='ambiguous-product'||m.status==='variant-not-found'||m.status==='name-found-variant-missing') ? 'background:rgba(255,0,0,.05);' : '';
+    return `<tr style="${rowStyle}">
+      <td>${escapeAttr(label)}</td>
+      <td>${escapeAttr(row.sizeRaw||'-')}</td>
+      <td>${row.qty}</td>
+      <td>${sysStock}</td>
+      <td>${diffText}</td>
+      <td>${tiktokCompareStatusText(m.status)}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('tiktokCompareTableWrap').innerHTML = tiktokCompareResults.length
+    ? `<table class="tiktok-compare-table"><thead><tr>
+        <th>สินค้า</th><th>ไซส์</th><th>ในไฟล์ TikTok</th><th>ในระบบ</th><th>ผลต่าง</th><th>สถานะ</th>
+      </tr></thead><tbody>${trs}</tbody></table>`
+    : '<div class="muted" style="padding:12px;">ไม่พบข้อมูลที่เทียบได้</div>';
+}
+
+function openTiktokCompareModal(){
+  renderTiktokCompareModal();
+  document.getElementById('tiktok-compare-modal').classList.add('open');
+}
+function closeTiktokCompareModal(){
+  document.getElementById('tiktok-compare-modal').classList.remove('open');
+}
+
+function handleTiktokStockCompareFile(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = (e)=>{
+    try{
+      const data = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, {type:'array'});
+      const { rows, sheetInfo } = extractTiktokStockCompareRows(workbook);
+      if(!rows.length){
+        toast('ไม่พบข้อมูลสต็อกในไฟล์นี้ — ต้องเป็นไฟล์ "batch edit sales information" ของ TikTok Seller Center (มีคอลัมน์ Product ID / Product name / Quantity)');
+      } else {
+        const products = loadProducts();
+        const skuIndex = buildLocalSkuIndex(products);
+        tiktokCompareWorkbook = workbook;
+        tiktokCompareSheetInfo = sheetInfo;
+        tiktokCompareResults = rows.map(row => ({ row, match: matchTiktokStockRow(products, skuIndex, row) }));
+        openTiktokCompareModal();
+      }
+    }catch(err){
+      toast('อ่านไฟล์ Excel ไม่สำเร็จ: ' + (err && err.message ? err.message : err));
+    }
+    event.target.value = '';
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// สร้างไฟล์อัปเดตกลับขึ้น TikTok — ดันตัวเลขสต็อกล่าสุดในระบบ (เฉพาะรายการที่จับคู่ได้) ทับลงเซลล์ "quantity" ของแถวเดิมในไฟล์
+// ต้องเขียนกลับ "สมุดงานเดิมทั้งเล่ม" (ไม่ได้สร้างชีทใหม่แบบไฟล์ Shopee) เพื่อให้ชีทเสริมอื่นๆ (Instruction/HiddenStyle ฯลฯ) ที่ TikTok ต้องการยังอยู่ครบ
+function downloadTiktokUpdateFile(){
+  if(!tiktokCompareWorkbook || !tiktokCompareSheetInfo){ toast('ยังไม่ได้โหลดไฟล์ TikTok'); return; }
+  const products = loadProducts();
+  const { ws, qtyCol } = tiktokCompareSheetInfo;
+  let count = 0;
+  tiktokCompareResults.forEach(r=>{
+    if(!r.match.product) return;
+    const fresh = products.find(p=>p.id === r.match.product.id);
+    const stockNow = (fresh && typeof fresh.stock === 'number') ? fresh.stock : r.match.localStock;
+    if(stockNow === null || stockNow === undefined) return; // ไม่ได้ติดตามสต็อกในระบบ ไม่มีเลขให้ใส่ ข้าม
+    const addr = XLSX.utils.encode_cell({ r: r.row.rowIndex, c: qtyCol });
+    const cell = ws[addr];
+    if(cell){ cell.v = stockNow; cell.t = 'n'; delete cell.w; }
+    else { ws[addr] = { t:'n', v: stockNow }; }
+    count++;
+  });
+  if(!count){ toast('ไม่มีรายการที่จับคู่ได้สำหรับอัปเดต'); return; }
+  const stamp = new Date().toISOString().slice(0,16).replace(/[:T]/g,'-');
+  XLSX.writeFile(tiktokCompareWorkbook, `tiktok_stock_update_${stamp}.xlsx`);
+  toast(`สร้างไฟล์อัปเดต TikTok ${count} รายการแล้ว อัปโหลดกลับเข้า TikTok Seller Center ได้เลย`);
 }
 
 /* ============ นำเข้ายอดขายจากไฟล์คำสั่งซื้อ Excel ของ Shopee (Order.all) ============
