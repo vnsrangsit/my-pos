@@ -1002,21 +1002,31 @@ async function downloadShopeeUpdateFromNetSummary(){
     const stockCol = metaRow.stock_col;
     const outRows = headerRows.slice();
     const skipped = [];
+    const usedIds = [];
     rows.forEach(r=>{
       const tmplRow = templateRowsById[r.productId];
       if(!tmplRow){ skipped.push(r); return; }
       const outRow = tmplRow.slice();
       outRow[stockCol] = r.after; // ใช้ยอด "สิ้นสุด" ไม่ใช่ผลต่างสุทธิ
       outRows.push(outRow);
+      usedIds.push(r.productId);
     });
-    const usedCount = rows.length - skipped.length;
+    const usedCount = usedIds.length;
     if(usedCount === 0){ toast('ทุกรายการยังไม่เคยเทียบกับไฟล์ Shopee มาก่อนเลย ให้เจ้าของร้านอัปโหลดไฟล์ Shopee เทียบสต็อกก่อน'); return; }
     const ws = XLSX.utils.aoa_to_sheet(outRows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, metaRow.sheet_name || 'Sheet1');
     const stamp = new Date().toISOString().slice(0,16).replace(/[:T]/g,'-');
     XLSX.writeFile(wb, `shopee_stock_update_${stamp}.xlsx`);
-    toast(`สร้างไฟล์อัปเดต ${usedCount} รายการแล้ว` + (skipped.length ? ` (ข้าม ${skipped.length} รายการที่ยังไม่เคยเทียบกับ Shopee มาก่อนเลย)` : ''));
+    // สำคัญ: ต้องลบรายการที่เพิ่งรวมเข้าไฟล์แล้วออกจากคิว shopee_compare_queue ด้วย ไม่งั้นรายการจะค้างโชว์อยู่ที่แท็บ "อัปเดต Shopee" ตลอดไปทั้งที่ดาวน์โหลดไปแล้ว
+    for(const chunk of chunkArray(usedIds, 200)){
+      try{ await supabaseClient.from('shopee_compare_queue').delete().eq('owner_id', currentOwnerId).in('id', chunk); }
+      catch(e){ console.error('เคลียร์คิว Shopee ไม่สำเร็จ (ไม่กระทบไฟล์ที่ดาวน์โหลดไปแล้ว):', e); }
+    }
+    const usedIdSet = new Set(usedIds);
+    shopeeQueueRows = shopeeQueueRows.filter(r => !usedIdSet.has(r.id));
+    if(typeof renderShopeeQueueResult === 'function') renderShopeeQueueResult();
+    toast(`สร้างไฟล์อัปเดต ${usedCount} รายการแล้ว และเคลียร์ออกจากคิวรอส่งออกให้แล้ว` + (skipped.length ? ` (ข้าม ${skipped.length} รายการที่ยังไม่เคยเทียบกับ Shopee มาก่อนเลย)` : ''));
   }catch(err){
     console.error(err);
     toast('สร้างไฟล์ไม่สำเร็จ: ' + ((err && err.message) || String(err)));

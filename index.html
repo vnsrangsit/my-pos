@@ -4143,7 +4143,7 @@ function matchShopeeStockRow(products, skuIndex, row){
   const title = row.productName || '';
   const oc = canonicalColor(row.color);
   const os = normalizeVariantText(row.size);
-  const byCode = products.filter(p => codeAppearsInTitle(p.code, title));
+  const byCode = products.filter(p => codeAppearsInTitle(effectiveProductCode(p), title));
   const byCodeVariant = byCode.filter(p => canonicalColor(p.color)===oc && normalizeVariantText(p.size)===os);
   if(byCodeVariant.length === 1){
     const p = byCodeVariant[0];
@@ -4822,6 +4822,17 @@ function codeAppearsInTitle(code, title){
   }
   return false;
 }
+// ถ้าสินค้าไม่ได้กรอกช่อง "รหัส" ไว้ (เช่น พิมพ์ชื่อรวมกันมาตอนแรกแบบ "Baoji BJS508" แต่ไม่ได้แยกกรอกช่องรหัสต่างหาก)
+// ลองเดารหัสรุ่นจาก "ชื่อสินค้า/รุ่น" แทน โดยมองหาคำที่มีทั้งตัวอักษร+ตัวเลขปนกัน (แพทเทิร์นทั่วไปของรหัสรุ่นรองเท้า เช่น BJS508, CD-99, 41G99B1)
+// ใช้เป็นตัวช่วยจับคู่กับไฟล์ Shopee เท่านั้น ไม่ได้บันทึกกลับเข้าช่อง "รหัส" ของสินค้าจริง (ร้านยังต้องไปกรอกเองถ้าอยากให้ค้นหา/แก้ไขได้ง่ายขึ้นถาวร)
+function guessProductCode(p){
+  const text = [p.name, p.model].filter(Boolean).join(' ');
+  const m = text.match(/\b[A-Za-z]{2,}-?\d{2,}[A-Za-z0-9-]*\b/);
+  return m ? m[0] : '';
+}
+function effectiveProductCode(p){
+  return (p.code && p.code.trim()) || guessProductCode(p);
+}
 // จับคู่ 1 แถวคำสั่งซื้อกับสินค้าที่มีอยู่แล้วในระบบ โดยใช้ "รหัส" ของสินค้าเทียบว่าอยู่ในชื่อสินค้าจากไฟล์หรือไม่
 // (ชื่อสินค้าบน Shopee มักใส่รหัสไว้ทั้ง 2 สี เช่น "CD-99/ CD-88" หรือ "41G99B1 41C20B1" ปนกัน) จึงต้องกรองซ้ำด้วยสี+ไซส์
 // จากคอลัมน์ "ชื่อตัวเลือก" เทียบกับฐานข้อมูลจริง เพื่อเลือกรหัสที่ตรงกับสีนั้นๆ เท่านั้น (ตามที่ร้านสั่งไว้)
@@ -4854,7 +4865,7 @@ function matchOrderRowToProduct(row, products){
   const oc = canonicalColor(row.color);
   const os = normalizeVariantText(row.size);
   const candidates = products.filter(p=>{
-    if(!codeAppearsInTitle(p.code, row.title)) return false;
+    if(!codeAppearsInTitle(effectiveProductCode(p), row.title)) return false;
     if(canonicalColor(p.color) !== oc) return false;
     if(normalizeVariantText(p.size) !== os) return false;
     return true;
