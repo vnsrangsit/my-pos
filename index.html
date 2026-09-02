@@ -4754,6 +4754,34 @@ function extractColorToken(text){
   return '';
 }
 
+// บางไฟล์ template ของ TikTok (เจอจริงกับไฟล์ "all_information") ระบุขอบเขตชีท (!ref ในไฟล์ xlsx) ผิด/ค้างจากตอนสร้างเทมเพลต
+// เช่นบอกว่าชีทมีแค่ 5 แถว ทั้งที่จริงมีข้อมูลสินค้ายาวถึงแถว 79+ — ทำให้ตอนอ่านไฟล์ (sheet_to_json) โดนตัดข้อมูลจริงทิ้งหมด
+// เจอเป็นแค่แถวหัวตาราง กลายเป็นหาแถวข้อมูลไม่เจอเลยสักแถว (ระบบเข้าใจผิดว่าไฟล์นี้ไม่มีข้อมูลสต็อก)
+// แก้โดยสแกนหาตำแหน่งเซลล์จริงที่มีข้อมูล (ไม่สนใจ !ref เดิมที่อาจผิด) แล้วปรับ !ref ให้ครอบคลุมข้อมูลจริงทั้งหมดก่อนอ่าน/เขียนไฟล์
+// ต้องทำก่อนทั้งตอนอ่าน (ไม่งั้นอ่านไม่ครบ) และก่อนตอนเขียนไฟล์กลับ (ไม่งั้นไฟล์ที่ดาวน์โหลดออกไปจะถูกตัดเหลือแค่ไม่กี่แถวเหมือนกัน)
+function fixStaleSheetRange(ws){
+  if(!ws) return;
+  let maxR = -1, maxC = -1;
+  Object.keys(ws).forEach(addr=>{
+    if(addr[0] === '!') return;
+    let cell;
+    try{ cell = XLSX.utils.decode_cell(addr); }catch(e){ return; }
+    if(cell.r > maxR) maxR = cell.r;
+    if(cell.c > maxC) maxC = cell.c;
+  });
+  if(maxR < 0 || maxC < 0) return;
+  const declared = ws['!ref'] ? (()=>{ try{ return XLSX.utils.decode_range(ws['!ref']); }catch(e){ return null; } })() : null;
+  if(!declared || declared.e.r < maxR || declared.e.c < maxC){
+    ws['!ref'] = XLSX.utils.encode_range({
+      s: { r: 0, c: 0 },
+      e: { r: Math.max(maxR, declared ? declared.e.r : 0), c: Math.max(maxC, declared ? declared.e.c : 0) }
+    });
+  }
+}
+function fixStaleWorkbookRanges(workbook){
+  workbook.SheetNames.forEach(sheetName => fixStaleSheetRange(workbook.Sheets[sheetName]));
+}
+
 // สแกนทุกชีทหาชีท "Template" ของ TikTok — อิงคอลัมน์ภายใน (แถวที่ 1 ของไฟล์) แทนหัวตารางที่แสดงผล
 // (product_id/product_name/quantity) กันกรณี TikTok เปลี่ยนภาษา/ข้อความหัวตารางที่แสดงผลในอนาคต
 function findTiktokTemplateSheet(workbook){
@@ -4785,6 +4813,19 @@ function findTiktokTemplateSheet(workbook){
   return best;
 }
 
+// คอลัมน์ "Variation Option" ของ TikTok ไม่เหมือนกันทุกเทมเพลต: เทมเพลต "sales information" ส่งมาเป็นไซส์ล้วนๆ เช่น "33"
+// แต่เทมเพลต "all information" บางไฟล์ส่งมาเป็น "สี, ไซส์" รวมกัน เช่น "ขาว, 25" — ต้องแยกให้ถูกก่อนจับคู่
+// ถ้ามีมากกว่า 1 ส่วน (คั่นด้วย comma) ใช้ parseOptionColorSize เดิม (ตัวเดียวกับที่ใช้แยกไฟล์คำสั่งซื้อ Shopee) แยกสี/ไซส์
+// ถ้ามีส่วนเดียว ถือว่าเป็นไซส์ล้วน (ไม่มีสีในคอลัมน์นี้) แล้วค่อยลองเดาสีจากชื่อสินค้าแทนแบบเดิม
+function parseTiktokVariationValue(raw, productName){
+  const parts = String(raw||'').split(',').map(s=>s.trim()).filter(Boolean);
+  if(parts.length >= 2){
+    const parsed = parseOptionColorSize(raw);
+    return { color: parsed.color || extractColorToken(productName), size: parsed.size };
+  }
+  return { color: extractColorToken(productName), size: normalizeVariantText(raw) };
+}
+
 // อ่านทุกแถวข้อมูลจริงจากชีท Template — แถวคำอธิบาย/หัวข้อแสดงผล/บังคับ-ไม่บังคับด้านบนจะถูกข้ามอัตโนมัติ
 // เพราะคอลัมน์ quantity ของแถวเหล่านั้นไม่ใช่ตัวเลข (toNumOrNull จะได้ null)
 function extractTiktokStockCompareRows(workbook){
@@ -4799,14 +4840,14 @@ function extractTiktokStockCompareRows(workbook){
     const name = col.name!==-1 ? String(row[col.name]||'').trim() : '';
     if(qty === null || !productId || !name) continue;
     const variationRaw = col.variation!==-1 ? String(row[col.variation]||'').trim() : '';
+    const { color, size } = parseTiktokVariationValue(variationRaw, name);
     matched.push({
       rowIndex: i,
       productId, name,
       category: col.category!==-1 ? String(row[col.category]||'').trim() : '',
       skuId: col.skuId!==-1 ? String(row[col.skuId]||'').trim() : '',
       sizeRaw: variationRaw,
-      size: normalizeVariantText(variationRaw),
-      color: extractColorToken(name),
+      size, color,
       sellerSku: col.sellerSku!==-1 ? String(row[col.sellerSku]||'').trim() : '',
       qty
     });
@@ -4819,7 +4860,7 @@ function extractTiktokStockCompareRows(workbook){
 function matchTiktokStockRow(products, skuIndex, row){
   const title = row.name || '';
   const os = row.size;
-  const oc = row.color;
+  const oc = row.color ? canonicalColor(row.color) : ''; // แปลงเป็นรหัสสีกลางก่อนเทียบเสมอ (parseOptionColorSize อาจได้สีดิบยังไม่ได้แปลงมา เช่น "ขาว" ไม่ใช่ "white")
   const byCode = products.filter(p => codeAppearsInTitle(effectiveProductCode(p), title));
   const byCodeVariant = byCode.filter(p => normalizeVariantText(p.size)===os && (!oc || canonicalColor(p.color)===oc));
   if(byCodeVariant.length === 1){
@@ -4944,9 +4985,10 @@ function handleTiktokStockCompareFile(event){
     try{
       const data = new Uint8Array(e.target.result);
       const workbook = XLSX.read(data, {type:'array'});
+      fixStaleWorkbookRanges(workbook); // แก้ !ref ที่บางไฟล์ template ของ TikTok ระบุขอบเขตชีทผิด/ค้าง ก่อนอ่านและก่อนจะเขียนกลับ
       const { rows, sheetInfo } = extractTiktokStockCompareRows(workbook);
       if(!rows.length){
-        toast('ไม่พบข้อมูลสต็อกในไฟล์นี้ — ต้องเป็นไฟล์ "batch edit sales information" ของ TikTok Seller Center (มีคอลัมน์ Product ID / Product name / Quantity)');
+        toast('ไม่พบข้อมูลสต็อกในไฟล์นี้ — ต้องเป็นไฟล์ batch edit ของ TikTok Seller Center ที่มีคอลัมน์ Product ID / Product name / Quantity (รองรับทั้งเทมเพลต "sales information" และ "all information")');
       } else {
         const products = loadProducts();
         const skuIndex = buildLocalSkuIndex(products);
