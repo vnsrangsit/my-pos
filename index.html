@@ -2452,9 +2452,9 @@ function productCardInfoHtml(p){
   if(p.size) variantParts.push('เบอร์' + p.size);
   const variantLine = variantParts.join(' • ');
   return `
-    <div style="font-weight:700;">${codeLine || p.name || ''}</div>
-    ${(codeLine && p.name) ? `<div style="font-size:13px;">${p.name}</div>` : ''}
-    ${variantLine ? `<div class="muted" style="font-size:12px;margin-top:2px;">${variantLine}</div>` : ''}
+    <div style="font-weight:700;">${escapeAttr(codeLine || p.name || '')}</div>
+    ${(codeLine && p.name) ? `<div style="font-size:13px;">${escapeAttr(p.name)}</div>` : ''}
+    ${variantLine ? `<div class="muted" style="font-size:12px;margin-top:2px;">${escapeAttr(variantLine)}</div>` : ''}
   `;
 }
 
@@ -2827,7 +2827,7 @@ function checkNameSuggestion(){
   const similar = findSimilarProduct(name, model, color, size) || findSimilarProductByAlias(name, model, color, size);
   if(similar){
     el.style.display = 'block';
-    el.innerHTML = `มีสินค้าคล้ายกันอยู่แล้ว: <strong>${composeDisplayName(similar.name, similar.model, similar.color, similar.size)}</strong> — <a href="javascript:void(0)" onclick="useSuggestedName('${similar.id}')" style="color:var(--primary);font-weight:700;">ใช่อันนี้ กดเพื่อใช้</a>`;
+    el.innerHTML = `มีสินค้าคล้ายกันอยู่แล้ว: <strong>${escapeAttr(composeDisplayName(similar.name, similar.model, similar.color, similar.size))}</strong> — <a href="javascript:void(0)" onclick="useSuggestedName('${escapeJsStr(similar.id)}')" style="color:var(--primary);font-weight:700;">ใช่อันนี้ กดเพื่อใช้</a>`;
   } else {
     el.style.display = 'none';
   }
@@ -4905,15 +4905,17 @@ function matchTiktokStockRow(products, skuIndex, row){
   return { status:'not-found' };
 }
 
-function tiktokCompareStatusText(status){
-  switch(status){
+// เหมือน shopeeCompareReasonText แต่ย่อให้พอดีในตาราง — บอกรายละเอียดเพิ่มให้กลุ่ม "ต้องตรวจสอบ" ด้วย
+// ไม่งั้นเจ้าของร้านเห็นแค่ "หาไซส์/สีไม่เจอ" เฉยๆ ไม่รู้จะไปแก้ตรงไหน (matchTiktokStockRow เก็บ candidates ไว้ให้อยู่แล้ว)
+function tiktokCompareStatusText(m){
+  switch(m.status){
     case 'match': return '✅ ตรงกันแล้ว';
     case 'mismatch': return '⚠️ จะอัปเดต';
     case 'local-not-tracked': return 'ℹ️ ไม่ได้ติดตามสต็อก';
-    case 'ambiguous-product': return '⚠️ ซ้ำในระบบ';
-    case 'variant-not-found': return '❓ หาไซส์/สีไม่เจอ';
-    case 'name-found-variant-missing': return '❓ หาไซส์/สีไม่เจอ';
-    default: return '❌ หาไม่เจอในระบบ';
+    case 'ambiguous-product': return `⚠️ พบสินค้าที่รหัส+ไซส์(+สี)ตรงกันในระบบซ้ำกัน ${m.candidates.length} รายการ`;
+    case 'variant-not-found': return `❓ พบรุ่นตรงกัน (${m.candidates.length} รายการ) แต่หาไซส์/สีที่ตรงไม่เจอ`;
+    case 'name-found-variant-missing': return '❓ พบชื่อใกล้เคียง แต่หาไซส์/สีที่ตรงไม่เจอ';
+    default: return '❌ หาไม่เจอในระบบเลย (รหัส/SKU/ชื่อ)';
   }
 }
 
@@ -4936,6 +4938,7 @@ function renderTiktokCompareModal(){
   const g = groupTiktokCompareResults(tiktokCompareResults);
   const willUpdateCount = g.mismatch.length; // มีแค่กลุ่ม mismatch เท่านั้นที่ตัวเลขจะเปลี่ยนจริงตอนดาวน์โหลด (match คือเลขเท่ากันอยู่แล้ว)
   document.getElementById('tiktokCompareSummary').textContent =
+    (tiktokCompareSheetInfo && tiktokCompareSheetInfo.sheetName ? `อ่านจากชีท "${tiktokCompareSheetInfo.sheetName}" — ` : '') +
     `ทั้งหมด ${tiktokCompareResults.length} รายการ — ✅ ตรงกันแล้ว ${g.match.length} · ⚠️ จะอัปเดต ${g.mismatch.length} · ❓ ต้องตรวจสอบ ${g.needsCheck.length} · ❌ หาไม่เจอ ${g.notFound.length}` +
     (g.notTracked.length ? ` · ℹ️ ไม่ได้ติดตามสต็อก ${g.notTracked.length}` : '');
   document.getElementById('tiktokCompareTopActions').innerHTML =
@@ -4948,7 +4951,7 @@ function renderTiktokCompareModal(){
   const trs = rowsSorted.map(r=>{
     const row = r.row, m = r.match;
     const p = m.product;
-    const label = p ? (p.name || [p.brand, p.code, p.model, p.color].filter(Boolean).join(' · ')) : escapeAttr(row.name);
+    const label = p ? (p.name || [p.brand, p.code, p.model, p.color].filter(Boolean).join(' · ')) : row.name; // escapeAttr ทำตอน render ลง <td> ทีเดียวด้านล่าง ไม่ต้อง escape ซ้อนตรงนี้
     const sysStock = p ? ((p.stock===null||p.stock===undefined) ? '-' : p.stock) : '-';
     const diff = (p && typeof p.stock === 'number') ? (p.stock - row.qty) : null;
     const diffText = diff === null ? '-' : (diff > 0 ? `+${diff}` : String(diff));
@@ -4959,7 +4962,7 @@ function renderTiktokCompareModal(){
       <td>${row.qty}</td>
       <td>${sysStock}</td>
       <td>${diffText}</td>
-      <td>${tiktokCompareStatusText(m.status)}</td>
+      <td>${tiktokCompareStatusText(m)}</td>
     </tr>`;
   }).join('');
   document.getElementById('tiktokCompareTableWrap').innerHTML = tiktokCompareResults.length
@@ -5131,15 +5134,16 @@ function extractShopeeOrderRows(workbook, mode){
 // ถ้าเทียบตรงๆ ไม่เจอ และรหัสลงท้ายด้วยตัวเลข จะลองตัดตัวเลขท้ายออก 1 ตัวแล้วเช็คอีกครั้ง โดยต้องตามด้วยขอบเขตคำ (ไม่ใช่ตัวอักษร/ตัวเลขอื่นต่อท้าย) กันจับคู่รหัสอื่นที่ยาวกว่าโดยบังเอิญ
 function codeAppearsInTitle(code, title){
   if(!code) return false;
-  const c = code.trim();
+  const c = code.trim().toLowerCase(); // เทียบแบบไม่สนตัวพิมพ์เล็ก/ใหญ่ กันกรณีรหัสในระบบกับในไฟล์ Shopee/TikTok สะกดตัวพิมพ์ไม่ตรงกัน (เช่น cd88 vs CD88)
   if(!c) return false;
-  if(title.includes(c)) return true;
+  const t = String(title||'').toLowerCase();
+  if(t.includes(c)) return true;
   if(/\d$/.test(c)){
     const short = c.slice(0, -1);
     if(short){
       const escaped = short.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const re = new RegExp(escaped + '(?![0-9A-Za-z])');
-      if(re.test(title)) return true;
+      if(re.test(t)) return true;
     }
   }
   return false;
@@ -5419,9 +5423,9 @@ function closeImportModal(){
 // สร้างข้อความ badge เตือนตรวจสอบซ้ำ/ตรงกับสินค้าเดิม ต่อแถว โดยใช้ Matching Engine เทียบกับสินค้าที่มีอยู่แล้วในระบบ (ยังไม่รวมแถวอื่นในไฟล์เดียวกัน — คำนวณจริงตอนกดยืนยันนำเข้าอีกที)
 function importRowMatchBadgeHtml(r){
   const cls = classifyImportRow(loadProducts(), r);
-  if(cls.status === 'exact') return `<div class="alert-banner" style="margin-bottom:8px;background:var(--success-tint);color:var(--success);font-size:12px;">✓ ตรงกับสินค้าเดิม "${composeDisplayName(cls.product.name, cls.product.model, cls.product.color, cls.product.size)}" — จะอัปเดตจำนวน/ราคาทับของเดิม</div>`;
-  if(cls.status === 'exact-new-variant') return `<div class="alert-banner" style="margin-bottom:8px;background:var(--primary-tint,#E8F0FE);color:var(--primary);font-size:12px;">＋ เพิ่มสี/เบอร์ใหม่ให้สินค้าเดิม "${cls.family.representative.name}"</div>`;
-  if(cls.status === 'similar' || cls.status === 'multiple') return `<div class="alert-banner" style="margin-bottom:8px;background:var(--warning-tint,#FFF4E0);color:var(--warning,#B8791A);font-size:12px;">⚠️ ชื่อ/รหัสใกล้เคียงสินค้าเดิม: ${cls.families.map(f=>f.representative.name).join(', ')} — ตรวจสอบก่อนนำเข้าว่าใช่ตัวเดียวกันไหม</div>`;
+  if(cls.status === 'exact') return `<div class="alert-banner" style="margin-bottom:8px;background:var(--success-tint);color:var(--success);font-size:12px;">✓ ตรงกับสินค้าเดิม "${escapeAttr(composeDisplayName(cls.product.name, cls.product.model, cls.product.color, cls.product.size))}" — จะอัปเดตจำนวน/ราคาทับของเดิม</div>`;
+  if(cls.status === 'exact-new-variant') return `<div class="alert-banner" style="margin-bottom:8px;background:var(--primary-tint,#E8F0FE);color:var(--primary);font-size:12px;">＋ เพิ่มสี/เบอร์ใหม่ให้สินค้าเดิม "${escapeAttr(cls.family.representative.name)}"</div>`;
+  if(cls.status === 'similar' || cls.status === 'multiple') return `<div class="alert-banner" style="margin-bottom:8px;background:var(--warning-tint,#FFF4E0);color:var(--warning,#B8791A);font-size:12px;">⚠️ ชื่อ/รหัสใกล้เคียงสินค้าเดิม: ${escapeAttr(cls.families.map(f=>f.representative.name).join(', '))} — ตรวจสอบก่อนนำเข้าว่าใช่ตัวเดียวกันไหม</div>`;
   return '';
 }
 function renderImportPreview(){
@@ -5764,9 +5768,9 @@ function renderFamilyCandidateListHtml(candidates){
     const aliasText = fam.aliases.length ? `ชื่อเรียกอื่น: ${fam.aliases.map(a=>a.alias).join(', ')}` : '';
     return `
       <div class="list-card" style="cursor:pointer;" onclick="stockTxPickFamilyByIndex(${i})">
-        <div style="font-weight:700;">${rep.name}</div>
-        ${sub ? `<div class="muted" style="font-size:12px;">${sub}</div>` : ''}
-        ${aliasText ? `<div class="muted" style="font-size:12px;">${aliasText}</div>` : ''}
+        <div style="font-weight:700;">${escapeAttr(rep.name)}</div>
+        ${sub ? `<div class="muted" style="font-size:12px;">${escapeAttr(sub)}</div>` : ''}
+        ${aliasText ? `<div class="muted" style="font-size:12px;">${escapeAttr(aliasText)}</div>` : ''}
         <div class="muted" style="font-size:12px;margin-top:4px;">${fam.products.length} SKU (สี/ไซส์)</div>
       </div>
     `;
@@ -5781,20 +5785,20 @@ function renderStockTxSelectedFamilyHtml(){
   if(!s.selectedProduct){
     const chips = fam.products.map((p, i)=>{
       const label = [p.color ? 'สี '+p.color : '', p.size ? 'เบอร์ '+p.size : ''].filter(Boolean).join(' · ') || 'ไม่ระบุ';
-      return `<button type="button" class="chip" onclick="stockTxPickVariantByIndex(${i})">${label}</button>`;
+      return `<button type="button" class="chip" onclick="stockTxPickVariantByIndex(${i})">${escapeAttr(label)}</button>`;
     }).join('');
     variantHtml = `<div class="field"><label>เลือกสี/ไซส์</label><div class="chip-row">${chips}</div></div>`;
   }
   const selectedBadge = s.selectedProduct
-    ? `<span class="badge" style="margin-top:8px;">${[s.selectedProduct.color?('สี '+s.selectedProduct.color):'', s.selectedProduct.size?('เบอร์ '+s.selectedProduct.size):''].filter(Boolean).join(' · ') || 'เลือกแล้ว'}</span>`
+    ? `<span class="badge" style="margin-top:8px;">${escapeAttr([s.selectedProduct.color?('สี '+s.selectedProduct.color):'', s.selectedProduct.size?('เบอร์ '+s.selectedProduct.size):''].filter(Boolean).join(' · ') || 'เลือกแล้ว')}</span>`
     : '';
   const qtyHtml = s.selectedProduct ? renderStockTxQtyHtml() : '';
   return `
     <div class="list-card">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
         <div>
-          <div style="font-weight:700;">${rep.name}</div>
-          ${sub ? `<div class="muted" style="font-size:12px;">${sub}</div>` : ''}
+          <div style="font-weight:700;">${escapeAttr(rep.name)}</div>
+          ${sub ? `<div class="muted" style="font-size:12px;">${escapeAttr(sub)}</div>` : ''}
         </div>
         <button type="button" class="btn-link" style="flex:0 0 auto;" onclick="stockTxResetSelection()">เปลี่ยน</button>
       </div>
@@ -5934,9 +5938,9 @@ function buildTxRowHtml(t){
     <div class="tx-row">
       <div>
         <span class="tx-type-badge tx-type-${t.type}">${(TX_TYPES[t.type]||{}).label || t.type}</span>
-        <div class="muted" style="font-size:12px;margin-top:4px;">${composeDisplayName(t.name, '', t.color, t.size)}${(t.brand||t.code) ? ' · '+[t.brand,t.code].filter(Boolean).join(' ') : ''}</div>
+        <div class="muted" style="font-size:12px;margin-top:4px;">${escapeAttr(composeDisplayName(t.name, '', t.color, t.size))}${(t.brand||t.code) ? ' · '+escapeAttr([t.brand,t.code].filter(Boolean).join(' ')) : ''}</div>
         <div class="muted" style="font-size:12px;">${new Date(t.timestamp).toLocaleString('th-TH')}</div>
-        ${t.note ? `<div class="muted" style="font-size:12px;">${displayTxNote(t.note)}</div>` : ''}
+        ${t.note ? `<div class="muted" style="font-size:12px;">${escapeAttr(displayTxNote(t.note))}</div>` : ''}
         <div style="margin-top:4px;">${txRowActionsHtml(t)}</div>
       </div>
       <div style="text-align:right;">
@@ -6053,12 +6057,12 @@ function openEditPurchaseTx(txId){
   editPurchaseTxId = txId;
   const body = document.getElementById('editPurchaseTxBody');
   body.innerHTML = `
-    <div class="muted" style="margin-bottom:10px;">${tx.name || ''}${tx.color?' สี'+tx.color:''}${tx.size?' เบอร์'+tx.size:''} · รับเข้าเมื่อ ${new Date(tx.timestamp).toLocaleString('th-TH')}</div>
+    <div class="muted" style="margin-bottom:10px;">${escapeAttr((tx.name || '')+(tx.color?' สี'+tx.color:'')+(tx.size?' เบอร์'+tx.size:''))} · รับเข้าเมื่อ ${new Date(tx.timestamp).toLocaleString('th-TH')}</div>
     <div class="field">
       <label>จำนวนที่รับเข้า (${tx.inputUnit})</label>
       <input type="number" id="eptQty" value="${tx.inputQuantity}" min="0" step="1">
     </div>
-    ${tx.note ? `<div class="muted" style="font-size:12px;">หมายเหตุเดิม: ${tx.note}</div>` : ''}
+    ${tx.note ? `<div class="muted" style="font-size:12px;">หมายเหตุเดิม: ${escapeAttr(tx.note)}</div>` : ''}
   `;
   document.getElementById('edit-purchase-tx-sheet-overlay').classList.add('open');
 }
@@ -6174,7 +6178,7 @@ function renderSalesList(){
       <div>
         <div>${new Date(s.timestamp).toLocaleString('th-TH')}</div>
         <div class="muted">${s.items.map(i=>
-          `${i.name} x${i.qty}` + (i.productId ? ` <a href="javascript:void(0)" onclick="openBulkAddFromProduct('${i.productId}')" style="color:var(--primary);font-weight:700;">+SKU</a>` : '')
+          `${escapeAttr(i.name)} x${i.qty}` + (i.productId ? ` <a href="javascript:void(0)" onclick="openBulkAddFromProduct('${escapeJsStr(i.productId)}')" style="color:var(--primary);font-weight:700;">+SKU</a>` : '')
         ).join(', ')}</div>
         <div class="muted">กำไร ฿${(s.profit||0).toFixed(2)} · ${s.seller || 'ไม่ระบุผู้ขาย'} · ${s.payment || 'เงินสด'} · ${s.channel || 'หน้าร้าน'}${s.orderId ? ' · เลขที่ออเดอร์ '+escapeAttr(s.orderId) : ''}</div>
       </div>
@@ -6198,7 +6202,7 @@ function openEditSale(saleId){
     <div class="btn-row">
       <div class="field" style="flex:1;margin-bottom:0;">
         <label>ผู้ขาย</label>
-        <input type="text" id="esSeller" value="${(sale.seller||'').replace(/"/g,'&quot;')}">
+        <input type="text" id="esSeller" value="${escapeAttr(sale.seller||'')}">
       </div>
       <div class="field" style="flex:1;margin-bottom:0;">
         <label>ชำระโดย</label>
@@ -6225,7 +6229,7 @@ function openEditSale(saleId){
       ${sale.items.map((i,idx)=>`
         <div class="cart-item" id="esItem_${idx}">
           <div style="flex:1;">
-            <div>${i.name}</div>
+            <div>${escapeAttr(i.name)}</div>
             <div class="btn-row" style="margin-top:6px;">
               <input type="number" id="esQty_${idx}" value="${i.qty}" min="0" step="1" style="width:70px;" placeholder="จำนวน">
               <input type="number" id="esPrice_${idx}" value="${i.price}" min="0" step="0.01" style="flex:1;" placeholder="ราคา/ชิ้น">
@@ -6455,7 +6459,7 @@ function renderStockMovementReport(range){
   el.innerHTML = `
     ${Object.keys(TX_TYPES).map(t => `<div class="cart-item"><div><span class="tx-type-badge tx-type-${t}">${TX_TYPES[t].label}</span></div><span class="num">${typeTotals[t]} ${BASE_UNIT}</span></div>`).join('')}
     ${topMoved.length ? `<div style="margin-top:10px;"><div class="muted" style="margin-bottom:6px;">สินค้าที่เคลื่อนไหวมากสุด</div>` +
-      topMoved.map(m=>`<div class="cart-item"><div>${m.name}${m.color?' สี'+m.color:''}${m.size?' เบอร์'+m.size:''} (${m.count} รายการ)</div><span class="num" style="color:${m.net<0?'var(--danger)':'var(--success)'};">${m.net>0?'+':''}${m.net} ${BASE_UNIT}</span></div>`).join('') + `</div>` : ''}
+      topMoved.map(m=>`<div class="cart-item"><div>${escapeAttr((m.name||'')+(m.color?' สี'+m.color:'')+(m.size?' เบอร์'+m.size:''))} (${m.count} รายการ)</div><span class="num" style="color:${m.net<0?'var(--danger)':'var(--success)'};">${m.net>0?'+':''}${m.net} ${BASE_UNIT}</span></div>`).join('') + `</div>` : ''}
   `;
 }
 // สรุปสต็อกคงเหลือทั้งหมด รวมทุกเบอร์/ทุกสีเข้าเป็นยอดต่อ "รุ่น" (ใช้ brand+model เป็นตัวจัดกลุ่ม กันรุ่นเลขซ้ำกันข้ามยี่ห้อ)
@@ -7056,8 +7060,8 @@ function renderRestoreDeletedModalList(){
   el.innerHTML = items.map(t => `
     <div class="cart-item" style="align-items:flex-start;flex-wrap:wrap;gap:8px;">
       <div style="flex:1;min-width:160px;">
-        <div>${composeDisplayName(t.name, '', t.color, t.size)}</div>
-        <div class="muted" style="font-size:12px;">${[t.brand, t.code].filter(Boolean).join(' · ')}${t.sku ? ' · SKU: '+t.sku : ''}</div>
+        <div>${escapeAttr(composeDisplayName(t.name, '', t.color, t.size))}</div>
+        <div class="muted" style="font-size:12px;">${escapeAttr([t.brand, t.code].filter(Boolean).join(' · '))}${t.sku ? ' · SKU: '+escapeAttr(t.sku) : ''}</div>
         <div class="muted" style="font-size:12px;">สต็อกล่าสุดก่อนลบ: ${t.stockBefore} ${BASE_UNIT} · ลบเมื่อ ${new Date(t.timestamp).toLocaleString('th-TH')}</div>
       </div>
       <div class="btn-row" style="flex-wrap:wrap;justify-content:flex-end;">
