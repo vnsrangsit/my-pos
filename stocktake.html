@@ -258,8 +258,9 @@
         <button type="button" class="btn btn-outline" style="flex:1;" onclick="copyReportText()">📋 คัดลอกข้อความ</button>
         <button type="button" class="btn btn-outline" style="flex:1;" onclick="clearReportLog()">ล้างรายงาน/เริ่มรอบใหม่</button>
       </div>
-      <div style="display:none;gap:8px;width:100%;" id="reportFooterSummary">
-        <button type="button" class="btn btn-outline btn-full" onclick="copyNetSummaryText()">📋 คัดลอกยอดสุทธิ</button>
+      <div style="display:none;gap:8px;width:100%;flex-wrap:wrap;" id="reportFooterSummary">
+        <button type="button" class="btn btn-outline" style="flex:1 1 45%;min-width:130px;" onclick="copyNetSummaryText()">📋 คัดลอกยอดสุทธิ</button>
+        <button type="button" class="btn btn-primary" style="flex:1 1 45%;min-width:130px;" onclick="downloadShopeeUpdateFromNetSummary()">⬆️ ไฟล์อัปเดต Shopee</button>
       </div>
       <div style="display:none;gap:8px;width:100%;" id="reportFooterShopee">
         <button type="button" class="btn btn-outline btn-full" onclick="fetchShopeeCompareQueue()">🔄 ดึงรายการล่าสุดจากเจ้าของร้าน</button>
@@ -761,6 +762,8 @@ function confirmQtyChange(){
       id: uid(), productId: p.id, name: p.name, model: p.model||'', color: p.color||'', size: p.size||'',
       before, after: newQty, diff: newQty - before, timestamp: new Date().toISOString()
     });
+    // ตัวเลขเปลี่ยนจริง (ไม่ใช่แค่เปิดชีทแล้วกดยืนยันเลขเดิม) -> เข้าคิวรอส่งออกไป Shopee ด้วยเลย ไม่ต้องรอเทียบไฟล์ Shopee ก่อน
+    queueProductForShopeeExport(p);
   }
   toast('บันทึกแล้ว');
   closeQtySheet();
@@ -829,6 +832,8 @@ function confirmAddSize(){
       id: uid(), productId: newProduct.id, name: newProduct.name, model: newProduct.model, color: newProduct.color, size: newProduct.size,
       before: 0, after: qtyVal, diff: qtyVal, timestamp: new Date().toISOString()
     });
+    // มีจำนวนจริง (ไม่ใช่แค่เพิ่มเบอร์ว่างไว้ก่อน) -> เข้าคิวรอส่งออกไป Shopee ด้วยเช่นกัน (เผื่อเบอร์นี้มีอยู่ใน Shopee แล้วแค่ยังไม่เคยเทียบ)
+    queueProductForShopeeExport(newProduct);
   }
   toast(`เพิ่มเบอร์ ${sizeVal} แล้ว`);
   closeAddSizeSheet();
@@ -896,6 +901,7 @@ function computeNetStockSummary(fromDateTime, toDateTime){
     const first = g.txs[0], last = g.txs[g.txs.length-1];
     const p = g.productId ? productById[g.productId] : null;
     return {
+      productId: g.productId, sku: p ? (p.sku||'') : '',
       name: g.name, model: p ? (p.model||'') : '', color: g.color, size: g.size, brand: g.brand,
       before: first.stockBefore, after: last.stockAfter, net: last.stockAfter - first.stockBefore, count: g.txs.length,
     };
@@ -967,6 +973,55 @@ async function copyNetSummaryText(){
     toast('คัดลอกอัตโนมัติไม่ได้ กดเลือกข้อความในกล่องด้านบนแล้วคัดลอกเองได้เลย');
   }
 }
+function chunkArray(arr, size){
+  const out = [];
+  for(let i=0;i<arr.length;i+=size) out.push(arr.slice(i, i+size));
+  return out;
+}
+// สร้างไฟล์อัปเดต Shopee ตรงจาก "ยอดสุทธิ" ในช่วงเวลาที่เลือก (ใช้ตัวเลข "สิ้นสุด" ของแต่ละสินค้า เช่น เริ่ม 1 สิ้นสุด 7 สุทธิ +6 -> ใช้ 7 ไม่ใช่ 6)
+// ใช้โครงสร้างไฟล์ Shopee เดียวกับที่เจ้าของร้านเทียบไว้แล้ว (เก็บถาวรใน Supabase ตาราง shopee_export_meta/shopee_export_rows หน้านี้แค่ไปดึงมาใช้ ไม่ต้องอัปโหลดไฟล์เอง)
+async function downloadShopeeUpdateFromNetSummary(){
+  const from = document.getElementById('netSummaryFrom').value;
+  const to = document.getElementById('netSummaryTo').value;
+  if(!from || !to){ toast('เลือกช่วงเวลาก่อน'); return; }
+  const rows = computeNetStockSummary(from, to).filter(r => r.net !== 0 && r.productId);
+  if(!rows.length){ toast('ไม่มีรายการที่สุทธิเปลี่ยนแปลงในช่วงเวลานี้'); return; }
+  if(!supabaseClient || !currentOwnerId){ toast('ยังไม่ได้เชื่อมต่อ Supabase'); return; }
+  toast(`กำลังสร้างไฟล์ ${rows.length} รายการ...`);
+  try{
+    const { data: metaRow, error: metaErr } = await supabaseClient.from('shopee_export_meta').select('*').eq('owner_id', currentOwnerId).maybeSingle();
+    if(metaErr) throw metaErr;
+    if(!metaRow){ toast('ยังไม่เคยมีการเทียบไฟล์ Shopee เลยสักครั้ง — ให้เจ้าของร้านอัปโหลดไฟล์ Shopee เทียบสต็อกที่หน้าหลักอย่างน้อย 1 ครั้งก่อน'); return; }
+    const templateRowsById = {};
+    for(const chunk of chunkArray(rows.map(r=>r.productId), 200)){
+      const { data: rowsData, error: rowsErr } = await supabaseClient.from('shopee_export_rows').select('*').eq('owner_id', currentOwnerId).in('id', chunk);
+      if(rowsErr) throw rowsErr;
+      (rowsData || []).forEach(r => { templateRowsById[r.id] = r.row; });
+    }
+    const headerRows = metaRow.header_rows || [];
+    const stockCol = metaRow.stock_col;
+    const outRows = headerRows.slice();
+    const skipped = [];
+    rows.forEach(r=>{
+      const tmplRow = templateRowsById[r.productId];
+      if(!tmplRow){ skipped.push(r); return; }
+      const outRow = tmplRow.slice();
+      outRow[stockCol] = r.after; // ใช้ยอด "สิ้นสุด" ไม่ใช่ผลต่างสุทธิ
+      outRows.push(outRow);
+    });
+    const usedCount = rows.length - skipped.length;
+    if(usedCount === 0){ toast('ทุกรายการยังไม่เคยเทียบกับไฟล์ Shopee มาก่อนเลย ให้เจ้าของร้านอัปโหลดไฟล์ Shopee เทียบสต็อกก่อน'); return; }
+    const ws = XLSX.utils.aoa_to_sheet(outRows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, metaRow.sheet_name || 'Sheet1');
+    const stamp = new Date().toISOString().slice(0,16).replace(/[:T]/g,'-');
+    XLSX.writeFile(wb, `shopee_stock_update_${stamp}.xlsx`);
+    toast(`สร้างไฟล์อัปเดต ${usedCount} รายการแล้ว` + (skipped.length ? ` (ข้าม ${skipped.length} รายการที่ยังไม่เคยเทียบกับ Shopee มาก่อนเลย)` : ''));
+  }catch(err){
+    console.error(err);
+    toast('สร้างไฟล์ไม่สำเร็จ: ' + ((err && err.message) || String(err)));
+  }
+}
 
 /* ============ อัปเดต Shopee — รับผลเทียบสต็อกจากฝั่งเจ้าของร้าน (index.html อัปโหลดไฟล์ Shopee เทียบแล้วส่งมาที่นี่ผ่าน Supabase)
    หน้านี้ไม่ต้องอัปโหลดไฟล์ Shopee เอง (พนักงานไม่มีไฟล์) แค่กด "ดึงรายการล่าสุด" แล้วเช็คสต็อกจริงทีละรายการ เลือกทางใดทางหนึ่งเสมอ:
@@ -1012,6 +1067,30 @@ async function fetchShopeeCompareQueue(){
 // ครอบทั้งฟังก์ชันด้วย try/catch เสมอ กันเคสที่ localStorage เต็ม (ประวัติปรับสต็อกสะสมมาก ๆ) หรือเน็ตหลุดกลางทาง ทำให้ค้าง/พังเงียบๆ โดยไม่มี toast แจ้งเลย
 // เช็คสดจาก Supabase ว่ารายการนี้ยังอยู่จริงไหมก่อนลงมือจริง (ไม่ใช่แค่เช็คในเครื่องตัวเอง) — กันเคสมีพนักงานหลายคน/หลายเครื่องเห็นลิสต์เดียวกัน
 // แล้วบังเอิญกดรายการเดิมพร้อมกัน เครื่องที่กดหลังจะได้รู้ว่ามีคนจัดการไปแล้วจริงๆ ไม่ใช่แค่ข้อมูลเก่าค้างอยู่ในเครื่องตัวเอง
+// เดิมมีแต่รายการที่เจ้าของร้านส่งมาเทียบกับ Shopee ก่อนเท่านั้นที่เข้าคิวส่งออกได้ ถ้าพนักงานปรับสต็อกปกติ (หน้าเช็คสต็อกทั่วไป/เพิ่มเบอร์/+-) จะไม่มีทางไปเข้าคิว Shopee เลย
+// ฟังก์ชันนี้เรียกแบบไม่รอผล (fire-and-forget) ต่อท้ายการปรับสต็อกปกติทุกครั้งที่ตัวเลขเปลี่ยนจริง เพื่อให้เข้าคิว "รอส่งออกไป Shopee" อัตโนมัติเหมือนเส้นทางเทียบสต็อก โดยไม่ต้องมีขั้นตอนพิเศษเพิ่ม
+// ถ้ารายการนี้เคยถูกเทียบกับ Shopee มาก่อนแล้ว (มีเลข shopee_stock ที่รู้แน่ชัดอยู่แล้ว) จะคงเลขนั้นไว้ ไม่ทับเป็นค่าว่าง — แค่รีเฟรชเลข our_stock ให้เป็นค่าล่าสุด
+// ถ้าเน็ตหลุด/ยังไม่ล็อกอิน จะแค่ log error เงียบๆ ไม่กระทบการปรับสต็อกหลักที่ทำสำเร็จไปแล้ว (ไม่ throw ออกไปนอกฟังก์ชัน)
+async function queueProductForShopeeExport(product){
+  if(!supabaseClient || !currentOwnerId || !product) return;
+  try{
+    const { data: existing } = await supabaseClient.from('shopee_compare_queue')
+      .select('shopee_stock').eq('owner_id', currentOwnerId).eq('id', product.id).maybeSingle();
+    const row = {
+      id: product.id, owner_id: currentOwnerId,
+      brand: product.brand || null, model: product.model || null, color: product.color || null, size: product.size || null,
+      sku: product.sku || null,
+      our_stock: product.stock,
+      shopee_stock: existing ? existing.shopee_stock : null,
+      status: 'queued_export', updated_at: new Date().toISOString()
+    };
+    const { error } = await supabaseClient.from('shopee_compare_queue').upsert(row);
+    if(error) throw error;
+  }catch(err){
+    console.error('เข้าคิว Shopee export อัตโนมัติไม่สำเร็จ (ไม่กระทบการปรับสต็อกที่บันทึกไปแล้ว):', err);
+  }
+}
+
 async function fetchLiveQueueRow(id){
   if(!supabaseClient || !currentOwnerId) return undefined; // ออฟไลน์/ยังไม่ล็อกอิน ข้ามการเช็คสด ใช้ข้อมูลในเครื่องแทน
   const { data, error } = await supabaseClient.from('shopee_compare_queue').select('*').eq('owner_id', currentOwnerId).eq('id', id).maybeSingle();
