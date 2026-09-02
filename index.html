@@ -4304,7 +4304,8 @@ function shopeeMismatchRowCardHtml(r, idx){
   const row = r.row, p = r.match.product;
   const diff = r.match.localStock - row.stock;
   const diffText = diff === 0 ? 'เท่ากันแล้ว' : diff > 0 ? `ระบบมากกว่า Shopee ${diff}` : `ระบบน้อยกว่า Shopee ${Math.abs(diff)}`;
-  const label = [p.brand, p.model, p.color].filter(Boolean).join(' · ') || p.name;
+  // ใช้ชื่อเต็มของสินค้าเป็นหลักก่อนเสมอ (ไม่ใช่แค่ยี่ห้อ+รุ่น+สี) กันเคสสินค้าไม่ได้กรอกช่อง "รุ่น"/"รหัส" ไว้ แล้วสองรุ่นที่ต่างกันจริงๆ ดูเหมือนเป็นการ์ดเดียวกัน (เช่น "Baoji · ขาว" ซ้ำกัน แยกไม่ออกว่าคนละรุ่น)
+  const label = p.name || [p.brand, p.code, p.model, p.color].filter(Boolean).join(' · ');
   return `<div class="import-row" style="margin-bottom:8px;">
     <div style="font-weight:700;font-size:13.5px;margin-bottom:2px;">${escapeAttr(label)}</div>
     <div class="muted" style="font-size:12px;margin-bottom:6px;">เบอร์ ${escapeAttr(p.size||'-')} · SKU: ${escapeAttr(p.sku||row.sku||'-')}</div>
@@ -4372,8 +4373,8 @@ async function pushShopeeMismatchToStocktake(){
     const p = r.match.product;
     return {
       id: p.id, owner_id: currentOwnerId,
-      brand: p.brand || null, model: p.model || null, color: p.color || null, size: p.size || null,
-      sku: p.sku || r.row.sku || null,
+      brand: p.brand || null, code: p.code || null, model: p.model || null, color: p.color || null, size: p.size || null,
+      sku: p.sku || r.row.sku || null, name: p.name || null,
       our_stock: r.match.localStock, shopee_stock: r.row.stock,
       status: 'open', updated_at: new Date().toISOString()
     };
@@ -4594,11 +4595,11 @@ function renderShopeeCompareModal(){
   if(totalQueuedCount){
     const localRows = localQueuedList.map(r=>{
       const p = r.match.product;
-      const label = [p.brand, p.model, p.color, p.size].filter(Boolean).join(' · ') || p.name;
+      const label = (p.name || [p.brand, p.code, p.model, p.color].filter(Boolean).join(' · ')) + (p.size ? ' · เบอร์ '+p.size : '');
       return `<div class="queued-review-row"><span>${escapeAttr(label)} — <strong>${p.stock}</strong> คู่ <span class="muted" style="font-size:11px;">(ติ๊กในเครื่องนี้)</span></span><button type="button" class="queued-review-remove" onclick="toggleShopeeUpdateQueue(${idxOf(r)}, false)">✕</button></div>`;
     }).join('');
     const remoteRows = shopeeCompareRemoteQueuedRows.map(row=>{
-      const label = [row.brand, row.model, row.color, row.size].filter(Boolean).join(' · ') || '(ไม่มีชื่อ)';
+      const label = (row.name || [row.brand, row.code, row.model, row.color].filter(Boolean).join(' · ') || '(ไม่มีชื่อ)') + (row.size ? ' · เบอร์ '+row.size : '');
       return `<div class="queued-review-row"><span>${escapeAttr(label)} — <strong>${row.our_stock}</strong> คู่ <span class="muted" style="font-size:11px;">(พนักงานส่งมา)</span></span><button type="button" class="queued-review-remove" onclick="cancelRemoteQueuedItem('${escapeJsStr(row.id)}')">✕</button></div>`;
     }).join('');
     html += `<details open style="margin:10px 0;border:1px solid var(--border);border-radius:10px;padding:8px 10px;">

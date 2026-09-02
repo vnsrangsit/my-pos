@@ -1088,8 +1088,8 @@ async function queueProductForShopeeExport(product){
       .select('shopee_stock').eq('owner_id', currentOwnerId).eq('id', product.id).maybeSingle();
     const row = {
       id: product.id, owner_id: currentOwnerId,
-      brand: product.brand || null, model: product.model || null, color: product.color || null, size: product.size || null,
-      sku: product.sku || null,
+      brand: product.brand || null, code: product.code || null, model: product.model || null, color: product.color || null, size: product.size || null,
+      sku: product.sku || null, name: product.name || null,
       our_stock: product.stock,
       shopee_stock: existing ? existing.shopee_stock : null,
       status: 'queued_export', updated_at: new Date().toISOString()
@@ -1229,7 +1229,8 @@ function renderShopeeQueueResult(){
     return;
   }
   const cardsHtml = sorted.map(row=>{
-    const label = [row.brand, row.model, row.color].filter(Boolean).join(' · ') || '(ไม่มีชื่อ)';
+    // ใช้ชื่อเต็มของสินค้าเป็นหลักก่อนเสมอ กันเคสไม่ได้กรอกช่อง "รุ่น"/"รหัส" ไว้ แล้วสองรุ่นที่ต่างกันจริงๆ ดูเหมือนเป็นการ์ดเดียวกัน (เช่น "Baoji · ขาว" ซ้ำกันหลายใบ แยกไม่ออกว่าคนละรุ่น)
+    const label = row.name || [row.brand, row.code, row.model, row.color].filter(Boolean).join(' · ') || '(ไม่มีชื่อ)';
     const diff = row.our_stock - row.shopee_stock;
     const diffCls = diff > 0 ? 'diff-pos' : (diff < 0 ? 'diff-neg' : '');
     const diffText = diff === 0 ? 'เท่ากันแล้ว' : diff > 0 ? `ระบบมากกว่า Shopee ${diff}` : `ระบบน้อยกว่า Shopee ${Math.abs(diff)}`;
