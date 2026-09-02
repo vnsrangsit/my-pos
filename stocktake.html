@@ -1230,7 +1230,7 @@ function renderShopeeQueueResult(){
   }
   const cardsHtml = sorted.map(row=>{
     // ใช้ชื่อเต็มของสินค้าเป็นหลักก่อนเสมอ กันเคสไม่ได้กรอกช่อง "รุ่น"/"รหัส" ไว้ แล้วสองรุ่นที่ต่างกันจริงๆ ดูเหมือนเป็นการ์ดเดียวกัน (เช่น "Baoji · ขาว" ซ้ำกันหลายใบ แยกไม่ออกว่าคนละรุ่น)
-    const label = row.name || [row.brand, row.code, row.model, row.color].filter(Boolean).join(' · ') || '(ไม่มีชื่อ)';
+    const label = row.name || [row.brand, row.code, row.model].filter(Boolean).join(' · ') || '(ไม่มีชื่อ)'; // สีโชว์แยกที่บรรทัดล่างเสมอ (ไม่ต่อรวมในนี้ กันโชว์ซ้ำ)
     const diff = row.our_stock - row.shopee_stock;
     const diffCls = diff > 0 ? 'diff-pos' : (diff < 0 ? 'diff-neg' : '');
     const diffText = diff === 0 ? 'เท่ากันแล้ว' : diff > 0 ? `ระบบมากกว่า Shopee ${diff}` : `ระบบน้อยกว่า Shopee ${Math.abs(diff)}`;
@@ -1252,7 +1252,7 @@ function renderShopeeQueueResult(){
         </div>`;
     return `<div class="shopee-recon-card">
       <div class="shopee-recon-name">${escapeHtml(label)}</div>
-      <div class="shopee-recon-sub">เบอร์ ${escapeHtml(row.size||'-')} · SKU: ${escapeHtml(row.sku||'-')}</div>
+      <div class="shopee-recon-sub">${row.color ? 'สี '+escapeHtml(row.color)+' · ' : ''}เบอร์ ${escapeHtml(row.size||'-')} · SKU: ${escapeHtml(row.sku||'-')}</div>
       <div class="shopee-recon-nums">
         <div>ระบบ <strong>${row.our_stock}</strong></div>
         <div>Shopee <strong>${row.shopee_stock}</strong></div>

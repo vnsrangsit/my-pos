@@ -4324,10 +4324,10 @@ function shopeeMismatchRowCardHtml(r, idx){
   const diff = r.match.localStock - row.stock;
   const diffText = diff === 0 ? 'เท่ากันแล้ว' : diff > 0 ? `ระบบมากกว่า Shopee ${diff}` : `ระบบน้อยกว่า Shopee ${Math.abs(diff)}`;
   // ใช้ชื่อเต็มของสินค้าเป็นหลักก่อนเสมอ (ไม่ใช่แค่ยี่ห้อ+รุ่น+สี) กันเคสสินค้าไม่ได้กรอกช่อง "รุ่น"/"รหัส" ไว้ แล้วสองรุ่นที่ต่างกันจริงๆ ดูเหมือนเป็นการ์ดเดียวกัน (เช่น "Baoji · ขาว" ซ้ำกัน แยกไม่ออกว่าคนละรุ่น)
-  const label = p.name || [p.brand, p.code, p.model, p.color].filter(Boolean).join(' · ');
+  const label = p.name || [p.brand, p.code, p.model].filter(Boolean).join(' · '); // สีโชว์แยกที่บรรทัดล่างเสมอ (ไม่ต่อรวมในนี้ กันโชว์ซ้ำ)
   return `<div class="import-row" style="margin-bottom:8px;">
     <div style="font-weight:700;font-size:13.5px;margin-bottom:2px;">${escapeAttr(label)}</div>
-    <div class="muted" style="font-size:12px;margin-bottom:6px;">เบอร์ ${escapeAttr(p.size||'-')} · SKU: ${escapeAttr(p.sku||row.sku||'-')}</div>
+    <div class="muted" style="font-size:12px;margin-bottom:6px;">${p.color ? 'สี '+escapeAttr(p.color)+' · ' : ''}เบอร์ ${escapeAttr(p.size||'-')} · SKU: ${escapeAttr(p.sku||row.sku||'-')}</div>
     <div class="sku-card-grid" style="margin-bottom:8px;">
       <div><div class="g-label">ระบบ</div><strong>${r.match.localStock}</strong></div>
       <div><div class="g-label">Shopee</div><strong>${row.stock}</strong></div>
@@ -4614,11 +4614,11 @@ function renderShopeeCompareModal(){
   if(totalQueuedCount){
     const localRows = localQueuedList.map(r=>{
       const p = r.match.product;
-      const label = (p.name || [p.brand, p.code, p.model, p.color].filter(Boolean).join(' · ')) + (p.size ? ' · เบอร์ '+p.size : '');
+      const label = (p.name || [p.brand, p.code, p.model].filter(Boolean).join(' · ')) + (p.color ? ' · สี '+p.color : '') + (p.size ? ' · เบอร์ '+p.size : '');
       return `<div class="queued-review-row"><span>${escapeAttr(label)} — <strong>${p.stock}</strong> คู่ <span class="muted" style="font-size:11px;">(ติ๊กในเครื่องนี้)</span></span><button type="button" class="queued-review-remove" onclick="toggleShopeeUpdateQueue(${idxOf(r)}, false)">✕</button></div>`;
     }).join('');
     const remoteRows = shopeeCompareRemoteQueuedRows.map(row=>{
-      const label = (row.name || [row.brand, row.code, row.model, row.color].filter(Boolean).join(' · ') || '(ไม่มีชื่อ)') + (row.size ? ' · เบอร์ '+row.size : '');
+      const label = (row.name || [row.brand, row.code, row.model].filter(Boolean).join(' · ') || '(ไม่มีชื่อ)') + (row.color ? ' · สี '+row.color : '') + (row.size ? ' · เบอร์ '+row.size : '');
       return `<div class="queued-review-row"><span>${escapeAttr(label)} — <strong>${row.our_stock}</strong> คู่ <span class="muted" style="font-size:11px;">(พนักงานส่งมา)</span></span><button type="button" class="queued-review-remove" onclick="cancelRemoteQueuedItem('${escapeJsStr(row.id)}')">✕</button></div>`;
     }).join('');
     html += `<details open style="margin:10px 0;border:1px solid var(--border);border-radius:10px;padding:8px 10px;">
@@ -4951,13 +4951,15 @@ function renderTiktokCompareModal(){
   const trs = rowsSorted.map(r=>{
     const row = r.row, m = r.match;
     const p = m.product;
-    const label = p ? (p.name || [p.brand, p.code, p.model, p.color].filter(Boolean).join(' · ')) : row.name; // escapeAttr ทำตอน render ลง <td> ทีเดียวด้านล่าง ไม่ต้อง escape ซ้อนตรงนี้
+    const label = p ? (p.name || [p.brand, p.code, p.model].filter(Boolean).join(' · ')) : row.name; // escapeAttr ทำตอน render ลง <td> ทีเดียวด้านล่าง ไม่ต้อง escape ซ้อนตรงนี้
+    const colorText = p ? (p.color || '-') : (row.color || '-'); // โชว์สีแยกคอลัมน์เสมอ กันเคสชื่อสินค้าเป็นชื่อกลางๆ ที่พูดถึงหลายสีปนกัน (เช่น "...สีขาวและดำ") จนแยกไม่ออกว่าแถวไหนสีอะไร
     const sysStock = p ? ((p.stock===null||p.stock===undefined) ? '-' : p.stock) : '-';
     const diff = (p && typeof p.stock === 'number') ? (p.stock - row.qty) : null;
     const diffText = diff === null ? '-' : (diff > 0 ? `+${diff}` : String(diff));
     const rowStyle = m.status === 'mismatch' ? 'background:rgba(255,180,0,.08);' : (m.status==='not-found'||m.status==='ambiguous-product'||m.status==='variant-not-found'||m.status==='name-found-variant-missing') ? 'background:rgba(255,0,0,.05);' : '';
     return `<tr style="${rowStyle}">
       <td>${escapeAttr(label)}</td>
+      <td>${escapeAttr(colorText)}</td>
       <td>${escapeAttr(row.sizeRaw||'-')}</td>
       <td>${row.qty}</td>
       <td>${sysStock}</td>
@@ -4967,7 +4969,7 @@ function renderTiktokCompareModal(){
   }).join('');
   document.getElementById('tiktokCompareTableWrap').innerHTML = tiktokCompareResults.length
     ? `<table class="tiktok-compare-table"><thead><tr>
-        <th>สินค้า</th><th>ไซส์</th><th>ในไฟล์ TikTok</th><th>ในระบบ</th><th>ผลต่าง</th><th>สถานะ</th>
+        <th>สินค้า</th><th>สี</th><th>ไซส์</th><th>ในไฟล์ TikTok</th><th>ในระบบ</th><th>ผลต่าง</th><th>สถานะ</th>
       </tr></thead><tbody>${trs}</tbody></table>`
     : '<div class="muted" style="padding:12px;">ไม่พบข้อมูลที่เทียบได้</div>';
 }
