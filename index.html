@@ -4162,8 +4162,12 @@ function matchShopeeStockRow(products, skuIndex, row){
   const title = row.productName || '';
   const oc = canonicalColor(row.color);
   const os = normalizeVariantText(row.size);
+  // ไฟล์ Shopee บางรายการมีตัวเลือกแค่มิติเดียว (สีเดียวตายตัว มีแค่ไซส์ให้เลือก) เช่น "28" เฉยๆ ไม่มีสีในตัวเลือกเลย
+  // (parseOptionColorSize จะคืนค่า color:'' ให้ในกรณีนี้) ถ้าไฟล์ไม่ได้บอกสีมา ก็ไม่ควรบังคับให้สีในระบบต้องว่างเปล่าตามไปด้วย
+  // เพราะสินค้าตัวนั้นในระบบเรามักจะกรอกสีไว้แล้ว (เช่น "ดำ") แค่ Shopee ฝั่งนี้ไม่ได้แยกเป็นตัวเลือกเฉยๆ — จึงข้ามการเทียบสีไปเลยถ้าไฟล์ไม่มีสีมาให้
+  const hasColor = !!row.color;
   const byCode = products.filter(p => codeAppearsInTitle(effectiveProductCode(p), title));
-  const byCodeVariant = byCode.filter(p => canonicalColor(p.color)===oc && normalizeVariantText(p.size)===os);
+  const byCodeVariant = byCode.filter(p => (!hasColor || canonicalColor(p.color)===oc) && normalizeVariantText(p.size)===os);
   if(byCodeVariant.length === 1){
     const p = byCodeVariant[0];
     const localStock = (p.stock===null || p.stock===undefined) ? null : Number(p.stock);
@@ -4195,7 +4199,7 @@ function matchShopeeStockRow(products, skuIndex, row){
     const families = exact.length ? exact : similar;
     if(families.length){
       for(const fam of families){
-        const variant = fam.products.find(p=>canonicalColor(p.color)===oc && normalizeVariantText(p.size)===os);
+        const variant = fam.products.find(p=>(!hasColor || canonicalColor(p.color)===oc) && normalizeVariantText(p.size)===os);
         if(variant){
           const localStock = (variant.stock===null || variant.stock===undefined) ? null : Number(variant.stock);
           if(localStock === null) return { status:'local-not-tracked', product:variant, matchedBy:'name' };
@@ -5088,6 +5092,13 @@ function parseOptionColorSize(optionStr){
     if(p0Size && !p1Size){ sizePart = parts[0]; colorPart = parts[1]; }
     else if(p1Size && !p0Size){ colorPart = parts[0]; sizePart = parts[1]; }
   }
+  // เจอจริง: บางสินค้า Shopee มีตัวเลือกแค่มิติเดียว (สีเดียวตายตัว มีแค่ไซส์ให้เลือก) ชื่อตัวเลือกเลยเป็นแค่ "28" เฉยๆ ไม่มีจุลภาคเลย
+  // เดิมโค้ดตกไป fallback ท้ายสุดที่ยัดค่าเดียวนี้ใส่ "สี" (parts[0]) ทำให้ไซส์ว่างเปล่า จับคู่กับสต็อกไม่ได้เลยทั้งที่จริงๆ มีสินค้าอยู่
+  // ถ้าค่าเดียวนี้เป็นตัวเลขล้วน (เคสรองเท้า/เสื้อผ้าพบบ่อยสุด) ให้ถือว่าเป็นไซส์แทน ไม่ใช่สี — ปล่อยสีว่างไว้ (ตอนจับคู่จะข้ามการเทียบสีไปเลยถ้าไม่มีค่า)
+  if(colorPart === null && sizePart === null && parts.length === 1){
+    if(SIZE_LIKE_RE.test(normalizeVariantText(parts[0]))) sizePart = parts[0];
+    else colorPart = parts[0];
+  }
   if(colorPart !== null || sizePart !== null){
     return { color: normalizeVariantText(colorPart || ''), size: normalizeVariantText(sizePart || '') };
   }
@@ -5155,8 +5166,15 @@ function codeAppearsInTitle(code, title){
 // ใช้เป็นตัวช่วยจับคู่กับไฟล์ Shopee เท่านั้น ไม่ได้บันทึกกลับเข้าช่อง "รหัส" ของสินค้าจริง (ร้านยังต้องไปกรอกเองถ้าอยากให้ค้นหา/แก้ไขได้ง่ายขึ้นถาวร)
 function guessProductCode(p){
   const text = [p.name, p.model].filter(Boolean).join(' ');
-  const m = text.match(/\b[A-Za-z]{2,}-?\d{2,}[A-Za-z0-9-]*\b/);
-  return m ? m[0] : '';
+  // รูปแบบตัวอักษรนำหน้า เช่น "CD-99", "BJK133", "CF-267", "SP-6529"
+  let m = text.match(/\b[A-Za-z]{2,}-?\d{2,}[A-Za-z0-9-]*\b/);
+  if(m) return m[0];
+  // เจอจริง: โมลด์รองเท้าเด็กหลายรุ่น (โดยเฉพาะ ADDA) รหัสขึ้นต้นด้วยตัวเลขแทน เช่น "41C07B1", "41G99B1", "41N19C1"
+  // ซึ่ง regex ด้านบนจับไม่ได้เลย (ต้องมีตัวอักษร 2 ตัวนำหน้าก่อนเสมอ) ทำให้เดารหัสไม่ออกทั้งที่ตรงกับที่คอมเมนต์นี้อ้างไว้
+  // แก้โดยหาคำ 5-10 ตัวอักษรที่มีทั้งตัวเลขและตัวอักษรปนกัน (กันจับคำเป็นตัวเลขล้วนอย่างราคา/ปี/เบอร์รองเท้าเดี่ยวๆ ที่ไม่ใช่รหัส)
+  const tokens = text.match(/\b[A-Za-z0-9]{5,10}\b/g) || [];
+  const mixed = tokens.find(t => /[A-Za-z]/.test(t) && /\d/.test(t));
+  return mixed || '';
 }
 function effectiveProductCode(p){
   return (p.code && p.code.trim()) || guessProductCode(p);
