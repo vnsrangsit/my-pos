@@ -71,7 +71,7 @@
   .p-card-shopee-row .p-card-shopee-btn{margin-bottom:0;flex:1;justify-content:center;}
   .p-card-shopee-btn:active{background:#ffe1d8;}
   .p-card-shopee-btn-add{background:#fff;color:var(--muted);border:1px dashed var(--border);}
-  .p-card-shopee-edit{flex:none;background:#fff;border:1px solid var(--border);border-radius:8px;width:30px;height:30px;font-size:13px;cursor:pointer;}
+  .p-card-shopee-edit{flex:none;display:inline-flex;align-items:center;justify-content:center;background:#fff;border:1px solid var(--border);border-radius:8px;width:30px;height:30px;font-size:13px;cursor:pointer;text-decoration:none;color:inherit;}
   .size-row{display:flex;flex-wrap:wrap;gap:6px;}
   .size-chip{position:relative;min-width:42px;padding:6px 7px;border-radius:10px;border:1.5px solid var(--border);background:var(--fill);
     display:flex;flex-direction:column;align-items:center;cursor:pointer;font-weight:700;}
@@ -715,7 +715,8 @@ function renderGrid(){
     const shopeeLink = (rep.shopeeLink && rep.shopeeLink.trim()) ? rep.shopeeLink.trim() : '';
     const shopeeBtnHtml = shopeeLink
       ? `<div class="p-card-shopee-row">
-           <button type="button" class="p-card-shopee-btn" onclick="copyShopeeLink(${gi})">🛒 คัดลอกลิงก์ Shopee</button>
+           <button type="button" class="p-card-shopee-btn" onclick="copyShopeeLink(${gi})">🛒 คัดลอก</button>
+           <a href="${escapeAttr(shopeeLink)}" target="_blank" rel="noopener" class="p-card-shopee-edit" title="เปิดลิงก์">🔗</a>
            <button type="button" class="p-card-shopee-edit" onclick="editShopeeLink(${gi})" title="แก้ไขลิงก์">✏️</button>
          </div>`
       : `<button type="button" class="p-card-shopee-btn p-card-shopee-btn-add" onclick="editShopeeLink(${gi})">🔗 เพิ่มลิงก์ Shopee</button>`;
