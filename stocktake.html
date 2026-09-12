@@ -66,6 +66,8 @@
   .p-card-body{padding:9px 10px 11px;}
   .p-card-name{font-size:13.5px;font-weight:800;letter-spacing:-.1px;margin-bottom:2px;line-height:1.25;}
   .p-card-sub{font-size:11px;color:var(--muted);margin-bottom:8px;}
+  .p-card-shopee-btn{display:inline-flex;align-items:center;gap:5px;background:#fff0ec;color:#ee4d2d;border:1px solid #f8c8ba;border-radius:8px;padding:5px 9px;font-size:11.5px;font-weight:700;cursor:pointer;margin-bottom:8px;}
+  .p-card-shopee-btn:active{background:#ffe1d8;}
   .size-row{display:flex;flex-wrap:wrap;gap:6px;}
   .size-chip{position:relative;min-width:42px;padding:6px 7px;border-radius:10px;border:1.5px solid var(--border);background:var(--fill);
     display:flex;flex-direction:column;align-items:center;cursor:pointer;font-weight:700;}
@@ -694,16 +696,40 @@ function renderGrid(){
         <div class="sz">＋</div>
         <div class="qty">เบอร์ใหม่</div>
       </div>`;
+    const shopeeQuery = [g.name, g.model].filter(Boolean).join(' ');
     return `
       <div class="p-card">
         ${imgHtml}
         <div class="p-card-body">
           <div class="p-card-name">${escapeHtml(g.name||'ไม่มีชื่อ')}</div>
           ${subParts ? `<div class="p-card-sub">${escapeHtml(subParts)}</div>` : ''}
+          <button type="button" class="p-card-shopee-btn" onclick="copyShopeeLink('${escapeJsStr(shopeeQuery)}')">🛒 คัดลอกลิงก์ Shopee</button>
           <div class="size-row">${chipsHtml}</div>
         </div>
       </div>`;
   }).join('');
+}
+
+/* ============ ลิงก์ Shopee: จับคู่สินค้าอัตโนมัติด้วยลิงก์ค้นหาภายในร้าน (ไม่ต้องมาผูกทีละชิ้น) ============ */
+// ร้านค้าบน Shopee: https://shopee.co.th/unchaleeklankanta#product_list
+const SHOPEE_SHOP_ID = 'unchaleeklankanta';
+function buildShopeeSearchLink(query){
+  const keyword = (query || '').trim();
+  const base = `https://shopee.co.th/${SHOPEE_SHOP_ID}/search`;
+  return keyword ? `${base}?keyword=${encodeURIComponent(keyword)}` : `https://shopee.co.th/${SHOPEE_SHOP_ID}#product_list`;
+}
+async function copyShopeeLink(query){
+  const link = buildShopeeSearchLink(query);
+  try{
+    await navigator.clipboard.writeText(link);
+    toast('คัดลอกลิงก์ Shopee แล้ว วางส่งลูกค้าได้เลย');
+  }catch(e){
+    const ta = document.createElement('textarea');
+    ta.value = link; ta.className = 'report-copy-box'; ta.style.marginTop = '8px';
+    document.getElementById('gridArea').insertAdjacentElement('beforebegin', ta);
+    ta.focus(); ta.select();
+    toast('คัดลอกอัตโนมัติไม่ได้ กดเลือกลิงก์ในกล่องด้านบนแล้วคัดลอกเองได้เลย');
+  }
 }
 function openImageLightbox(url){
   document.getElementById('imageLightboxImg').src = url;
