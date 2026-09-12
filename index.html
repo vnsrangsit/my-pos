@@ -885,6 +885,14 @@
     <div class="field"><label>รหัส (ไม่บังคับ)</label><input type="text" id="bkCode" placeholder="เช่น PC-2218" oninput="autoFillBulkName(); updateBulkPreview();"></div>
     <div class="field"><label>ชื่อสินค้า (เติมให้อัตโนมัติจากหมวดหมู่+ยี่ห้อ+รหัส+รุ่น แก้เองได้)</label><input type="text" id="bkName" placeholder="เช่น นันยาง" oninput="updateBulkPreview()"></div>
     <div class="field"><label>รุ่น (ไม่บังคับ)</label><input type="text" id="bkModel" placeholder="เช่น รุ่น A" oninput="autoFillBulkName(); updateBulkPreview();"></div>
+    <div class="field"><label>เพศ (ไม่บังคับ — เว้นว่าง = ไม่ระบุ/unisex)</label>
+      <select id="bkGender" onchange="updateBulkPreview()">
+        <option value="">ไม่ระบุ (unisex)</option>
+        <option value="ชาย">ชาย</option>
+        <option value="หญิง">หญิง</option>
+        <option value="เด็ก">เด็ก</option>
+      </select>
+    </div>
     <div class="field">
       <label>สี (ไม่บังคับ)</label>
       <div id="bkColorList"></div>
@@ -1262,7 +1270,8 @@ function toProductRow(p){
   return { id: p.id, owner_id: currentOwnerId, category: p.category || null, brand: p.brand || null, code: p.code || null,
     name: p.name, model: p.model || null, color: p.color || null, size: p.size || null, barcode: p.barcode || null,
     sku: p.sku || null, cost_price: p.costPrice || 0, price: p.price || 0,
-    stock: (p.stock === null || p.stock === undefined) ? null : p.stock, image_url: p.image || null };
+    stock: (p.stock === null || p.stock === undefined) ? null : p.stock, image_url: p.image || null,
+    gender: p.gender || null };
 }
 function toAliasRow(a){
   return { id: a.id, owner_id: currentOwnerId, family_key: a.familyKey, alias: a.alias, created_at: a.createdAt || new Date().toISOString() };
@@ -1300,7 +1309,7 @@ function fromProductRow(r){
   return { id: r.id, category: r.category || '', brand: r.brand || '', code: r.code || '', name: r.name || '',
     model: r.model || '', color: r.color || '', size: r.size || '', barcode: r.barcode || '', sku: r.sku || '',
     costPrice: r.cost_price || 0, price: r.price || 0, stock: (r.stock === null || r.stock === undefined) ? null : r.stock,
-    image: r.image_url || '' };
+    image: r.image_url || '', gender: r.gender || '' };
 }
 function fromAliasRow(r){
   return { id: r.id, familyKey: r.family_key, alias: r.alias, createdAt: r.created_at };
@@ -3832,12 +3841,15 @@ function computeBulkCombos(){
   }
   return combos;
 }
-function findDupProduct(products, name, model, color, size){
+function findDupProduct(products, name, model, color, size, gender){
+  // เทียบ gender ด้วย เผื่อสี/รุ่น/ชื่อเดียวกันแต่แยกเพศ (เช่น สีขาวชาย กับ สีขาวหญิง) จะได้ไม่ชนกันเป็น "ซ้ำ" ผิดๆ
+  const g = (gender||'').trim().toLowerCase();
   return products.find(p=>
     (p.name||'').trim().toLowerCase() === name.toLowerCase() &&
     (p.model||'').trim().toLowerCase() === model.toLowerCase() &&
     (p.color||'').trim().toLowerCase() === color.toLowerCase() &&
-    (p.size||'').trim().toLowerCase() === size.toLowerCase()
+    (p.size||'').trim().toLowerCase() === size.toLowerCase() &&
+    (p.gender||'').trim().toLowerCase() === g
   );
 }
 function openBulkAdd(){
@@ -3846,6 +3858,7 @@ function openBulkAdd(){
   document.getElementById('bkCode').value = '';
   document.getElementById('bkName').value = '';
   document.getElementById('bkModel').value = '';
+  document.getElementById('bkGender').value = '';
   document.getElementById('bkSizes').value = '';
   document.getElementById('bkCost').value = '';
   document.getElementById('bkPrice').value = '';
@@ -3883,6 +3896,7 @@ function openBulkAddFromProduct(productId){
   document.getElementById('bkCode').value = p.code || '';
   document.getElementById('bkName').value = p.name || '';
   document.getElementById('bkModel').value = p.model || '';
+  document.getElementById('bkGender').value = p.gender || '';
   {
     const autoGuess = composeAutoProductName(p.category, p.brand, p.code, p.model);
     bkNameLastAuto = (autoGuess === (p.name || '').trim()) ? autoGuess : ' manual';
@@ -3905,13 +3919,14 @@ function closeBulkAdd(){
 function updateBulkPreview(){
   const name = document.getElementById('bkName').value.trim();
   const model = document.getElementById('bkModel').value.trim();
+  const gender = document.getElementById('bkGender').value;
   const combos = computeBulkCombos();
   const previewEl = document.getElementById('bkPreview');
   if(!name){ previewEl.textContent = ''; return; }
   const existing = loadProducts();
   let newCount = 0, dupCount = 0, noPriceCount = 0;
   combos.forEach(c=>{
-    if(findDupProduct(existing, name, model, c.color, c.size)) dupCount++; else newCount++;
+    if(findDupProduct(existing, name, model, c.color, c.size, gender)) dupCount++; else newCount++;
     if(!c.price) noPriceCount++;
   });
   let text = `จะสร้างทั้งหมด ${combos.length} SKU (ใหม่ ${newCount} รายการ${dupCount ? ', ซ้ำแล้วข้าม ' + dupCount + ' รายการ' : ''})`;
@@ -3924,6 +3939,7 @@ function generateBulkSku(){
   const code = document.getElementById('bkCode').value.trim();
   const name = document.getElementById('bkName').value.trim();
   const model = document.getElementById('bkModel').value.trim();
+  const gender = document.getElementById('bkGender').value;
   const stockRaw = document.getElementById('bkStock').value;
   const stock = stockRaw === '' ? null : (parseInt(stockRaw) || 0);
   if(!name){ toast('กรุณากรอกชื่อสินค้า'); return; }
@@ -3938,8 +3954,8 @@ function generateBulkSku(){
   // ป้องกัน stock_transactions อ้างอิงสินค้าที่ยังไม่มีบนคลาวด์ (foreign key error 409)
   const pendingStockTx = [];
   combos.forEach(c=>{
-    if(findDupProduct(products, name, model, c.color, c.size)){ skipped++; return; }
-    const newProduct = { id: uid(), category, brand, code, name, model, color: c.color, size: c.size, barcode:'', costPrice: c.costPrice, price: c.price, stock: null };
+    if(findDupProduct(products, name, model, c.color, c.size, gender)){ skipped++; return; }
+    const newProduct = { id: uid(), category, brand, code, name, model, color: c.color, size: c.size, gender, barcode:'', costPrice: c.costPrice, price: c.price, stock: null };
     products.push(newProduct);
     if(typeof stock === 'number'){
       pendingStockTx.push({ productId: newProduct.id, stock });
