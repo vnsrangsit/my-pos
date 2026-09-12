@@ -172,6 +172,7 @@
   <div class="search-wrap">
     <input type="text" id="stkSearch" placeholder="ค้นหาชื่อ/ยี่ห้อ/รหัส/สี..." oninput="renderGrid()">
     <button type="button" class="refresh-btn" id="refreshBtn" title="ดึงสินค้า/รูป/เบอร์ใหม่ล่าสุดจากระบบหลัก" onclick="manualRefresh()">🔄</button>
+    <button type="button" class="refresh-btn" id="shopeeAuditBtn" title="ตรวจลิงก์ Shopee ที่บันทึกไว้ทั้งหมด" onclick="openShopeeLinkAudit()">🛒</button>
   </div>
 
   <div id="gridArea" class="grid"></div>
@@ -305,6 +306,16 @@
 <!-- ดูรูปเต็ม -->
 <div id="image-lightbox" onclick="closeImageLightbox()" style="position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:70;display:none;align-items:center;justify-content:center;padding:24px;">
   <img id="imageLightboxImg" src="" alt="" style="max-width:100%;max-height:100%;border-radius:12px;">
+</div>
+
+<div id="shopee-link-audit" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:75;display:none;align-items:flex-end;justify-content:center;">
+  <div style="background:var(--bg,#f7f7f8);width:100%;max-width:480px;max-height:85vh;border-radius:16px 16px 0 0;display:flex;flex-direction:column;overflow:hidden;">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border);flex:none;">
+      <strong style="font-size:15px;">ลิงก์ Shopee ที่บันทึกไว้ทั้งหมด</strong>
+      <button type="button" onclick="closeShopeeLinkAudit()" style="background:none;border:none;font-size:20px;line-height:1;cursor:pointer;color:var(--muted);">✕</button>
+    </div>
+    <div id="shopeeAuditList" style="overflow-y:auto;padding:12px 16px 20px;"></div>
+  </div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -724,20 +735,93 @@ function renderGrid(){
 /* ============ ลิงก์ Shopee: เก็บลิงก์สินค้าจริงที่วางไว้เอง (ครั้งเดียวต่อรุ่น/สี) แล้วกดคัดลอกได้เลยทุกครั้งที่หาสินค้าเจอ
    ลิงก์ค้นหาแบบ auto-match ที่เคยลองใช้ก่อนหน้านี้เข้าไม่ได้จริง (Shopee ไม่รองรับ URL ค้นหาภายในร้านแบบนั้น)
    จึงเปลี่ยนมาเป็นวางลิงก์จริงจากปุ่ม "แชร์" ในแอป/เว็บ Shopee ทีละรุ่น แล้วระบบจำไว้ให้ (ซิงก์ขึ้น Supabase คอลัมน์ products.shopee_link) ============ */
-function getShopeeLinkForGroup(gi){
-  const g = currentGroups[gi];
-  if(!g) return '';
-  const found = g.items.find(p => p.shopeeLink && p.shopeeLink.trim());
+function getShopeeLinkForItems(items){
+  const found = items.find(p => p.shopeeLink && p.shopeeLink.trim());
   return found ? found.shopeeLink.trim() : '';
 }
-function setShopeeLinkForGroup(gi, link){
-  const g = currentGroups[gi];
-  if(!g) return;
-  const ids = new Set(g.items.map(p => p.id));
+function setShopeeLinkForItems(items, link){
+  const ids = new Set(items.map(p => p.id));
   const all = loadProducts();
   all.forEach(p => { if(ids.has(p.id)) p.shopeeLink = link; });
   saveProducts(all);
   flushSyncQueue();
+}
+function getShopeeLinkForGroup(gi){
+  const g = currentGroups[gi];
+  return g ? getShopeeLinkForItems(g.items) : '';
+}
+function setShopeeLinkForGroup(gi, link){
+  const g = currentGroups[gi];
+  if(g) setShopeeLinkForItems(g.items, link);
+}
+// เช็คว่าลิงก์ Shopee ที่บันทึกไว้ "น่าจะ" เปิดได้จริงไหม โดยไม่ต้องออกไปเน็ตจริง (เดายาก) — ดักปัญหาที่เจอบ่อยที่สุด 2 แบบ:
+// 1) โดนเข้ารหัส % ซ้ำซ้อนตอนก็อป/วางผ่านบางแอป (มี %25 โผล่มา) ทำให้ลิงก์พังเปิดไม่ได้จริง
+// 2) เป็นลิงก์หน้าร้าน/หน้าค้นหา ไม่ใช่ลิงก์ "หน้าสินค้า" เดี่ยวๆ (ลิงก์สินค้าจริงจะมีรูปแบบ ...-i.เลขร้าน.เลขสินค้า เสมอ)
+function shopeeLinkIssue(link){
+  if(!link) return null;
+  if(link.includes('%25')) return 'ลิงก์นี้น่าจะถูก encode ซ้ำซ้อน (เจอ %25) เปิดไม่ได้แน่ๆ — ให้ไปกดแชร์จากแอป Shopee แล้วก็อปวางใหม่';
+  if(/^https?:\/\/shp\.ee\//i.test(link)) return null; // ลิงก์ย่อของ Shopee เปิดได้ปกติ
+  if(/^https?:\/\/(www\.)?shopee\.co\.th\//i.test(link)){
+    if(/-i\.\d+\.\d+([?#]|$)/.test(link)) return null; // รูปแบบลิงก์หน้าสินค้าเดี่ยวปกติ
+    return 'ลิงก์นี้ไม่มีรูปแบบ "-i.เลขร้าน.เลขสินค้า" เหมือนลิงก์หน้าสินค้าเดี่ยว อาจเป็นลิงก์หน้าร้าน/หน้าค้นหาแทน ลองเปิดเช็คดูอีกที';
+  }
+  return 'ลิงก์นี้ไม่ใช่โดเมน shopee.co.th หรือ shp.ee ลองตรวจสอบอีกครั้ง';
+}
+/* ============ ตรวจลิงก์ Shopee ที่บันทึกไว้ทั้งหมดในหน้าเดียว (ไม่ขึ้นกับคำค้นหาปัจจุบัน) ============ */
+let auditGroups = [];
+function openShopeeLinkAudit(){
+  const all = loadProducts();
+  const groups = groupProducts(all).sort((a,b)=>(a.name||'').localeCompare(b.name||'','th'));
+  auditGroups = groups;
+  const withLink = [];
+  const withoutLink = [];
+  groups.forEach((g,idx)=>{
+    const link = getShopeeLinkForItems(g.items);
+    if(link) withLink.push({g, idx, link}); else withoutLink.push({g, idx});
+  });
+  const el = document.getElementById('shopeeAuditList');
+  if(withLink.length === 0 && withoutLink.length === 0){
+    el.innerHTML = `<div class="empty-state">ยังไม่มีสินค้าในระบบ</div>`;
+  }else{
+    const rows = withLink.map(({g, idx, link})=>{
+      const issue = shopeeLinkIssue(link);
+      const label = [g.name, g.model, g.color].filter(Boolean).join(' · ') || 'ไม่มีชื่อ';
+      const statusHtml = issue
+        ? `<div style="color:var(--danger);font-size:12px;font-weight:700;margin-top:4px;">⚠️ ${escapeHtml(issue)}</div>`
+        : `<div style="color:var(--success);font-size:12px;font-weight:700;margin-top:4px;">✅ รูปแบบลิงก์ดูปกติ</div>`;
+      return `<div class="shopee-recon-card">
+        <div class="shopee-recon-name">${escapeHtml(label)}</div>
+        <div class="shopee-recon-sub" style="word-break:break-all;">${escapeHtml(link)}</div>
+        ${statusHtml}
+        <div class="shopee-recon-choice" style="margin-top:8px;">
+          <button type="button" class="btn btn-outline" style="flex:1;padding:8px;font-size:12px;" onclick="copyTextToClipboard('${escapeJsStr(link)}').then(ok=>toast(ok?'คัดลอกลิงก์ Shopee แล้ว วางส่งลูกค้าได้เลย':'คัดลอกอัตโนมัติไม่ได้ กดเลือกลิงก์ในกล่องด้านบนแล้วคัดลอกเองได้เลย'))">📋 คัดลอก</button>
+          <button type="button" class="btn btn-outline" style="flex:1;padding:8px;font-size:12px;" onclick="editShopeeLinkFromAudit(${idx})">✏️ แก้ไข</button>
+        </div>
+      </div>`;
+    }).join('');
+    const withoutHtml = withoutLink.length
+      ? `<div class="muted" style="margin:14px 0 6px;font-size:12.5px;">ยังไม่มีลิงก์ (${withoutLink.length} รายการ) — ไปที่การ์ดสินค้าแล้วกด "เพิ่มลิงก์ Shopee" ได้เลย</div>`
+      : '';
+    el.innerHTML = (rows || `<div class="empty-state">ยังไม่มีสินค้าไหนบันทึกลิงก์ Shopee ไว้เลย</div>`) + withoutHtml;
+  }
+  document.getElementById('shopee-link-audit').style.display = 'flex';
+}
+function closeShopeeLinkAudit(){ document.getElementById('shopee-link-audit').style.display = 'none'; }
+function editShopeeLinkFromAudit(idx){
+  const g = auditGroups[idx];
+  if(!g) return;
+  const current = getShopeeLinkForItems(g.items);
+  const input = prompt('วางลิงก์สินค้านี้จาก Shopee\n(เปิดสินค้านี้ในแอป/เว็บ Shopee -> กดปุ่ม "แชร์" -> คัดลอกลิงก์ -> มาวางตรงนี้)\n\nลบข้อความทั้งหมดแล้วกดตกลง = เอาลิงก์เดิมออก', current);
+  if(input === null) return;
+  const link = input.trim();
+  if(link && !/^https?:\/\/(shopee\.co\.th|shp\.ee)\//i.test(link)){
+    toast('ลิงก์นี้ดูไม่เหมือนลิงก์ Shopee (ต้องขึ้นต้นด้วย shopee.co.th หรือ shp.ee) ลองเช็คแล้ววางใหม่');
+    return;
+  }
+  setShopeeLinkForItems(g.items, link);
+  toast(link ? 'บันทึกลิงก์ Shopee แล้ว' : 'เอาลิงก์ Shopee ของสินค้านี้ออกแล้ว');
+  renderGrid();
+  openShopeeLinkAudit();
 }
 async function copyTextToClipboard(text){
   try{
