@@ -1542,7 +1542,7 @@ function clearReportLog(){
 /* ============ INIT ============ */
 async function init(){
   setStatus('loading');
-  document.getElementById('onlyInStockToggle').checked = localStorage.getItem(ONLY_IN_STOCK_KEY) === '1';
+  document.getElementById('onlyInStockToggle').checked = localStorage.getItem(ONLY_IN_STOCK_KEY) !== '0';
   renderReportBadgeCount();
   renderGrid();
   if(!supabaseClient){
