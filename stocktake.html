@@ -67,7 +67,7 @@
   .p-card-name{font-size:13.5px;font-weight:800;letter-spacing:-.1px;margin-bottom:2px;line-height:1.25;}
   .p-card-sub{font-size:11px;color:var(--muted);margin-bottom:8px;}
   .p-card-shopee-row{display:flex;align-items:center;gap:6px;margin-bottom:8px;}
-  .p-card-shopee-btn{display:inline-flex;align-items:center;gap:5px;background:#fff0ec;color:#ee4d2d;border:1px solid #f8c8ba;border-radius:8px;padding:5px 9px;font-size:11.5px;font-weight:700;cursor:pointer;}
+  .p-card-shopee-btn{display:inline-flex;align-items:center;justify-content:center;gap:4px;background:#fff0ec;color:#ee4d2d;border:1px solid #f8c8ba;border-radius:8px;padding:5px 6px;font-size:11px;font-weight:700;cursor:pointer;text-decoration:none;text-align:center;line-height:1.25;}
   .p-card-shopee-row .p-card-shopee-btn{margin-bottom:0;flex:1;justify-content:center;}
   .p-card-shopee-btn:active{background:#ffe1d8;}
   .p-card-shopee-btn-add{background:#fff;color:var(--muted);border:1px dashed var(--border);}
@@ -175,6 +175,13 @@
     <button type="button" class="refresh-btn" id="shopeeAuditBtn" title="ตรวจลิงก์ Shopee ที่บันทึกไว้ทั้งหมด" onclick="openShopeeLinkAudit()">🛒</button>
   </div>
 
+  <div class="stock-filter-row" style="padding:8px 16px 0;display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted);">
+    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+      <input type="checkbox" id="onlyInStockToggle" onchange="handleOnlyInStockToggle()">
+      แสดงเฉพาะที่มีสต็อก
+    </label>
+  </div>
+  <div id="shopeeBulkBar" style="display:none;padding:10px 16px 0;"></div>
   <div id="gridArea" class="grid"></div>
 
   <div class="report-fab">
@@ -673,22 +680,36 @@ async function handleStkLogin(){
 
 /* ============ RENDER: PRODUCT GRID ============ */
 let currentGroups = []; // เก็บกลุ่มที่กำลังแสดงอยู่ล่าสุด ใช้อ้างอิงตอนกด "+" เพิ่มเบอร์ใหม่ (อ้างด้วย index กันปัญหา escape ชื่อ/สีที่มีอักขระพิเศษ)
+const ONLY_IN_STOCK_KEY = 'pos_stk_only_in_stock';
+function handleOnlyInStockToggle(){
+  const checked = document.getElementById('onlyInStockToggle').checked;
+  localStorage.setItem(ONLY_IN_STOCK_KEY, checked ? '1' : '0');
+  renderGrid();
+}
 function renderGrid(){
   const el = document.getElementById('gridArea');
   const filter = (document.getElementById('stkSearch').value || '').trim().toLowerCase();
   const tokens = filter.split(/\s+/).filter(Boolean);
+  const onlyInStock = document.getElementById('onlyInStockToggle').checked;
   const all = loadProducts();
-  const filtered = tokens.length === 0 ? all : all.filter(p=>{
+  let filtered = tokens.length === 0 ? all : all.filter(p=>{
     const hay = [p.category,p.brand,p.code,p.name,p.model,p.color,p.size,p.barcode].map(v=>(v||'').toLowerCase()).join(' ');
     return tokens.every(t=>hay.includes(t));
   });
+  // "มีสต็อก" หมายถึงนับได้ว่ามีของจริง (stock เป็นตัวเลข > 0) — รายการที่ยังไม่เคยนับสต็อกเลย (stock เป็น null) ไม่ตัดออก
+  // เพราะไม่รู้แน่ชัดว่ามีของไหม ถ้าตัดออกไปด้วยพนักงานอาจเข้าใจผิดว่าของหมดทั้งที่แค่ยังไม่เคยนับ
+  if(onlyInStock){
+    filtered = filtered.filter(p => p.stock === null || p.stock === undefined || p.stock > 0);
+  }
   if(filtered.length === 0){
     el.innerHTML = `<div class="empty-state">📦<br>ไม่พบสินค้า</div>`;
     currentGroups = [];
+    renderShopeeBulkBar(tokens, []);
     return;
   }
   const groups = groupProducts(filtered).sort((a,b)=>(a.name||'').localeCompare(b.name||'','th'));
   currentGroups = groups;
+  renderShopeeBulkBar(tokens, groups);
   const changedIds = new Set(loadStocktakeLog().map(e=>e.productId));
   el.innerHTML = groups.map((g,gi)=>{
     const items = sortedSizeItems(g);
@@ -716,7 +737,7 @@ function renderGrid(){
     const shopeeBtnHtml = shopeeLink
       ? `<div class="p-card-shopee-row">
            <button type="button" class="p-card-shopee-btn" onclick="copyShopeeLink(${gi})">🛒 คัดลอก</button>
-           <a href="${escapeAttr(shopeeLink)}" target="_blank" rel="noopener" class="p-card-shopee-edit" title="เปิดลิงก์">🔗</a>
+           <a href="${escapeAttr(shopeeLink)}" target="_blank" rel="noopener" class="p-card-shopee-btn" title="เปิดลิงก์ Shopee">🔗 เปิด Shopee</a>
            <button type="button" class="p-card-shopee-edit" onclick="editShopeeLink(${gi})" title="แก้ไขลิงก์">✏️</button>
          </div>`
       : `<button type="button" class="p-card-shopee-btn p-card-shopee-btn-add" onclick="editShopeeLink(${gi})">🔗 เพิ่มลิงก์ Shopee</button>`;
@@ -863,6 +884,35 @@ function editShopeeLink(gi){
   }else{
     toast('เอาลิงก์ Shopee ของสินค้านี้ออกแล้ว');
   }
+}
+/* ============ ค้นหาแล้วส่งลิงก์ให้ลูกค้าทีเดียวหลายอัน เช่น ลูกค้าถาม "ดำ เบอร์ 30 มีอะไรบ้าง"
+   พิมพ์ "ดำ 30" ในช่องค้นหา (ค้นได้จากทุกช่อง สี/เบอร์/ชื่อ/รหัส อยู่แล้ว) แล้วกดปุ่มนี้ทีเดียว รวมลิงก์ Shopee ของทุกรายการที่เจอมาเป็นข้อความเดียว พร้อมวางส่งลูกค้า ============ */
+function renderShopeeBulkBar(tokens, groups){
+  const bar = document.getElementById('shopeeBulkBar');
+  if(tokens.length === 0 || groups.length === 0){ bar.style.display = 'none'; bar.innerHTML = ''; return; }
+  const withLinkCount = groups.filter(g => getShopeeLinkForItems(g.items)).length;
+  if(withLinkCount === 0){ bar.style.display = 'none'; bar.innerHTML = ''; return; }
+  const withoutCount = groups.length - withLinkCount;
+  bar.style.display = 'block';
+  bar.innerHTML = `<button type="button" class="btn btn-primary btn-full" style="margin:2px 0 10px;font-size:13px;padding:10px;" onclick="copyBulkShopeeLinks()">
+    📋 คัดลอกลิงก์ที่เจอทั้งหมด (${withLinkCount} รายการ)${withoutCount ? ` · อีก ${withoutCount} รายการยังไม่มีลิงก์` : ''}
+  </button>`;
+}
+async function copyBulkShopeeLinks(){
+  const groups = currentGroups;
+  const lines = [];
+  const missing = [];
+  groups.forEach(g=>{
+    const link = getShopeeLinkForItems(g.items);
+    const sizes = sortedSizeItems(g).map(p=>p.size||'-').join(', ');
+    const label = [g.name, g.model].filter(Boolean).join(' ') + (g.color?(' สี'+g.color):'') + ` เบอร์ ${sizes}`;
+    if(link) lines.push(`${label}\n${link}`); else missing.push(label);
+  });
+  if(lines.length === 0){ toast('รายการที่เจอยังไม่มีลิงก์ Shopee เลยสักอัน'); return; }
+  let text = lines.join('\n\n');
+  if(missing.length) text += `\n\n(ยังไม่มีลิงก์: ${missing.join(', ')})`;
+  const ok = await copyTextToClipboard(text);
+  toast(ok ? `คัดลอกลิงก์ ${lines.length} รายการแล้ว วางส่งลูกค้าได้เลย` : 'คัดลอกอัตโนมัติไม่ได้ กดเลือกข้อความในกล่องด้านบนแล้วคัดลอกเองได้เลย');
 }
 function openImageLightbox(url){
   document.getElementById('imageLightboxImg').src = url;
@@ -1492,6 +1542,7 @@ function clearReportLog(){
 /* ============ INIT ============ */
 async function init(){
   setStatus('loading');
+  document.getElementById('onlyInStockToggle').checked = localStorage.getItem(ONLY_IN_STOCK_KEY) === '1';
   renderReportBadgeCount();
   renderGrid();
   if(!supabaseClient){
