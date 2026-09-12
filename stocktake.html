@@ -66,8 +66,12 @@
   .p-card-body{padding:9px 10px 11px;}
   .p-card-name{font-size:13.5px;font-weight:800;letter-spacing:-.1px;margin-bottom:2px;line-height:1.25;}
   .p-card-sub{font-size:11px;color:var(--muted);margin-bottom:8px;}
-  .p-card-shopee-btn{display:inline-flex;align-items:center;gap:5px;background:#fff0ec;color:#ee4d2d;border:1px solid #f8c8ba;border-radius:8px;padding:5px 9px;font-size:11.5px;font-weight:700;cursor:pointer;margin-bottom:8px;}
+  .p-card-shopee-row{display:flex;align-items:center;gap:6px;margin-bottom:8px;}
+  .p-card-shopee-btn{display:inline-flex;align-items:center;gap:5px;background:#fff0ec;color:#ee4d2d;border:1px solid #f8c8ba;border-radius:8px;padding:5px 9px;font-size:11.5px;font-weight:700;cursor:pointer;}
+  .p-card-shopee-row .p-card-shopee-btn{margin-bottom:0;flex:1;justify-content:center;}
   .p-card-shopee-btn:active{background:#ffe1d8;}
+  .p-card-shopee-btn-add{background:#fff;color:var(--muted);border:1px dashed var(--border);}
+  .p-card-shopee-edit{flex:none;background:#fff;border:1px solid var(--border);border-radius:8px;width:30px;height:30px;font-size:13px;cursor:pointer;}
   .size-row{display:flex;flex-wrap:wrap;gap:6px;}
   .size-chip{position:relative;min-width:42px;padding:6px 7px;border-radius:10px;border:1.5px solid var(--border);background:var(--fill);
     display:flex;flex-direction:column;align-items:center;cursor:pointer;font-weight:700;}
@@ -370,7 +374,8 @@ function toProductRow(p){
   return { id: p.id, owner_id: currentOwnerId, category: p.category || null, brand: p.brand || null, code: p.code || null,
     name: p.name, model: p.model || null, color: p.color || null, size: p.size || null, barcode: p.barcode || null,
     sku: p.sku || null, cost_price: p.costPrice || 0, price: p.price || 0,
-    stock: (p.stock === null || p.stock === undefined) ? null : p.stock, image_url: p.image || null };
+    stock: (p.stock === null || p.stock === undefined) ? null : p.stock, image_url: p.image || null,
+    shopee_link: p.shopeeLink || null };
 }
 function toStockTxRow(t){
   return { id: t.id, owner_id: currentOwnerId, product_id: t.productId || null, sku: t.sku || null, brand: t.brand || null,
@@ -382,7 +387,7 @@ function fromProductRow(r){
   return { id: r.id, category: r.category || '', brand: r.brand || '', code: r.code || '', name: r.name || '',
     model: r.model || '', color: r.color || '', size: r.size || '', barcode: r.barcode || '', sku: r.sku || '',
     costPrice: r.cost_price || 0, price: r.price || 0, stock: (r.stock === null || r.stock === undefined) ? null : r.stock,
-    image: r.image_url || '' };
+    image: r.image_url || '', shopeeLink: r.shopee_link || '' };
 }
 function fromStockTxRow(r){
   return { id: r.id, productId: r.product_id || null, sku: r.sku || '', brand: r.brand || '', code: r.code || '',
@@ -696,39 +701,78 @@ function renderGrid(){
         <div class="sz">＋</div>
         <div class="qty">เบอร์ใหม่</div>
       </div>`;
-    const shopeeQuery = [g.name, g.model].filter(Boolean).join(' ');
+    const shopeeLink = (rep.shopeeLink && rep.shopeeLink.trim()) ? rep.shopeeLink.trim() : '';
+    const shopeeBtnHtml = shopeeLink
+      ? `<div class="p-card-shopee-row">
+           <button type="button" class="p-card-shopee-btn" onclick="copyShopeeLink(${gi})">🛒 คัดลอกลิงก์ Shopee</button>
+           <button type="button" class="p-card-shopee-edit" onclick="editShopeeLink(${gi})" title="แก้ไขลิงก์">✏️</button>
+         </div>`
+      : `<button type="button" class="p-card-shopee-btn p-card-shopee-btn-add" onclick="editShopeeLink(${gi})">🔗 เพิ่มลิงก์ Shopee</button>`;
     return `
       <div class="p-card">
         ${imgHtml}
         <div class="p-card-body">
           <div class="p-card-name">${escapeHtml(g.name||'ไม่มีชื่อ')}</div>
           ${subParts ? `<div class="p-card-sub">${escapeHtml(subParts)}</div>` : ''}
-          <button type="button" class="p-card-shopee-btn" onclick="copyShopeeLink('${escapeJsStr(shopeeQuery)}')">🛒 คัดลอกลิงก์ Shopee</button>
+          ${shopeeBtnHtml}
           <div class="size-row">${chipsHtml}</div>
         </div>
       </div>`;
   }).join('');
 }
 
-/* ============ ลิงก์ Shopee: จับคู่สินค้าอัตโนมัติด้วยลิงก์ค้นหาภายในร้าน (ไม่ต้องมาผูกทีละชิ้น) ============ */
-// ร้านค้าบน Shopee: https://shopee.co.th/unchaleeklankanta#product_list
-const SHOPEE_SHOP_ID = 'unchaleeklankanta';
-function buildShopeeSearchLink(query){
-  const keyword = (query || '').trim();
-  const base = `https://shopee.co.th/${SHOPEE_SHOP_ID}/search`;
-  return keyword ? `${base}?keyword=${encodeURIComponent(keyword)}` : `https://shopee.co.th/${SHOPEE_SHOP_ID}#product_list`;
+/* ============ ลิงก์ Shopee: เก็บลิงก์สินค้าจริงที่วางไว้เอง (ครั้งเดียวต่อรุ่น/สี) แล้วกดคัดลอกได้เลยทุกครั้งที่หาสินค้าเจอ
+   ลิงก์ค้นหาแบบ auto-match ที่เคยลองใช้ก่อนหน้านี้เข้าไม่ได้จริง (Shopee ไม่รองรับ URL ค้นหาภายในร้านแบบนั้น)
+   จึงเปลี่ยนมาเป็นวางลิงก์จริงจากปุ่ม "แชร์" ในแอป/เว็บ Shopee ทีละรุ่น แล้วระบบจำไว้ให้ (ซิงก์ขึ้น Supabase คอลัมน์ products.shopee_link) ============ */
+function getShopeeLinkForGroup(gi){
+  const g = currentGroups[gi];
+  if(!g) return '';
+  const found = g.items.find(p => p.shopeeLink && p.shopeeLink.trim());
+  return found ? found.shopeeLink.trim() : '';
 }
-async function copyShopeeLink(query){
-  const link = buildShopeeSearchLink(query);
+function setShopeeLinkForGroup(gi, link){
+  const g = currentGroups[gi];
+  if(!g) return;
+  const ids = new Set(g.items.map(p => p.id));
+  const all = loadProducts();
+  all.forEach(p => { if(ids.has(p.id)) p.shopeeLink = link; });
+  saveProducts(all);
+  flushSyncQueue();
+}
+async function copyTextToClipboard(text){
   try{
-    await navigator.clipboard.writeText(link);
-    toast('คัดลอกลิงก์ Shopee แล้ว วางส่งลูกค้าได้เลย');
+    await navigator.clipboard.writeText(text);
+    return true;
   }catch(e){
     const ta = document.createElement('textarea');
-    ta.value = link; ta.className = 'report-copy-box'; ta.style.marginTop = '8px';
+    ta.value = text; ta.className = 'report-copy-box'; ta.style.marginTop = '8px';
     document.getElementById('gridArea').insertAdjacentElement('beforebegin', ta);
     ta.focus(); ta.select();
-    toast('คัดลอกอัตโนมัติไม่ได้ กดเลือกลิงก์ในกล่องด้านบนแล้วคัดลอกเองได้เลย');
+    return false;
+  }
+}
+async function copyShopeeLink(gi){
+  const link = getShopeeLinkForGroup(gi);
+  if(!link){ editShopeeLink(gi); return; }
+  const ok = await copyTextToClipboard(link);
+  toast(ok ? 'คัดลอกลิงก์ Shopee แล้ว วางส่งลูกค้าได้เลย' : 'คัดลอกอัตโนมัติไม่ได้ กดเลือกลิงก์ในกล่องด้านบนแล้วคัดลอกเองได้เลย');
+}
+function editShopeeLink(gi){
+  const current = getShopeeLinkForGroup(gi);
+  const input = prompt('วางลิงก์สินค้านี้จาก Shopee\n(เปิดสินค้านี้ในแอป/เว็บ Shopee -> กดปุ่ม "แชร์" -> คัดลอกลิงก์ -> มาวางตรงนี้)\n\nลบข้อความทั้งหมดแล้วกดตกลง = เอาลิงก์เดิมออก', current);
+  if(input === null) return; // กดยกเลิก
+  const link = input.trim();
+  if(link && !/^https?:\/\/(shopee\.co\.th|shp\.ee)\//i.test(link)){
+    toast('ลิงก์นี้ดูไม่เหมือนลิงก์ Shopee (ต้องขึ้นต้นด้วย shopee.co.th หรือ shp.ee) ลองเช็คแล้ววางใหม่');
+    return;
+  }
+  setShopeeLinkForGroup(gi, link);
+  renderGrid();
+  if(link){
+    toast('บันทึกลิงก์ Shopee แล้ว');
+    copyTextToClipboard(link);
+  }else{
+    toast('เอาลิงก์ Shopee ของสินค้านี้ออกแล้ว');
   }
 }
 function openImageLightbox(url){
