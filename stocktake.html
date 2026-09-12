@@ -786,14 +786,18 @@ function openShopeeLinkAudit(){
     const rows = withLink.map(({g, idx, link})=>{
       const issue = shopeeLinkIssue(link);
       const label = [g.name, g.model, g.color].filter(Boolean).join(' · ') || 'ไม่มีชื่อ';
+      // เช็คนี้ดูแค่ "รูปแบบ" ลิงก์เท่านั้น (เดาจากหน้าตา URL) บอกได้แค่ว่าน่าจะพังแน่ๆ หรือดูปกติ
+      // แต่บอกไม่ได้ 100% ว่าเปิดแล้วจะเจอสินค้าจริง (เช่น สินค้าถูกลบ/ปิดขายไปแล้วบน Shopee ก็ยังผ่านเช็คนี้)
+      // ทางเดียวที่ชัวร์สุดคือกดปุ่ม "เปิดลิงก์" ด้านล่างเพื่อเปิดดูจริงเอง
       const statusHtml = issue
         ? `<div style="color:var(--danger);font-size:12px;font-weight:700;margin-top:4px;">⚠️ ${escapeHtml(issue)}</div>`
-        : `<div style="color:var(--success);font-size:12px;font-weight:700;margin-top:4px;">✅ รูปแบบลิงก์ดูปกติ</div>`;
+        : `<div style="color:var(--success);font-size:12px;font-weight:700;margin-top:4px;">✅ รูปแบบลิงก์ดูปกติ (แต่ควรกด "เปิดลิงก์" เช็คจริงอีกทีสักครั้ง)</div>`;
       return `<div class="shopee-recon-card">
         <div class="shopee-recon-name">${escapeHtml(label)}</div>
         <div class="shopee-recon-sub" style="word-break:break-all;">${escapeHtml(link)}</div>
         ${statusHtml}
-        <div class="shopee-recon-choice" style="margin-top:8px;">
+        <div class="shopee-recon-choice" style="margin-top:8px;gap:6px;">
+          <a href="${escapeAttr(link)}" target="_blank" rel="noopener" class="btn btn-primary" style="flex:1;padding:8px;font-size:12px;text-align:center;text-decoration:none;">🔗 เปิดลิงก์</a>
           <button type="button" class="btn btn-outline" style="flex:1;padding:8px;font-size:12px;" onclick="copyTextToClipboard('${escapeJsStr(link)}').then(ok=>toast(ok?'คัดลอกลิงก์ Shopee แล้ว วางส่งลูกค้าได้เลย':'คัดลอกอัตโนมัติไม่ได้ กดเลือกลิงก์ในกล่องด้านบนแล้วคัดลอกเองได้เลย'))">📋 คัดลอก</button>
           <button type="button" class="btn btn-outline" style="flex:1;padding:8px;font-size:12px;" onclick="editShopeeLinkFromAudit(${idx})">✏️ แก้ไข</button>
         </div>
