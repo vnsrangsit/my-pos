@@ -66,8 +66,7 @@
   .p-card-body{padding:9px 10px 11px;}
   .p-card-name{font-size:13.5px;font-weight:800;letter-spacing:-.1px;margin-bottom:2px;line-height:1.25;}
   .p-card-sub{font-size:11px;color:var(--muted);margin-bottom:8px;}
-  .gender-badge{display:inline-block;background:var(--fill);color:var(--muted);border:1px dashed var(--border);border-radius:7px;padding:3px 8px;font-size:11px;font-weight:700;cursor:pointer;margin-bottom:6px;}
-  .gender-badge.gender-set{background:#eef2ff;color:#4338ca;border:1px solid #c7d2fe;}
+  .gender-badge{display:inline-block;background:#eef2ff;color:#4338ca;border:1px solid #c7d2fe;border-radius:7px;padding:3px 8px;font-size:11px;font-weight:700;margin-bottom:6px;}
   .p-card-shopee-row{display:flex;align-items:center;gap:6px;margin-bottom:8px;}
   .p-card-shopee-btn{display:inline-flex;align-items:center;justify-content:center;gap:4px;background:#fff0ec;color:#ee4d2d;border:1px solid #f8c8ba;border-radius:8px;padding:5px 6px;font-size:11px;font-weight:700;cursor:pointer;text-decoration:none;text-align:center;line-height:1.25;}
   .p-card-shopee-row .p-card-shopee-btn{margin-bottom:0;flex:1;justify-content:center;}
@@ -720,7 +719,7 @@ function renderGrid(){
       ? `<img src="${escapeAttr(rep.image)}" alt="" class="p-card-img" onclick="openImageLightbox('${escapeAttr(rep.image)}')">`
       : `<div class="p-card-img-empty">📷<div>ยังไม่มีรูป</div></div>`;
     const subParts = [g.model?('รุ่น '+g.model):'', g.color?('สี '+g.color):''].filter(Boolean).join(' · ');
-    const genderBadgeHtml = `<button type="button" class="gender-badge${g.gender?' gender-set':''}" onclick="cycleGender(${gi})">🚻 ${escapeHtml(g.gender||'ระบุเพศ')}</button>`;
+    const genderBadgeHtml = g.gender ? `<span class="gender-badge gender-set">🚻 ${escapeHtml(g.gender)}</span>` : '';
     const chipsHtml = items.map(p=>{
       const tracked = !(p.stock===null || p.stock===undefined);
       const qty = tracked ? p.stock : '-';
@@ -761,29 +760,9 @@ function renderGrid(){
 /* ============ ลิงก์ Shopee: เก็บลิงก์สินค้าจริงที่วางไว้เอง (ครั้งเดียวต่อรุ่น/สี) แล้วกดคัดลอกได้เลยทุกครั้งที่หาสินค้าเจอ
    ลิงก์ค้นหาแบบ auto-match ที่เคยลองใช้ก่อนหน้านี้เข้าไม่ได้จริง (Shopee ไม่รองรับ URL ค้นหาภายในร้านแบบนั้น)
    จึงเปลี่ยนมาเป็นวางลิงก์จริงจากปุ่ม "แชร์" ในแอป/เว็บ Shopee ทีละรุ่น แล้วระบบจำไว้ให้ (ซิงก์ขึ้น Supabase คอลัมน์ products.shopee_link) ============ */
-const GENDER_CYCLE = ['', 'ชาย', 'หญิง', 'เด็ก'];
-function getGenderForItems(items){
-  const found = items.find(p => p.gender && p.gender.trim());
-  return found ? found.gender.trim() : '';
-}
-function setGenderForItems(items, gender){
-  const ids = new Set(items.map(p => p.id));
-  const all = loadProducts();
-  all.forEach(p => { if(ids.has(p.id)) p.gender = gender; });
-  saveProducts(all);
-  flushSyncQueue();
-}
-// แตะป้าย 🚻 บนการ์ดเพื่อวนตั้งค่าเพศทีละคลิก (ระบุเพศ -> ชาย -> หญิง -> เด็ก -> ระบุเพศ ...) ไม่ต้องพิมพ์เอง กันสะกดไม่ตรงกันทำให้ค้นหาพลาด
-function cycleGender(gi){
-  const g = currentGroups[gi];
-  if(!g) return;
-  const current = getGenderForItems(g.items);
-  const idx = GENDER_CYCLE.indexOf(current);
-  const next = GENDER_CYCLE[(idx + 1) % GENDER_CYCLE.length];
-  setGenderForItems(g.items, next);
-  renderGrid();
-  toast(next ? `ตั้งเป็น "${next}" แล้ว` : 'เอาป้ายเพศออกแล้ว');
-}
+// หมายเหตุ: เอาปุ่มกด/UI สำหรับตั้งเพศออกแล้วตามที่ขอ — ปล่อยเป็นค่าว่าง (unisex/ไม่ระบุ) เป็นค่าเริ่มต้น
+// ถ้าจะระบุเพศให้สินค้าไหน พิมพ์คำว่า ชาย/หญิง/เด็ก ลงในชื่อสินค้าตอนเพิ่ม/แก้ที่แอปหลัก (index.html) ได้เลย
+// ช่องค้นหาที่นี่ค้นจากช่องชื่อ (name) อยู่แล้ว จึงยังพิมพ์ "ชาย ดำ 32" ค้นหาได้ตามปกติโดยไม่ต้องมีปุ่มแยกต่างหาก
 function getShopeeLinkForItems(items){
   const found = items.find(p => p.shopeeLink && p.shopeeLink.trim());
   return found ? found.shopeeLink.trim() : '';
