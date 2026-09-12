@@ -66,6 +66,8 @@
   .p-card-body{padding:9px 10px 11px;}
   .p-card-name{font-size:13.5px;font-weight:800;letter-spacing:-.1px;margin-bottom:2px;line-height:1.25;}
   .p-card-sub{font-size:11px;color:var(--muted);margin-bottom:8px;}
+  .gender-badge{display:inline-block;background:var(--fill);color:var(--muted);border:1px dashed var(--border);border-radius:7px;padding:3px 8px;font-size:11px;font-weight:700;cursor:pointer;margin-bottom:6px;}
+  .gender-badge.gender-set{background:#eef2ff;color:#4338ca;border:1px solid #c7d2fe;}
   .p-card-shopee-row{display:flex;align-items:center;gap:6px;margin-bottom:8px;}
   .p-card-shopee-btn{display:inline-flex;align-items:center;justify-content:center;gap:4px;background:#fff0ec;color:#ee4d2d;border:1px solid #f8c8ba;border-radius:8px;padding:5px 6px;font-size:11px;font-weight:700;cursor:pointer;text-decoration:none;text-align:center;line-height:1.25;}
   .p-card-shopee-row .p-card-shopee-btn{margin-bottom:0;flex:1;justify-content:center;}
@@ -170,7 +172,7 @@
   <div id="loginArea"></div>
 
   <div class="search-wrap">
-    <input type="text" id="stkSearch" placeholder="ค้นหาชื่อ/ยี่ห้อ/รหัส/สี..." oninput="renderGrid()">
+    <input type="text" id="stkSearch" placeholder="ค้นหาชื่อ/ยี่ห้อ/รหัส/สี/เพศ/เบอร์..." oninput="renderGrid()">
     <button type="button" class="refresh-btn" id="refreshBtn" title="ดึงสินค้า/รูป/เบอร์ใหม่ล่าสุดจากระบบหลัก" onclick="manualRefresh()">🔄</button>
     <button type="button" class="refresh-btn" id="shopeeAuditBtn" title="ตรวจลิงก์ Shopee ที่บันทึกไว้ทั้งหมด" onclick="openShopeeLinkAudit()">🛒</button>
   </div>
@@ -393,7 +395,7 @@ function toProductRow(p){
     name: p.name, model: p.model || null, color: p.color || null, size: p.size || null, barcode: p.barcode || null,
     sku: p.sku || null, cost_price: p.costPrice || 0, price: p.price || 0,
     stock: (p.stock === null || p.stock === undefined) ? null : p.stock, image_url: p.image || null,
-    shopee_link: p.shopeeLink || null };
+    shopee_link: p.shopeeLink || null, gender: p.gender || null };
 }
 function toStockTxRow(t){
   return { id: t.id, owner_id: currentOwnerId, product_id: t.productId || null, sku: t.sku || null, brand: t.brand || null,
@@ -405,7 +407,7 @@ function fromProductRow(r){
   return { id: r.id, category: r.category || '', brand: r.brand || '', code: r.code || '', name: r.name || '',
     model: r.model || '', color: r.color || '', size: r.size || '', barcode: r.barcode || '', sku: r.sku || '',
     costPrice: r.cost_price || 0, price: r.price || 0, stock: (r.stock === null || r.stock === undefined) ? null : r.stock,
-    image: r.image_url || '', shopeeLink: r.shopee_link || '' };
+    image: r.image_url || '', shopeeLink: r.shopee_link || '', gender: r.gender || '' };
 }
 function fromStockTxRow(r){
   return { id: r.id, productId: r.product_id || null, sku: r.sku || '', brand: r.brand || '', code: r.code || '',
@@ -635,8 +637,8 @@ function escapeHtml(s){ return escapeAttr(s); }
 function groupProducts(products){
   const groups = {}; const order = [];
   products.forEach(p=>{
-    const key = [p.name||'', p.model||'', p.color||''].join('|||');
-    if(!groups[key]){ groups[key] = { name:p.name, model:p.model||'', color:p.color||'', items:[] }; order.push(key); }
+    const key = [p.name||'', p.model||'', p.color||'', p.gender||''].join('|||');
+    if(!groups[key]){ groups[key] = { name:p.name, model:p.model||'', color:p.color||'', gender:p.gender||'', items:[] }; order.push(key); }
     groups[key].items.push(p);
   });
   return order.map(k=>groups[k]);
@@ -693,7 +695,7 @@ function renderGrid(){
   const onlyInStock = document.getElementById('onlyInStockToggle').checked;
   const all = loadProducts();
   let filtered = tokens.length === 0 ? all : all.filter(p=>{
-    const hay = [p.category,p.brand,p.code,p.name,p.model,p.color,p.size,p.barcode].map(v=>(v||'').toLowerCase()).join(' ');
+    const hay = [p.category,p.brand,p.code,p.name,p.model,p.color,p.size,p.barcode,p.gender].map(v=>(v||'').toLowerCase()).join(' ');
     return tokens.every(t=>hay.includes(t));
   });
   // "มีสต็อก" หมายถึงนับได้ว่ามีของจริง (stock เป็นตัวเลข > 0) — รายการที่ยังไม่เคยนับสต็อกเลย (stock เป็น null) ไม่ตัดออก
@@ -718,6 +720,7 @@ function renderGrid(){
       ? `<img src="${escapeAttr(rep.image)}" alt="" class="p-card-img" onclick="openImageLightbox('${escapeAttr(rep.image)}')">`
       : `<div class="p-card-img-empty">📷<div>ยังไม่มีรูป</div></div>`;
     const subParts = [g.model?('รุ่น '+g.model):'', g.color?('สี '+g.color):''].filter(Boolean).join(' · ');
+    const genderBadgeHtml = `<button type="button" class="gender-badge${g.gender?' gender-set':''}" onclick="cycleGender(${gi})">🚻 ${escapeHtml(g.gender||'ระบุเพศ')}</button>`;
     const chipsHtml = items.map(p=>{
       const tracked = !(p.stock===null || p.stock===undefined);
       const qty = tracked ? p.stock : '-';
@@ -747,6 +750,7 @@ function renderGrid(){
         <div class="p-card-body">
           <div class="p-card-name">${escapeHtml(g.name||'ไม่มีชื่อ')}</div>
           ${subParts ? `<div class="p-card-sub">${escapeHtml(subParts)}</div>` : ''}
+          ${genderBadgeHtml}
           ${shopeeBtnHtml}
           <div class="size-row">${chipsHtml}</div>
         </div>
@@ -757,6 +761,29 @@ function renderGrid(){
 /* ============ ลิงก์ Shopee: เก็บลิงก์สินค้าจริงที่วางไว้เอง (ครั้งเดียวต่อรุ่น/สี) แล้วกดคัดลอกได้เลยทุกครั้งที่หาสินค้าเจอ
    ลิงก์ค้นหาแบบ auto-match ที่เคยลองใช้ก่อนหน้านี้เข้าไม่ได้จริง (Shopee ไม่รองรับ URL ค้นหาภายในร้านแบบนั้น)
    จึงเปลี่ยนมาเป็นวางลิงก์จริงจากปุ่ม "แชร์" ในแอป/เว็บ Shopee ทีละรุ่น แล้วระบบจำไว้ให้ (ซิงก์ขึ้น Supabase คอลัมน์ products.shopee_link) ============ */
+const GENDER_CYCLE = ['', 'ชาย', 'หญิง', 'เด็ก'];
+function getGenderForItems(items){
+  const found = items.find(p => p.gender && p.gender.trim());
+  return found ? found.gender.trim() : '';
+}
+function setGenderForItems(items, gender){
+  const ids = new Set(items.map(p => p.id));
+  const all = loadProducts();
+  all.forEach(p => { if(ids.has(p.id)) p.gender = gender; });
+  saveProducts(all);
+  flushSyncQueue();
+}
+// แตะป้าย 🚻 บนการ์ดเพื่อวนตั้งค่าเพศทีละคลิก (ระบุเพศ -> ชาย -> หญิง -> เด็ก -> ระบุเพศ ...) ไม่ต้องพิมพ์เอง กันสะกดไม่ตรงกันทำให้ค้นหาพลาด
+function cycleGender(gi){
+  const g = currentGroups[gi];
+  if(!g) return;
+  const current = getGenderForItems(g.items);
+  const idx = GENDER_CYCLE.indexOf(current);
+  const next = GENDER_CYCLE[(idx + 1) % GENDER_CYCLE.length];
+  setGenderForItems(g.items, next);
+  renderGrid();
+  toast(next ? `ตั้งเป็น "${next}" แล้ว` : 'เอาป้ายเพศออกแล้ว');
+}
 function getShopeeLinkForItems(items){
   const found = items.find(p => p.shopeeLink && p.shopeeLink.trim());
   return found ? found.shopeeLink.trim() : '';
@@ -807,7 +834,7 @@ function openShopeeLinkAudit(){
   }else{
     const rows = withLink.map(({g, idx, link})=>{
       const issue = shopeeLinkIssue(link);
-      const label = [g.name, g.model, g.color].filter(Boolean).join(' · ') || 'ไม่มีชื่อ';
+      const label = [g.gender, g.name, g.model, g.color].filter(Boolean).join(' · ') || 'ไม่มีชื่อ';
       // เช็คนี้ดูแค่ "รูปแบบ" ลิงก์เท่านั้น (เดาจากหน้าตา URL) บอกได้แค่ว่าน่าจะพังแน่ๆ หรือดูปกติ
       // แต่บอกไม่ได้ 100% ว่าเปิดแล้วจะเจอสินค้าจริง (เช่น สินค้าถูกลบ/ปิดขายไปแล้วบน Shopee ก็ยังผ่านเช็คนี้)
       // ทางเดียวที่ชัวร์สุดคือกดปุ่ม "เปิดลิงก์" ด้านล่างเพื่อเปิดดูจริงเอง
@@ -905,7 +932,7 @@ async function copyBulkShopeeLinks(){
   groups.forEach(g=>{
     const link = getShopeeLinkForItems(g.items);
     const sizes = sortedSizeItems(g).map(p=>p.size||'-').join(', ');
-    const label = [g.name, g.model].filter(Boolean).join(' ') + (g.color?(' สี'+g.color):'') + ` เบอร์ ${sizes}`;
+    const label = [g.gender, g.name, g.model].filter(Boolean).join(' ') + (g.color?(' สี'+g.color):'') + ` เบอร์ ${sizes}`;
     if(link) lines.push(`${label}\n${link}`); else missing.push(label);
   });
   if(lines.length === 0){ toast('รายการที่เจอยังไม่มีลิงก์ Shopee เลยสักอัน'); return; }
@@ -989,7 +1016,7 @@ function openAddSizeSheet(gi){
   const g = currentGroups[gi];
   if(!g || !g.items.length){ toast('ไม่พบกลุ่มสินค้านี้แล้ว ลองรีเฟรชแล้วลองใหม่'); return; }
   addSizeGroupIndex = gi;
-  document.getElementById('addSizeTitle').textContent = [g.name, g.model, g.color].filter(Boolean).join(' · ');
+  document.getElementById('addSizeTitle').textContent = [g.gender, g.name, g.model, g.color].filter(Boolean).join(' · ');
   const existingSizes = new Set(sortedSizeItems(g).map(p=>normalizeSize(p.size)));
   document.getElementById('addSizeExisting').textContent = 'เบอร์ที่มีอยู่แล้ว: ' + sortedSizeItems(g).map(p=>p.size||'-').join(', ');
   const select = document.getElementById('addSizeInput');
@@ -1023,14 +1050,15 @@ function confirmAddSize(){
   // เช็คกับสินค้าทั้งหมดในระบบ (ไม่ใช่แค่ที่กรองอยู่บนจอ) กันเพิ่มเบอร์ซ้ำที่มีอยู่แล้วในรุ่น/สีเดียวกัน
   const dup = products.find(p =>
     (p.name||'')===(g.name||'') && (p.model||'')===(g.model||'') && (p.color||'')===(g.color||'') &&
-    normalizeSize(p.size) === normalizeSize(sizeVal));
+    (p.gender||'')===(g.gender||'') && normalizeSize(p.size) === normalizeSize(sizeVal));
   if(dup){ toast(`เบอร์ ${sizeVal} มีอยู่แล้วในรุ่นนี้ กรุณาปรับจำนวนที่เบอร์เดิมแทน`); return; }
 
-  // คัดลอกข้อมูลพื้นฐาน (ยี่ห้อ/รหัส/หมวดหมู่/ราคา/รูป) จากเบอร์ที่มีอยู่แล้วในรุ่นเดียวกัน ยกเว้นเบอร์ (ใหม่), บาร์โค้ด/SKU (เว้นว่างไว้ให้ไปตั้งเองที่แอปหลัก เพราะมักไม่ซ้ำกันต่อเบอร์)
+  // คัดลอกข้อมูลพื้นฐาน (ยี่ห้อ/รหัส/หมวดหมู่/ราคา/รูป/เพศ) จากเบอร์ที่มีอยู่แล้วในรุ่นเดียวกัน ยกเว้นเบอร์ (ใหม่), บาร์โค้ด/SKU (เว้นว่างไว้ให้ไปตั้งเองที่แอปหลัก เพราะมักไม่ซ้ำกันต่อเบอร์)
+  // สำคัญ: ต้องคัดลอก gender มาด้วย ไม่งั้นเบอร์ใหม่นี้จะกลายเป็นคนละกลุ่มกับพี่น้องเบอร์อื่นๆ ทันที (groupProducts จัดกลุ่มโดยรวม gender เข้าไปในคีย์ด้วย)
   const sibling = g.items[0];
   const newProduct = {
     id: uid(), category: sibling.category||'', brand: sibling.brand||'', code: sibling.code||'',
-    name: sibling.name||'', model: sibling.model||'', color: sibling.color||'', size: sizeVal,
+    name: sibling.name||'', model: sibling.model||'', color: sibling.color||'', gender: sibling.gender||'', size: sizeVal,
     barcode: '', sku: '', costPrice: sibling.costPrice||0, price: sibling.price||0, stock: 0, image: sibling.image||''
   };
   products.push(newProduct);
