@@ -576,7 +576,8 @@
       <div class="btn-row" style="margin-bottom:12px;">
         <button class="btn btn-outline btn-full" onclick="document.getElementById('cancelOrdersExcelFile').click()">↩️ ยกเลิก/คืนสินค้าจากไฟล์เดิม (คืนสต็อก)</button>
       </div>
-      <input type="file" id="cancelOrdersExcelFile" accept=".xlsx,.xls" style="display:none;" onchange="handleCancelOrdersExcelFile(event)">
+      <div class="muted" style="font-size:11.5px;margin:-8px 0 12px;">รองรับทั้งไฟล์ Order.all/Order.cancelled และไฟล์ Order.return_refund — เลือกได้ทีเดียวหลายไฟล์ (กดเลือกไฟล์แล้วกด Ctrl/Cmd ค้างเพื่อเลือกหลายไฟล์พร้อมกัน)</div>
+      <input type="file" id="cancelOrdersExcelFile" accept=".xlsx,.xls" multiple style="display:none;" onchange="handleCancelOrdersExcelFile(event)">
       <div class="btn-row" style="margin-bottom:12px;">
         <button class="btn btn-outline btn-full" onclick="document.getElementById('shopeeStockCompareFile').click()">🔍 เทียบสต็อก Shopee กับสต็อกในระบบ</button>
       </div>
@@ -5128,24 +5129,44 @@ function extractShopeeOrderRows(workbook, mode){
     let rows;
     try{ rows = XLSX.utils.sheet_to_json(ws, {defval:''}); }catch(e){ return; }
     if(!rows.length || !('หมายเลขคำสั่งซื้อ' in rows[0])) return;
+    // Shopee มีไฟล์รายงาน 2 แบบที่คอลัมน์ไม่เหมือนกัน แต่ทั้งคู่มีคอลัมน์ "หมายเลขคำสั่งซื้อ" เหมือนกัน:
+    // 1) Order.all / Order.cancelled — คอลัมน์ "สถานะการสั่งซื้อ", "ชื่อตัวเลือก", "จำนวน", "วันที่ทำการสั่งซื้อ"
+    // 2) Order.return_refund (ไฟล์คำขอคืนเงิน/คืนสินค้าโดยเฉพาะ) — ไม่มีคอลัมน์ "สถานะการสั่งซื้อ" เลย มีแต่
+    //    "สถานะการคืนเงินหรือคืนสินค้า", "ชื่อตัวเลือกสินค้า" (มีคำว่า "สินค้า" ต่อท้าย), "จำนวนสินค้าคืน", "วันที่สร้างคำสั่งซื้อ"
+    // ต้องแยก 2 แบบนี้ให้ถูก ไม่งั้นไฟล์คืนสินค้าจะอ่านคอลัมน์ผิดชื่อแล้วได้ค่าว่างหมด (หาออเดอร์คืนสินค้าไม่เจอเลย)
+    const isReturnRefundFormat = ('สถานะการคืนเงินหรือคืนสินค้า' in rows[0]) && !('สถานะการสั่งซื้อ' in rows[0]);
     const matched = [];
     rows.forEach(row=>{
       const orderId = normalizeOrderId(row['หมายเลขคำสั่งซื้อ']);
-      const status = String(row['สถานะการสั่งซื้อ']||'').trim();
       if(!orderId) return;
-      // ครอบทั้ง "ยกเลิก" (ลูกค้ายกเลิกก่อนจัดส่ง) และ "คืนสินค้า/คืนเงิน" (ลูกค้าคืนหลังได้รับของแล้ว) — ทั้งคู่แปลว่าต้องคืนสต็อกเหมือนกัน
-      const isCancelledOrReturned = status.includes('ยกเลิก') || status.includes('คืน');
+      let status, optionStr, qty, orderDateRaw, isCancelledOrReturned;
+      if(isReturnRefundFormat){
+        // ไฟล์นี้มีไว้สำหรับเช็คคำขอคืนเงิน/คืนสินค้าโดยเฉพาะ ไม่มีข้อมูลราคา/จำนวนเดิมของทั้งบิล จึงใช้ได้แค่โหมด "cancelled" (หาออเดอร์ที่ต้องคืนสต็อก) เท่านั้น ไม่ใช้ตอนนำเข้ายอดขาย
+        if(mode === 'sale') return;
+        status = String(row['สถานะการคืนเงินหรือคืนสินค้า']||'').trim();
+        optionStr = String(row['ชื่อตัวเลือกสินค้า']||'').trim();
+        qty = toNumOrNull(row['จำนวนสินค้าคืน']) || 0;
+        orderDateRaw = String(row['วันที่สร้างคำสั่งซื้อ']||'').trim();
+        // ใช้ allowlist ไม่ใช่ blocklist เพราะสถานะที่เจอจริงมีทั้ง "ยกเลิกคำขอ" (ลูกค้าถอนคำขอเอง), "รอการตรวจสอบ" (ยังไม่ตัดสิน),
+        // "ปฏิเสธ..." (ไม่อนุมัติ) ซึ่งของยังไม่ได้คืนจริงในทุกกรณีนี้ — เอาเฉพาะสถานะที่ "เสร็จสิ้นแล้วจริง" เท่านั้น (มีคำว่า "คืน" คู่กับ "แล้ว"/"สำเร็จ")
+        // เช่น "คืนเงินแล้ว", "คืนสินค้าสำเร็จ" ถึงจะนับว่าต้องคืนสต็อก กันคืนสต็อกก่อนเวลาทั้งที่ยังไม่มีการคืนของ/คืนเงินจริง
+        isCancelledOrReturned = status.includes('คืน') && (status.includes('แล้ว') || status.includes('สำเร็จ'));
+      } else {
+        status = String(row['สถานะการสั่งซื้อ']||'').trim();
+        optionStr = String(row['ชื่อตัวเลือก']||'').trim();
+        qty = toNumOrNull(row['จำนวน']) || 0;
+        orderDateRaw = String(row['วันที่ทำการสั่งซื้อ']||'').trim();
+        // ครอบทั้ง "ยกเลิก" (ลูกค้ายกเลิกก่อนจัดส่ง) และ "คืนสินค้า/คืนเงิน" (ลูกค้าคืนหลังได้รับของแล้ว) — ทั้งคู่แปลว่าต้องคืนสต็อกเหมือนกัน
+        isCancelledOrReturned = status.includes('ยกเลิก') || status.includes('คืน');
+      }
       if(mode === 'sale'){
         if(isCancelledOrReturned) return; // ข้ามสถานะยกเลิก/คืนสินค้าตามที่ร้านขอ
         if(status.includes('ยังไม่ชำระ')) return; // ข้ามสถานะยังไม่ชำระด้วย (ยังไม่นับเป็นยอดขายจนกว่าจะจ่ายเงิน) สถานะอื่นนับเป็นยอดขายหมด
       } else if(mode === 'cancelled'){
-        if(!isCancelledOrReturned) return; // โหมดหาออเดอร์ยกเลิก/คืนสินค้า เอาเฉพาะ 2 สถานะนี้เท่านั้น
+        if(!isCancelledOrReturned) return; // โหมดหาออเดอร์ยกเลิก/คืนสินค้า เอาเฉพาะรายการที่ยืนยันว่ายกเลิก/คืนจริงเท่านั้น
       }
-      const orderDateRaw = String(row['วันที่ทำการสั่งซื้อ']||'').trim();
       const title = String(row['ชื่อสินค้า']||'').trim();
-      const optionStr = String(row['ชื่อตัวเลือก']||'').trim();
       const { color, size } = parseOptionColorSize(optionStr);
-      const qty = toNumOrNull(row['จำนวน']) || 0;
       const netTotal = toNumOrNull(row['ราคาขายสุทธิ']);
       const unitPrice = (netTotal !== null && qty > 0) ? Math.round((netTotal/qty)*100)/100 : null;
       if(!title || qty <= 0) return;
@@ -5358,32 +5379,44 @@ function confirmImportOrders(){
    ยกเลิกก่อนได้รับของ หรือได้รับของแล้วค่อยคืน จึงต้องคืนสต็อกกลับและลบบิลขายนั้นออก (คนละกรณีกับปุ่ม "คืนสินค้า"
    ที่ทำทีละบิลเอง อันนี้ทำจากไฟล์ Shopee ได้ทีเดียวหลายบิล) */
 let cancelOrdersParsedRows = [];
-function handleCancelOrdersExcelFile(event){
-  const file = event.target.files[0];
-  if(!file) return;
-  const reader = new FileReader();
-  reader.onload = (e)=>{
-    try{
-      const workbook = XLSX.read(new Uint8Array(e.target.result), { type:'array' });
-      const cancelledRows = extractShopeeOrderRows(workbook, 'cancelled');
-      if(!cancelledRows.length){
-        toast('ไม่พบรายการที่สถานะเป็น "ยกเลิก" หรือ "คืนสินค้า" ในไฟล์นี้');
-        event.target.value = '';
-        return;
-      }
-      // เอาเฉพาะเลขคำสั่งซื้อที่ "เคยนำเข้าเป็นบิลขายไว้แล้วจริง" (เทียบจาก sales.orderId) เท่านั้น
-      // ออเดอร์ที่ยกเลิกแต่ไม่เคยนำเข้ามาก่อน ไม่ต้องทำอะไร (ไม่เคยตัดสต็อกไปตั้งแต่แรก)
-      const cancelledIds = new Set(cancelledRows.map(r=>r.orderId));
-      const sales = loadSales();
-      const matchedSales = sales.filter(s => s.orderId && cancelledIds.has(normalizeOrderId(s.orderId)));
-      cancelOrdersParsedRows = matchedSales.map(s => ({ sale: s, include: true }));
-      openCancelOrdersModal(cancelledRows.length, cancelledIds.size);
-    }catch(err){
-      console.error(err);
-      toast('อ่านไฟล์ไม่สำเร็จ ตรวจสอบว่าเป็นไฟล์รายงานคำสั่งซื้อ Shopee ที่ถูกต้องไหม');
+// อ่านไฟล์เดียวเป็น workbook แบบ Promise (ใช้รวมกับ Promise.all ด้านล่างตอนเลือกหลายไฟล์พร้อมกัน)
+function readWorkbookFromFile(file){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = (e)=>{
+      try{ resolve(XLSX.read(new Uint8Array(e.target.result), { type:'array' })); }
+      catch(err){ reject(err); }
+    };
+    reader.onerror = ()=>reject(reader.error);
+    reader.readAsArrayBuffer(file);
+  });
+}
+// รองรับเลือกได้ทีเดียวหลายไฟล์ (input มี attribute multiple) เพราะ Shopee แยกออกเป็น 2 รายงานคนละไฟล์กัน:
+// "Order.cancelled"/"Order.all" (ออเดอร์ที่ถูกยกเลิกก่อนจัดส่ง) กับ "Order.return_refund" (คำขอคืนเงิน/คืนสินค้าหลังได้รับของแล้ว)
+// อ่านทุกไฟล์ที่เลือกมา รวมรายการที่เจอทั้งหมดเข้าด้วยกัน (extractShopeeOrderRows แยกโครงสร้างคอลัมน์ของแต่ละไฟล์ให้เองอัตโนมัติ)
+async function handleCancelOrdersExcelFile(event){
+  const files = Array.from(event.target.files || []);
+  if(!files.length) return;
+  try{
+    const workbooks = await Promise.all(files.map(readWorkbookFromFile));
+    let cancelledRows = [];
+    workbooks.forEach(wb => { cancelledRows = cancelledRows.concat(extractShopeeOrderRows(wb, 'cancelled')); });
+    if(!cancelledRows.length){
+      toast('ไม่พบรายการที่สถานะเป็น "ยกเลิก" หรือ "คืนสินค้า" ในไฟล์ที่เลือก (ตรวจว่าเป็นไฟล์รายงาน Order.cancelled/Order.all/Order.return_refund จาก Shopee ไหม)');
+      event.target.value = '';
+      return;
     }
-  };
-  reader.readAsArrayBuffer(file);
+    // เอาเฉพาะเลขคำสั่งซื้อที่ "เคยนำเข้าเป็นบิลขายไว้แล้วจริง" (เทียบจาก sales.orderId) เท่านั้น
+    // ออเดอร์ที่ยกเลิกแต่ไม่เคยนำเข้ามาก่อน ไม่ต้องทำอะไร (ไม่เคยตัดสต็อกไปตั้งแต่แรก)
+    const cancelledIds = new Set(cancelledRows.map(r=>r.orderId));
+    const sales = loadSales();
+    const matchedSales = sales.filter(s => s.orderId && cancelledIds.has(normalizeOrderId(s.orderId)));
+    cancelOrdersParsedRows = matchedSales.map(s => ({ sale: s, include: true }));
+    openCancelOrdersModal(cancelledRows.length, cancelledIds.size);
+  }catch(err){
+    console.error(err);
+    toast('อ่านไฟล์ไม่สำเร็จ ตรวจสอบว่าเป็นไฟล์รายงานคำสั่งซื้อ Shopee ที่ถูกต้องไหม');
+  }
   event.target.value = '';
 }
 function openCancelOrdersModal(cancelledRowCount, cancelledOrderCount){
