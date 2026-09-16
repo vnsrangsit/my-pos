@@ -4640,7 +4640,8 @@ function renderShopeeCompareModal(){
     }).join('');
     const remoteRows = shopeeCompareRemoteQueuedRows.map(row=>{
       const label = (row.name || [row.brand, row.code, row.model].filter(Boolean).join(' · ') || '(ไม่มีชื่อ)') + (row.color ? ' · สี '+row.color : '') + (row.size ? ' · เบอร์ '+row.size : '');
-      return `<div class="queued-review-row"><span>${escapeAttr(label)} — <strong>${row.our_stock}</strong> คู่ <span class="muted" style="font-size:11px;">(พนักงานส่งมา)</span></span><button type="button" class="queued-review-remove" onclick="cancelRemoteQueuedItem('${escapeJsStr(row.id)}')">✕</button></div>`;
+      const whenText = row.updated_at ? new Date(row.updated_at).toLocaleString('th-TH', {dateStyle:'short', timeStyle:'short'}) : '';
+      return `<div class="queued-review-row"><span>${escapeAttr(label)} — <strong>${row.our_stock}</strong> คู่ <span class="muted" style="font-size:11px;">(พนักงานส่งมา${whenText ? ' · '+whenText : ''})</span></span><button type="button" class="queued-review-remove" onclick="cancelRemoteQueuedItem('${escapeJsStr(row.id)}')">✕</button></div>`;
     }).join('');
     html += `<details open style="margin:10px 0;border:1px solid var(--border);border-radius:10px;padding:8px 10px;">
       <summary style="font-size:13px;font-weight:700;cursor:pointer;">🛒 รายการที่รอส่งออกไป Shopee (${totalQueuedCount}) — ทบทวนก่อนกดดาวน์โหลดจริง</summary>
