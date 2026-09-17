@@ -1330,30 +1330,72 @@ function rcParseLabelLines(lines){
   if(/shopee/i.test(fullText)) channel = 'shopee';
   else if(/tiktok|tik tok/i.test(fullText)) channel = 'tiktok';
 
-  // หาที่อยู่ลูกค้า: เริ่มจากบรรทัดที่มีคำว่า "ผู้รับ" หรือ "(TO)" ไปจนกว่าจะเจอ "ผู้ส่ง"/"(FROM)"/เลขคำสั่งซื้อ
+  // ป้าย/โค้ดขนส่งที่มักเจอปนอยู่ในบรรทัดเดียวกับที่อยู่ (เพราะอยู่คอลัมน์ขวาสุดของแถวเดียวกันในเลย์เอาต์) ต้องกรองทิ้งไม่ให้ปนในชื่อ-ที่อยู่ลูกค้า
+  const badgeLineRe = /^(ROS|C07|BG|SPEED|DROP\s*OFF|เก็บเงินปลายทาง|PICKUP DATE|SHIP BY DATE|NOTE|[A-Z0-9_-]{2,20})$/i;
+
+  // หาที่อยู่ลูกค้า: เริ่มจากบรรทัดที่มีคำว่า "ผู้รับ" หรือ "(TO)" ไปจนกว่าจะเจอจุดที่ชัดว่าหมดบล็อกนี้แล้ว (บาร์โค้ด/เลขคำสั่งซื้อ/ป้ายขนส่ง/หัวตารางสินค้า)
   let customer = '';
   const recvIdx = lines.findIndex(l => /ผู้รับ|\(TO\)/i.test(l));
   if(recvIdx !== -1){
-    const stopRe = /ผู้ส่ง|\(FROM\)|order no|หมายเลขคำสั่งซื้อ/i;
+    const stopRe = /ผู้ส่ง|\(FROM\)|order no|หมายเลขคำสั่งซื้อ|pickup date|ship by date|^note$|ชื่อสินค้า|รายการสินค้า/i;
     const block = [];
-    for(let i=recvIdx+1;i<lines.length && block.length<4;i++){
-      if(stopRe.test(lines[i])) break;
-      block.push(lines[i].replace(/^ผู้รับ|\(TO\)/i,'').trim());
+    // ชื่อลูกค้ามักอยู่ต่อท้ายป้าย "ผู้รับ (TO)" ในบรรทัดเดียวกันเลย (ไม่ได้ขึ้นบรรทัดใหม่) ต้องดึงส่วนที่เหลือของบรรทัดนี้มาด้วย ไม่ใช่เริ่มนับจากบรรทัดถัดไปอย่างเดียว
+    const firstLineRest = lines[recvIdx].replace(/.*(ผู้รับ|\(TO\))\s*/i,'').trim();
+    if(firstLineRest && !badgeLineRe.test(firstLineRest)) block.push(firstLineRest);
+    for(let i=recvIdx+1;i<lines.length && block.length<6;i++){
+      const raw = lines[i];
+      if(stopRe.test(raw)) break;
+      if(badgeLineRe.test(raw.trim())) continue; // ข้ามป้ายขนส่ง/โค้ดที่หลุดมาปนแถว ไม่ถือว่าจบบล็อก แค่ไม่เอามาต่อ
+      block.push(raw.replace(/^ผู้รับ|\(TO\)/i,'').trim());
     }
     customer = block.filter(Boolean).join(' ').trim();
   }
 
-  // หารายการสินค้า: มองหาบรรทัดที่มี "สี,เบอร์" (เช่น "ดำ,31") ตามด้วยจำนวนตัวเลขท้ายบรรทัด
+  // หารายการสินค้า: ตารางในใบปะหน้ามักตัดชื่อสินค้าเป็นหลายบรรทัด (ชื่อยาว) แล้วค่อยตามด้วยบรรทัด "สี,เบอร์ จำนวน" แยกต่างหาก
+  // (เช่น "รองเท้า...ADDA...41G99B1" บรรทัดแรก, "41C20B1 Cinderella เบอร์ 25-35" บรรทัดสอง, "ดำ,31 1" บรรทัดสาม)
+  // เดิมเช็คแค่บรรทัดเดียวจบ (ชื่อ+ตัวเลือก+จำนวน) เลยพลาดเคสชื่อยาวแบบนี้ไปหมด ต้องสะสมชื่อจากบรรทัดก่อนหน้าไว้ก่อน แล้วค่อยปิดรายการตอนเจอบรรทัด "ตัวเลือก จำนวน"
   const items = [];
-  const itemLineRe = /^(?:\d+\s+)?(.+?)\s+([^\s,]{1,20}\s*,\s*[^\s,]{1,10})\s+(\d{1,4})\s*$/;
-  lines.forEach(l=>{
-    const m = l.match(itemLineRe);
-    if(!m) return;
-    const name = m[1].trim();
-    if(!name || /^(ชื่อสินค้า|รายการ|ตัวเลือกสินค้า|จำนวน)$/i.test(name)) return; // ข้ามหัวตาราง
-    const { color, size } = rcParseOptionColorSize(m[2]);
-    const qty = parseInt(m[3], 10) || 1;
-    items.push({ name, color, size, qty });
+  const optionQtyOnlyRe = /^([^\s,]{1,20}\s*,\s*[^\s,]{1,10})\s+(\d{1,4})\s*$/; // บรรทัดที่มีแค่ "สี,เบอร์ จำนวน" ไม่มีชื่อนำหน้า
+  const nameThenOptionQtyRe = /^(?:\d+\s+)?(.+?)\s+([^\s,]{1,20}\s*,\s*[^\s,]{1,10})\s+(\d{1,4})\s*$/; // บรรทัดที่มีชื่อ+ตัวเลือก+จำนวน ในบรรทัดเดียวจบ (กรณีชื่อสั้นพอ)
+  const bareIndexRe = /^\d{1,3}$/; // เลขลำดับแถว ("#") ที่แยกอยู่บรรทัดของตัวเอง ไม่ใช่ส่วนหนึ่งของชื่อ
+  const headerWordRe = /^(ชื่อสินค้า|รายการ|ตัวเลือกสินค้า|จำนวน|#)$/i;
+  let nameBuffer = [];
+  // จำกัดขอบเขตแค่ช่วงตารางสินค้า (หลังหัวตาราง จนถึงแถวสรุป "จำนวนรวม" หรือ Shopee Order No. ที่พิมพ์ซ้ำท้ายตาราง)
+  // กันไม่ให้ข้อความก่อนหน้า (ที่อยู่/ป้ายขนส่ง) หลุดเข้ามาปนเป็น "ชื่อสินค้า" ที่สะสมไว้
+  const tableHeaderIdx = lines.findIndex(l => /ชื่อสินค้า/i.test(l));
+  let tableEndIdx = lines.length;
+  if(tableHeaderIdx !== -1){
+    for(let i=tableHeaderIdx+1;i<lines.length;i++){
+      if(/จำนวนรวม/i.test(lines[i]) || (i>tableHeaderIdx+1 && /order no/i.test(lines[i]))){ tableEndIdx = i; break; }
+    }
+  }
+  const tableLines = tableHeaderIdx !== -1 ? lines.slice(tableHeaderIdx+1, tableEndIdx) : lines;
+  tableLines.forEach(l=>{
+    const line = l.trim();
+    if(!line) return;
+    if(bareIndexRe.test(line) || headerWordRe.test(line)) return; // เลขลำดับ/หัวตาราง ไม่เอามาต่อชื่อ ไม่ต้อง flush อะไร
+    const onlyMatch = line.match(optionQtyOnlyRe);
+    if(onlyMatch){
+      const name = nameBuffer.join(' ').replace(/\s+/g,' ').trim();
+      nameBuffer = [];
+      if(!name) return; // ไม่มีชื่อสะสมไว้เลย ข้าม (กันจับ badge/โค้ดที่บังเอิญมีจุลภาคมาเป็นสินค้า)
+      const { color, size } = rcParseOptionColorSize(onlyMatch[1]);
+      const qty = parseInt(onlyMatch[2], 10) || 1;
+      items.push({ name, color, size, qty });
+      return;
+    }
+    const combinedMatch = line.match(nameThenOptionQtyRe);
+    if(combinedMatch){
+      const name = (nameBuffer.join(' ') + ' ' + combinedMatch[1]).replace(/\s+/g,' ').trim();
+      nameBuffer = [];
+      if(!name || headerWordRe.test(name)) return;
+      const { color, size } = rcParseOptionColorSize(combinedMatch[2]);
+      const qty = parseInt(combinedMatch[3], 10) || 1;
+      items.push({ name, color, size, qty });
+      return;
+    }
+    // บรรทัดข้อความธรรมดา (ไม่ใช่ตัวเลือก/จำนวน) — ถือเป็นส่วนหนึ่งของชื่อสินค้าที่ตัดบรรทัด สะสมไว้รอบรรทัดตัวเลือกมาปิดรายการ
+    if(!badgeLineRe.test(line)) nameBuffer.push(line);
   });
   return { channel, customer, items };
 }
@@ -1460,70 +1502,87 @@ function doGenerateReceipt(){
       <td style="text-align:right;">${amount.toFixed(2)}</td>
     </tr>`;
   }).join('');
-  // เติมแถวว่างให้ตารางดูเป็นทางการเหมือนใบเสร็จจริง (อย่างน้อย 3 แถว)
+  // เติมแถวว่างให้ตารางดูเป็นทางการเหมือนใบเสร็จจริง (อย่างน้อย 3 แถว เหมือน template)
   const blankRows = Math.max(0, 3 - items.length);
-  const blankRowsHtml = Array.from({length: blankRows}).map(()=>`<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr>`).join('');
+  const blankRowsHtml = Array.from({length: blankRows}).map((_, i)=>`<tr><td style="text-align:center;">${items.length+i+1}</td><td></td><td></td><td></td><td></td></tr>`).join('');
   const win = window.open('', '_blank');
   if(!win){ toast('เบราว์เซอร์บล็อกป็อปอัป กรุณาอนุญาตป็อปอัปสำหรับหน้านี้แล้วลองใหม่'); return; }
+  // เลย์เอาต์นี้จงใจทำให้ใกล้เคียงกับ "ใบเสร็จ template" จริงของร้าน (หัวเรื่องชิดซ้าย/ข้อมูลร้านชิดขวา, เลขที่-วันที่ชิดซ้ายใต้หัวเรื่อง,
+  // ตารางหัวสีน้ำเงิน, บล็อกยอดรวม+จำนวนเงินเป็นตัวอักษรอยู่แถวเดียวกันด้านล่างตาราง, แถวท้ายมี 3 ช่อง: ลงนาม / ช่องทางจำหน่าย / ว่าง)
   win.document.write(`<!doctype html><html lang="th"><head><meta charset="utf-8">
     <title>ใบเสร็จรับเงิน ${escapeHtml(no)}</title>
     <style>
-      @page{ size:A4; margin:14mm; }
+      @page{ size:A4; margin:16mm 18mm; }
       *{ box-sizing:border-box; }
       body{ font-family:'Sarabun','Segoe UI',sans-serif; font-size:13px; color:#111; margin:0; }
-      .hdr{ text-align:center; margin-bottom:10px; }
-      .hdr h1{ font-size:18px; margin:0 0 2px; }
-      .hdr .sub{ font-size:12px; color:#333; }
-      .metaRow{ display:flex; justify-content:space-between; margin:10px 0; font-size:13px; }
-      .shopBox{ border:1px solid #333; border-radius:4px; padding:8px 10px; margin-bottom:10px; font-size:12.5px; line-height:1.5; }
-      .custBox{ border:1px solid #333; border-radius:4px; padding:8px 10px; margin-bottom:10px; min-height:40px; font-size:12.5px; }
-      table.items{ width:100%; border-collapse:collapse; margin-bottom:6px; }
-      table.items th, table.items td{ border:1px solid #333; padding:5px 6px; font-size:12.5px; }
-      table.items th{ background:#f0f0f0; }
-      .totals{ display:flex; justify-content:flex-end; margin-top:4px; }
-      .totals table{ border-collapse:collapse; font-size:13px; }
-      .totals td{ padding:3px 8px; }
-      .totals td.label{ text-align:right; }
-      .totals td.val{ text-align:right; width:110px; border-bottom:1px solid #333; }
-      .bahttext{ margin-top:8px; font-size:12.5px; }
-      .footRow{ display:flex; justify-content:space-between; align-items:flex-end; margin-top:40px; font-size:12.5px; }
-      .sigline{ text-align:center; }
-      .sigline .line{ width:160px; border-bottom:1px solid #333; margin-bottom:4px; height:24px; }
-      .channelBox label{ margin-right:14px; }
+      .headerRow{ display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px; }
+      .headerRow h1{ font-size:26px; margin:0; line-height:1.2; }
+      .headerRow .subtitle{ font-size:15px; color:#333; margin:0 0 2px; }
+      .shopInfo{ text-align:right; font-size:12px; line-height:1.55; }
+      .shopInfo strong{ font-size:13px; }
+      .metaTop{ font-size:13px; margin-bottom:14px; }
+      .metaTop div{ margin-bottom:2px; }
+      .custBox{ border:1px solid #333; padding:8px 10px; margin-bottom:14px; min-height:46px; font-size:12.5px; }
+      .custBox .lbl{ font-weight:600; margin-bottom:4px; }
+      table.items{ width:100%; border-collapse:collapse; margin-bottom:4px; }
+      table.items thead th{ background:#5b6fc7; color:#fff; font-weight:600; padding:7px 6px; font-size:12.5px; text-align:center; }
+      table.items thead th:nth-child(2){ text-align:left; }
+      table.items tbody td{ padding:7px 6px; font-size:12.5px; border-bottom:1px solid #ccc; }
+      .bottomRow{ display:flex; justify-content:space-between; align-items:flex-end; margin-top:8px; gap:12px; }
+      .bahttext{ font-size:12.5px; }
+      .totalsTable{ border-collapse:collapse; font-size:13px; }
+      .totalsTable td{ padding:2px 4px; white-space:nowrap; }
+      .totalsTable td.label{ text-align:right; padding-right:14px; }
+      .totalsTable td.val{ text-align:right; min-width:90px; }
+      .footTable{ width:100%; border-collapse:collapse; margin-top:36px; }
+      .footTable td{ border:1px solid #333; padding:12px 10px; vertical-align:top; font-size:12.5px; }
+      .sigCell{ text-align:center; width:32%; }
+      .sigline{ border-bottom:1px solid #333; height:26px; margin-bottom:6px; }
+      .channelCell{ width:34%; }
+      .channelCell .opt{ margin-top:4px; }
+      .channelCell .dot{ display:inline-block; width:11px; height:11px; border:1.4px solid #333; border-radius:50%; margin-right:6px; vertical-align:middle; }
+      .channelCell .dot.on{ background:#111; }
     </style></head><body>
-    <div class="hdr">
-      <h1>ใบเสร็จรับเงิน / RECEIPT</h1>
+    <div class="headerRow">
+      <div>
+        <h1>ใบเสร็จรับเงิน</h1>
+        <div class="subtitle">RECEIPT</div>
+      </div>
+      <div class="shopInfo">
+        <strong>ร้านผลคูณตลาดรังสิต-ซอย 5</strong><br>
+        รังสิตซอย 5 ต. ประชาธิปัตย์ อ. ธัญบุรี จ. ปทุมธานี 12130<br>
+        โทร 091-216-5550<br>
+        เลขประจำตัวผู้เสียภาษี
+      </div>
     </div>
-    <div class="metaRow">
+    <div class="metaTop">
       <div>เลขที่ ${escapeHtml(no || '-')}</div>
       <div>วันที่ ${escapeHtml(dateThai)}</div>
     </div>
-    <div class="shopBox">
-      <strong>ร้านผลคูณตลาดรังสิต-ซอย 5</strong><br>
-      รังสิตซอย 5 ต. ประชาธิปัตย์ อ. ธัญบุรี จ. ปทุมธานี 12130<br>
-      โทร 091-216-5550
-    </div>
-    <div class="custBox"><strong>รายละเอียดลูกค้า</strong><br>${escapeHtml(customer).replace(/\n/g,'<br>')}</div>
+    <div class="custBox"><div class="lbl">รายละเอียดลูกค้า</div>${escapeHtml(customer).replace(/\n/g,'<br>')}</div>
     <table class="items">
-      <thead><tr><th style="width:36px;">ลำดับ</th><th>รายการ</th><th style="width:60px;">จำนวน</th><th style="width:90px;">ราคาต่อหน่วย</th><th style="width:100px;">จำนวนเงิน</th></tr></thead>
+      <thead><tr><th style="width:38px;">ลำดับ</th><th>รายการ</th><th style="width:55px;">จำนวน</th><th style="width:85px;">ราคาต่อหน่วย</th><th style="width:95px;">จำนวนเงิน</th></tr></thead>
       <tbody>${rowsHtml}${blankRowsHtml}</tbody>
     </table>
-    <div class="totals">
-      <table>
+    <div class="bottomRow">
+      <div class="bahttext">จำนวนเงินรวมทั้งสิ้น(ตัวอักษร) : ${thaiBahtText(total)}</div>
+      <table class="totalsTable">
         <tr><td class="label">รวมราคา</td><td class="val">${total.toFixed(2)}</td></tr>
         <tr><td class="label">ไม่มีภาษีมูลค่าเพิ่ม 7%</td><td class="val"></td></tr>
         <tr><td class="label"><strong>รวมทั้งสิ้น</strong></td><td class="val"><strong>${total.toFixed(2)}</strong></td></tr>
       </table>
     </div>
-    <div class="bahttext">จำนวนเงินรวมทั้งสิ้น(ตัวอักษร) : ${thaiBahtText(total)}</div>
-    <div class="footRow">
-      <div class="channelBox">
-        ช่องทางการจัดจำหน่าย:
-        <label>${channel && channel.value==='shopee' ? '●' : '○'} Shopee</label>
-        <label>${channel && channel.value==='tiktok' ? '●' : '○'} Tiktok</label>
-      </div>
-      <div class="sigline"><div class="line"></div>ผู้มีอำนาจลงนาม</div>
-    </div>
+    <table class="footTable">
+      <tr>
+        <td class="sigCell"><div class="sigline"></div>ผู้มีอำนาจลงนาม</td>
+        <td class="channelCell">
+          ช่องทางการจัดจำหน่าย
+          <div class="opt"><span class="dot${channel && channel.value==='shopee' ? ' on' : ''}"></span>Shopee</div>
+          <div class="opt"><span class="dot${channel && channel.value==='tiktok' ? ' on' : ''}"></span>Tiktok</div>
+        </td>
+        <td></td>
+      </tr>
+    </table>
     <script>
       window.onload = function(){ window.print(); };
       window.onafterprint = function(){ window.close(); };
