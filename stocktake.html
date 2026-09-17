@@ -1330,10 +1330,13 @@ function rcParseLabelLines(lines){
   if(/shopee/i.test(fullText)) channel = 'shopee';
   else if(/tiktok|tik tok/i.test(fullText)) channel = 'tiktok';
 
-  // pdf.js บางไฟล์คืนข้อความเป็นชิ้นเล็กมาก (เป็นพยางค์/เป็นตัวอักษร) ทำให้ตอนต่อกันเป็นบรรทัดมีช่องว่างแทรกกลางคำไทยได้
-  // (เช่น "ชื่อสินค้า" อาจกลายเป็น "ชื่อ สินค้า") ถ้าเทียบคำแบบเป๊ะๆ จะหาหัวตาราง/ป้าย "ผู้รับ" ไม่เจอเลย เกิดปัญหาลูกโซ่ตามมา
-  // (ขอบเขตตารางหาไม่เจอ -> ชื่อสินค้าดูดข้อความทั้งไฟล์มาปนหมด -> จับคู่ราคาไม่ได้) จึงต้องเทียบแบบตัดช่องว่างออกก่อนเทียบคำเสมอ
-  const rcCompact = s => String(s||'').replace(/\s+/g,'');
+  // pdf.js บางไฟล์คืนข้อความเป็นชิ้นเล็กมาก (เป็นพยางค์/เป็นตัวอักษร) ทำให้ตอนต่อกันเป็นบรรทัดมีช่องว่างแทรกกลางคำไทยได้ (เช่น "ชื่อสินค้า" กลายเป็น "ชื่อ สินค้า")
+  // และเจอจริงยิ่งกว่านั้น: ฟอนต์ในไฟล์บางไฟล์ทำให้ตัวอักษรกลุ่มวรรณยุกต์/สระลอย (เช่น ไม้โท ้ ในคำว่า "สินค้า") หายไปจากข้อความที่ดึงได้เลย
+  // ("ชื่อสินค้า" กลายเป็น "ชื่อสินคา" ไม่มี ้ ) ถ้าเทียบคำแบบเป๊ะๆ (แม้จะตัดช่องว่างแล้ว) ก็ยังหาหัวตาราง/ป้าย "ผู้รับ" ไม่เจอ เกิดปัญหาลูกโซ่ตามมา
+  // (ขอบเขตตารางหาไม่เจอ -> ชื่อสินค้าดูดข้อความก่อนหน้ามาปนหมด -> จับคู่ราคาไม่ได้) จึงต้องตัดทั้งช่องว่างและวรรณยุกต์/สระบน-ล่างออกก่อนเทียบคำเสมอ
+  // (ตัด "ตัวยึด" การันต์/สระ/วรรณยุกต์ = ไม้หันอากาศ, สระอิ-อือ-อุ-อู, พินทุ, ไม้ไต่คู้, ไม้เอก-โท-ตรี-จัตวา, การันต์, นิคหิต — เหลือแค่พยัญชนะ+สระเต็มตัวไว้เทียบ)
+  const rcThaiMarksRe = /[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E]/g;
+  const rcCompact = s => String(s||'').replace(/\s+/g,'').replace(rcThaiMarksRe,'');
   const compactLines = lines.map(rcCompact);
 
   // ป้าย/โค้ดขนส่งที่มักเจอปนอยู่ในบรรทัดเดียวกับที่อยู่ (เพราะอยู่คอลัมน์ขวาสุดของแถวเดียวกันในเลย์เอาต์) ต้องกรองทิ้งไม่ให้ปนในชื่อ-ที่อยู่ลูกค้า
@@ -1342,9 +1345,9 @@ function rcParseLabelLines(lines){
   // หาที่อยู่ลูกค้า: เริ่มจากบรรทัดที่มีคำว่า "ผู้รับ" หรือ "(TO)" ไปจนกว่าจะเจอจุดที่ชัดว่าหมดบล็อกนี้แล้ว (บาร์โค้ด/เลขคำสั่งซื้อ/ป้ายขนส่ง/หัวตารางสินค้า)
   let customer = '';
   let customerEndIdx = -1; // เก็บไว้ใช้เป็นจุดเริ่มค้นหาตารางสินค้าสำรอง เผื่อหาหัวตารางด้วยชื่อคอลัมน์ไม่เจอ
-  const recvIdx = lines.findIndex(l => rcCompact(l).includes('ผู้รับ') || /\(TO\)/i.test(l));
+  const recvIdx = lines.findIndex(l => rcCompact(l).includes(rcCompact('ผู้รับ')) || /\(TO\)/i.test(l));
   if(recvIdx !== -1){
-    const stopRe = l => rcCompact(l).includes('ผู้ส่ง') || /\(FROM\)|order no|pickup date|ship by date/i.test(l) || rcCompact(l).includes('หมายเลขคำสั่งซื้อ') || /^note$/i.test(l.trim()) || rcCompact(l).includes('ชื่อสินค้า') || rcCompact(l).includes('รายการสินค้า');
+    const stopRe = l => rcCompact(l).includes(rcCompact('ผู้ส่ง')) || /\(FROM\)|order no|pickup date|ship by date/i.test(l) || rcCompact(l).includes(rcCompact('หมายเลขคำสั่งซื้อ')) || /^note$/i.test(l.trim()) || rcCompact(l).includes(rcCompact('ชื่อสินค้า')) || rcCompact(l).includes(rcCompact('รายการสินค้า'));
     const block = [];
     // ชื่อลูกค้ามักอยู่ต่อท้ายป้าย "ผู้รับ (TO)" ในบรรทัดเดียวกันเลย (ไม่ได้ขึ้นบรรทัดใหม่) ต้องดึงส่วนที่เหลือของบรรทัดนี้มาด้วย ไม่ใช่เริ่มนับจากบรรทัดถัดไปอย่างเดียว
     const firstLineRest = lines[recvIdx].replace(/.*(ผู้\s*รับ|\(TO\))\s*/i,'').trim();
@@ -1371,7 +1374,7 @@ function rcParseLabelLines(lines){
   let nameBuffer = [];
   // จำกัดขอบเขตแค่ช่วงตารางสินค้า (หลังหัวตาราง จนถึงแถวสรุป "จำนวนรวม" หรือ Shopee Order No. ที่พิมพ์ซ้ำท้ายตาราง)
   // กันไม่ให้ข้อความก่อนหน้า (ที่อยู่/ป้ายขนส่ง) หลุดเข้ามาปนเป็น "ชื่อสินค้า" ที่สะสมไว้ — เทียบแบบตัดช่องว่างออกก่อน (ดูเหตุผลบน rcCompact ด้านบน)
-  let tableHeaderIdx = compactLines.findIndex(cl => cl.includes('ชื่อสินค้า'));
+  let tableHeaderIdx = compactLines.findIndex(cl => cl.includes(rcCompact('ชื่อสินค้า')));
   const headerFoundForReal = tableHeaderIdx !== -1;
   // สำรอง: ถ้าหาหัวตารางด้วยชื่อคอลัมน์ไม่เจอเลย (ข้อความเพี้ยนไปมากกว่านั้น) ให้เริ่มค้นตั้งแต่ท้ายบล็อกที่อยู่ลูกค้าแทน อย่างน้อยกันไม่ให้ที่อยู่/ป้ายขนส่งช่วงต้นไฟล์หลุดเข้ามาปนชื่อสินค้า
   if(!headerFoundForReal) tableHeaderIdx = customerEndIdx - 1;
@@ -1379,7 +1382,7 @@ function rcParseLabelLines(lines){
   for(let i=tableHeaderIdx+1;i<lines.length;i++){
     // เช็ค "Shopee Order No." ซ้ำท้ายตาราง เป็นตัวจบตารางได้เฉพาะตอนหาหัวตารางเจอจริงเท่านั้น (การันตีว่าตัวแรกที่เจอหลังหัวตารางคือของท้ายตาราง)
     // ถ้าอยู่ในโหมดสำรอง (หาหัวตารางไม่เจอ) เลขคำสั่งซื้อที่โผล่มาบรรทัดแรกๆ อาจเป็นอันที่อยู่ใกล้ข้อมูลจัดส่งด้านบน ไม่ใช่ท้ายตารางจริง ใช้แค่ "จำนวนรวม" ตัดจบแทน
-    if(compactLines[i].includes('จำนวนรวม') || (headerFoundForReal && i>tableHeaderIdx+1 && /order no/i.test(lines[i]))){ tableEndIdx = i; break; }
+    if(compactLines[i].includes(rcCompact('จำนวนรวม')) || (headerFoundForReal && i>tableHeaderIdx+1 && /order no/i.test(lines[i]))){ tableEndIdx = i; break; }
   }
   const tableLines = tableHeaderIdx !== -1 ? lines.slice(tableHeaderIdx+1, tableEndIdx) : lines;
   tableLines.forEach(l=>{
