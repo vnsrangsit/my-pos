@@ -1140,7 +1140,11 @@ function closeReportSheet(){ document.getElementById('reportSheetOverlay').class
 
 // ---- ฟังก์ชันจับคู่สินค้า (พอร์ตมาจาก index.html ใช้ตรรกะเดียวกับตอนนำเข้ายอดขาย Shopee) ----
 function rcNormalizeVariantText(s){
-  return String(s||'')
+  // สี/ไซส์ อาจมาจากทั้งใบปะหน้าพัสดุ (ผ่าน PUA-mark restore แล้ว) และข้อมูลสินค้าที่นำเข้าเอง
+  // ซึ่งอาจมีตัวอักษรโซน Private Use Area หลงเหลืออยู่จากฟอนต์ต้นทางเดียวกัน จึงแปลงกลับ/ตัดทิ้งให้เหมือนกันทั้งสองฝั่งก่อนเทียบเสมอ
+  // และ "ำ" อาจถูกเก็บแบบแยกเป็นนิคหิต+สระอา (ํ + า) แทนตัวเดียว (เจอจริงในไฟล์ใบปะหน้า) ต้องรวมกลับก่อน ไม่งั้น "ดำ" (พิมพ์ปกติ) กับ "ดํา" (แยกจากไฟล์) จะเทียบไม่ตรงกันเงียบๆ
+  return rcCleanDisplay(rcRestorePuaThaiMarks(String(s||'')))
+    .replace(/\u0E4D\u0E32/g,'\u0E33')
     .replace(/^\s*(สี|ไซส์|ไซซ์|ขนาด|เบอร์|size|colou?r)\s*[:：]\s*/i, '')
     .replace(/\s+/g,' ')
     .trim()
@@ -1307,9 +1311,22 @@ async function handleReceiptLabelFile(event){
 }
 // จัดกลุ่ม text items ของ pdf.js ตามตำแหน่งแนวตั้ง (y จาก transform matrix) ให้เป็น "บรรทัด" แล้วเรียงซ้าย->ขวาในแต่ละบรรทัด
 // (pdf.js คืนลำดับข้อความตามลำดับที่วาดในไฟล์ ซึ่งมักไม่ตรงกับลำดับที่อ่านจริงในเลย์เอาต์หลายคอลัมน์แบบใบปะหน้าพัสดุ)
+// เจอจริงในไฟล์ใบปะหน้า Shopee Flash Express: ฟอนต์ที่ใช้ไม่ได้เก็บวรรณยุกต์ไทยบางตัวเป็นยูนิโค้ดไทยมาตรฐาน
+// แต่แม็ปไปที่โซน Private Use Area แทน (เจอ 3 ตัวจากการตรวจไฟล์จริง) ถ้าไม่แปลงกลับ ตัวอักษรพวกนี้จะหายไปเลยตอนแสดงผล
+// (เช่น "รองเท้า" กลายเป็น "รองเทา", "เบอร์" กลายเป็น "เบอร") และกระทบการเทียบคำหาโครงสร้างด้วย จึงแปลงกลับเป็นวรรณยุกต์จริงให้เร็วที่สุด
+// ตั้งแต่ตอนต่อบรรทัด ก่อนโค้ดส่วนอื่นจะเอาไปใช้ต่อ
+const RC_PUA_THAI_MARK_MAP = { '\uF70A': '\u0E48', '\uF70B': '\u0E49', '\uF70E': '\u0E4C' }; // ่ (ไม้เอก) / ้ (ไม้โท) / ์ (การันต์)
+function rcRestorePuaThaiMarks(s){
+  return String(s||'').replace(/[\uF70A\uF70B\uF70E]/g, ch => RC_PUA_THAI_MARK_MAP[ch] || ch);
+}
+// สำหรับข้อความที่จะโชว์จริง (ที่อยู่ลูกค้า/ชื่อสินค้า/สี/ไซส์) ตัดแค่สัญลักษณ์ขยะช่วง Private Use Area ที่เหลือค้างออก (ตัวที่ไม่ใช่ 3 ตัวที่รู้จักด้านบนและไม่มีฟอนต์แสดงผลแน่ๆ)
+// อยู่ระดับ global เพราะใช้ทั้งตอนอ่านใบปะหน้าพัสดุและตอนเทียบสี/ไซส์กับข้อมูลสินค้าในระบบ (rcNormalizeVariantText) ซึ่งอาจมีขยะแบบเดียวกันหลงเหลือจากแหล่งข้อมูลเดิม
+function rcCleanDisplay(s){
+  return String(s||'').replace(/[\uE000-\uF8FF]/g,'');
+}
 function rcReconstructLines(textContent){
   const items = textContent.items.map(it=>({
-    text: it.str, x: it.transform[4], y: it.transform[5]
+    text: rcRestorePuaThaiMarks(it.str), x: it.transform[4], y: it.transform[5]
   })).filter(it=>it.text && it.text.trim());
   const groups = [];
   const yTol = 3;
@@ -1343,7 +1360,6 @@ function rcParseLabelLines(lines){
   // ต้อง "รวมกลับ" เป็น ำ ตัวเดียวก่อน แล้วค่อยตัดวรรณยุกต์อื่นๆ ทีหลัง
   const rcCompact = s => String(s||'').replace(/\u0E4D\u0E32/g,'\u0E33').replace(/\s+/g,'').replace(rcThaiMarksRe,'');
   // สำหรับข้อความที่จะโชว์จริง (ที่อยู่ลูกค้า/ชื่อสินค้า) ตัดแค่สัญลักษณ์ขยะช่วง Private Use Area ออก (ตัวที่ไม่มีฟอนต์แสดงผลแน่ๆ) แต่คงวรรณยุกต์/สระที่ถูกต้องไว้ ให้อ่านง่ายกว่าตัดทุกอย่างทิ้งแบบที่ใช้เทียบคำ
-  const rcCleanDisplay = s => String(s||'').replace(/[\uE000-\uF8FF]/g,'');
   const compactLines = lines.map(rcCompact);
 
   // ป้าย/โค้ดขนส่งที่มักเจอปนอยู่ในบรรทัดเดียวกับที่อยู่ (เพราะอยู่คอลัมน์ขวาสุดของแถวเดียวกันในเลย์เอาต์) ต้องกรองทิ้งไม่ให้ปนในชื่อ-ที่อยู่ลูกค้า
