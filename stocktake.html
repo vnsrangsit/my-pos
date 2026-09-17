@@ -13,6 +13,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>if(window['pdfjsLib']) pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";</script>
 <style>
   :root{
     --primary:#1E293B; --primary-dark:#141D2B; --bg:#FAFAFA; --card:#FDFCFA;
@@ -174,6 +176,7 @@
     <input type="text" id="stkSearch" placeholder="ค้นหาชื่อ/ยี่ห้อ/รหัส/สี/เพศ/เบอร์..." oninput="renderGrid()">
     <button type="button" class="refresh-btn" id="refreshBtn" title="ดึงสินค้า/รูป/เบอร์ใหม่ล่าสุดจากระบบหลัก" onclick="manualRefresh()">🔄</button>
     <button type="button" class="refresh-btn" id="shopeeAuditBtn" title="ตรวจลิงก์ Shopee ที่บันทึกไว้ทั้งหมด" onclick="openShopeeLinkAudit()">🛒</button>
+    <button type="button" class="refresh-btn" id="makeReceiptBtn" title="ออกใบเสร็จจากใบปะหน้าพัสดุ" onclick="openReceiptSheet()">🧾</button>
   </div>
 
   <div class="stock-filter-row" style="padding:8px 16px 0;display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted);">
@@ -216,6 +219,65 @@
     </div>
   </div>
 </div>
+
+<!-- ป็อปอัพออกใบเสร็จจากใบปะหน้าพัสดุ (อัปโหลดชั่วคราวแค่ตอนอ่านข้อมูล ไม่บันทึกไฟล์เก็บไว้ที่ไหนเลย ปิดป็อปอัพ/ออกใบเสร็จเสร็จก็ลบไฟล์ออกจากหน่วยความจำทันที) -->
+<div id="receiptSheetOverlay" class="sheet-overlay" onclick="if(event.target===this)closeReceiptSheet();">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-header">
+      <h3>🧾 ออกใบเสร็จจากใบปะหน้าพัสดุ</h3>
+      <button type="button" class="sheet-close" onclick="closeReceiptSheet()">✕</button>
+    </div>
+    <div class="sheet-body">
+      <div class="muted" style="font-size:12px;margin-bottom:10px;">
+        อัปโหลดไฟล์ใบปะหน้าพัสดุ Shopee/TikTok (PDF) — ระบบจะพยายามอ่านชื่อ-ที่อยู่ลูกค้า รายการสินค้า จำนวน และช่องทาง (Shopee/TikTok) ให้อัตโนมัติ พร้อมจับคู่ราคาจากสินค้าในระบบ
+        แต่อ่านได้แบบเดาที่ดีที่สุดเท่านั้น <strong>กรุณาตรวจ/แก้ไขให้ถูกต้องก่อนออกใบเสร็จทุกครั้ง</strong> —
+        <strong>ไฟล์ที่อัปโหลดไม่ถูกบันทึกเก็บไว้ที่ไหนเลย</strong> ออกใบเสร็จเสร็จหรือปิดหน้านี้ ไฟล์จะถูกลบออกจากเครื่องทันที
+      </div>
+      <div class="field">
+        <label>ไฟล์ใบปะหน้าพัสดุ (PDF)</label>
+        <input type="file" id="receiptLabelFileInput" accept=".pdf" onchange="handleReceiptLabelFile(event)">
+      </div>
+      <div id="receiptParseStatus" style="margin-bottom:10px;"></div>
+      <div id="receiptFormArea">
+        <div style="display:flex;gap:10px;">
+          <div class="field" style="flex:1;">
+            <label>เลขที่ใบเสร็จ</label>
+            <input type="text" id="rcNo">
+          </div>
+          <div class="field" style="flex:1;">
+            <label>วันที่</label>
+            <input type="date" id="rcDate">
+          </div>
+        </div>
+        <div class="field">
+          <label>ช่องทางการจัดจำหน่าย</label>
+          <div style="display:flex;gap:16px;font-size:14px;padding:4px 0;">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="radio" name="rcChannel" value="shopee" id="rcChannelShopee"> Shopee</label>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="radio" name="rcChannel" value="tiktok" id="rcChannelTiktok"> Tiktok</label>
+          </div>
+        </div>
+        <div class="field">
+          <label>ชื่อ-ที่อยู่ลูกค้า</label>
+          <textarea id="rcCustomer" rows="3" style="width:100%;box-sizing:border-box;font-family:inherit;font-size:14px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;"></textarea>
+        </div>
+        <div class="field">
+          <label>รายการสินค้า</label>
+          <div id="rcItemsTable"></div>
+          <button type="button" class="btn btn-outline" style="margin-top:8px;font-size:13px;padding:6px 12px;" onclick="rcAddItemRow()">+ เพิ่มรายการ</button>
+        </div>
+        <div style="text-align:right;font-size:14px;font-weight:700;margin-top:6px;">
+          รวมทั้งสิ้น: <span id="rcTotalText">0.00</span> บาท
+        </div>
+      </div>
+    </div>
+    <div class="sheet-footer">
+      <button type="button" class="btn btn-outline" style="flex:1;" onclick="closeReceiptSheet()">ปิด</button>
+      <button type="button" class="btn btn-primary" style="flex:2;" id="rcGenerateBtn" onclick="doGenerateReceipt()">🧾 ออกใบเสร็จ (PDF)</button>
+    </div>
+  </div>
+</div>
+
 
 <!-- ป็อปอัพรายงาน -->
 <div id="reportSheetOverlay" class="sheet-overlay" onclick="if(event.target===this)closeReportSheet();">
@@ -1069,6 +1131,409 @@ function openReportSheet(){
   document.getElementById('reportSheetOverlay').classList.add('open');
 }
 function closeReportSheet(){ document.getElementById('reportSheetOverlay').classList.remove('open'); }
+
+
+/* ============ ออกใบเสร็จจากใบปะหน้าพัสดุ (Shopee/TikTok) ============
+   พนักงานอัปโหลดไฟล์ใบปะหน้าพัสดุ (PDF) ระบบอ่านข้อความในไฟล์ด้วย pdf.js แล้วเดาชื่อ-ที่อยู่ลูกค้า/รายการสินค้า/จำนวน/ช่องทาง (Shopee/TikTok)
+   จับคู่ราคาสินค้ากับสต็อกในระบบเอง (ตรรกะเดียวกับที่ใช้จับคู่ไฟล์ยอดขาย Shopee ในแอปหลัก) แล้วให้พนักงานตรวจ/แก้ก่อนกดออกใบเสร็จ เพราะเป็นการอ่านแบบเดาที่ดีที่สุดเท่านั้น
+   สำคัญมาก: ไฟล์ใบปะหน้าที่อัปโหลดมาไม่ถูกเก็บที่ไหนเลย อยู่แค่ในตัวแปร JS ของหน้านี้ชั่วคราว ปิดป็อปอัพ/ออกใบเสร็จเสร็จ เคลียร์ทิ้งทันที */
+
+// ---- ฟังก์ชันจับคู่สินค้า (พอร์ตมาจาก index.html ใช้ตรรกะเดียวกับตอนนำเข้ายอดขาย Shopee) ----
+function rcNormalizeVariantText(s){
+  return String(s||'')
+    .replace(/^\s*(สี|ไซส์|ไซซ์|ขนาด|เบอร์|size|colou?r)\s*[:：]\s*/i, '')
+    .replace(/\s+/g,' ')
+    .trim()
+    .toLowerCase();
+}
+const RC_COLOR_LABEL_RE = /^\s*(สี|colou?r)\s*[:：]/i;
+const RC_SIZE_LABEL_RE = /^\s*(ไซส์|ไซซ์|ขนาด|เบอร์|size)\s*[:：]/i;
+const RC_SIZE_LIKE_RE = /^\d+([.\-\/]\d+)?$/;
+function rcParseOptionColorSize(optionStr){
+  const parts = String(optionStr||'').split(',').map(s=>s.trim()).filter(Boolean);
+  let colorPart = null, sizePart = null;
+  parts.forEach(part=>{
+    if(RC_COLOR_LABEL_RE.test(part)) colorPart = part;
+    else if(RC_SIZE_LABEL_RE.test(part)) sizePart = part;
+  });
+  if(colorPart === null && sizePart === null && parts.length >= 2){
+    const p0Size = RC_SIZE_LIKE_RE.test(rcNormalizeVariantText(parts[0]));
+    const p1Size = RC_SIZE_LIKE_RE.test(rcNormalizeVariantText(parts[1]));
+    if(p0Size && !p1Size){ sizePart = parts[0]; colorPart = parts[1]; }
+    else if(p1Size && !p0Size){ colorPart = parts[0]; sizePart = parts[1]; }
+  }
+  if(colorPart === null && sizePart === null && parts.length === 1){
+    if(RC_SIZE_LIKE_RE.test(rcNormalizeVariantText(parts[0]))) sizePart = parts[0];
+    else colorPart = parts[0];
+  }
+  if(colorPart !== null || sizePart !== null){
+    return { color: rcNormalizeVariantText(colorPart || ''), size: rcNormalizeVariantText(sizePart || '') };
+  }
+  return { color: rcNormalizeVariantText(parts[0] || ''), size: rcNormalizeVariantText(parts[1] || '') };
+}
+function rcCodeAppearsInTitle(code, title){
+  if(!code) return false;
+  const c = code.trim().toLowerCase();
+  if(!c) return false;
+  const t = String(title||'').toLowerCase();
+  if(t.includes(c)) return true;
+  if(/\d$/.test(c)){
+    const short = c.slice(0, -1);
+    if(short){
+      const escaped = short.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const re = new RegExp(escaped + '(?![0-9A-Za-z])');
+      if(re.test(t)) return true;
+    }
+  }
+  return false;
+}
+function rcGuessProductCode(p){
+  const text = [p.name, p.model].filter(Boolean).join(' ');
+  let m = text.match(/\b[A-Za-z]{2,}-?\d{2,}[A-Za-z0-9-]*\b/);
+  if(m) return m[0];
+  const tokens = text.match(/\b[A-Za-z0-9]{5,10}\b/g) || [];
+  const mixed = tokens.find(t => /[A-Za-z]/.test(t) && /\d/.test(t));
+  return mixed || '';
+}
+function rcEffectiveProductCode(p){
+  return (p.code && p.code.trim()) || rcGuessProductCode(p);
+}
+const RC_COLOR_SYNONYMS = {
+  'ดำ':'black','black':'black',
+  'ขาว':'white','white':'white',
+  'แดง':'red','red':'red',
+  'น้ำเงิน':'blue','ฟ้า':'blue','blue':'blue',
+  'เขียว':'green','green':'green',
+  'เหลือง':'yellow','yellow':'yellow',
+  'ชมพู':'pink','pink':'pink',
+  'ม่วง':'purple','purple':'purple',
+  'เทา':'grey','gray':'grey','grey':'grey',
+  'น้ำตาล':'brown','brown':'brown',
+  'ส้ม':'orange','orange':'orange',
+  'ครีม':'cream','cream':'cream',
+  'เบจ':'beige','beige':'beige',
+  'ทอง':'gold','gold':'gold',
+  'เงิน':'silver','silver':'silver',
+  'กากี':'khaki','khaki':'khaki',
+};
+function rcCanonicalColor(s){
+  const t = rcNormalizeVariantText(s);
+  return RC_COLOR_SYNONYMS[t] || t;
+}
+// จับคู่ 1 รายการที่อ่านได้จากใบปะหน้ากับสินค้าในระบบ ด้วยรหัส (ต้องปรากฏในชื่อสินค้า) + สี + ไซส์ ต้องตรงทั้งหมดและมีผลลัพธ์ไม่ซ้ำจึงจะถือว่าจับคู่ได้
+function rcMatchItemToProduct(item, products){
+  if(!item.name) return null;
+  const oc = rcCanonicalColor(item.color);
+  const os = rcNormalizeVariantText(item.size);
+  const candidates = products.filter(p=>{
+    if(!rcCodeAppearsInTitle(rcEffectiveProductCode(p), item.name)) return false;
+    if(item.color && rcCanonicalColor(p.color) !== oc) return false;
+    if(item.size && rcNormalizeVariantText(p.size) !== os) return false;
+    return true;
+  });
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
+// ---- อ่านไฟล์ PDF ใบปะหน้าพัสดุ ----
+let rcLabelPdfBytes = null; // เก็บชั่วคราวแค่ระหว่างประมวลผล ไม่ persist ที่ไหน
+function openReceiptSheet(){
+  document.getElementById('receiptSheetOverlay').classList.add('open');
+  rcResetForm();
+}
+function closeReceiptSheet(){
+  document.getElementById('receiptSheetOverlay').classList.remove('open');
+  rcClearLabelState(); // ปิดป็อปอัพเมื่อไรก็เคลียร์ไฟล์/ข้อมูลทิ้งทันที กันค้างเป็นออเดอร์เก่า
+}
+function rcResetForm(){
+  const today = new Date();
+  const yyyy = today.getFullYear(), mm = String(today.getMonth()+1).padStart(2,'0'), dd = String(today.getDate()).padStart(2,'0');
+  document.getElementById('rcNo').value = '';
+  document.getElementById('rcDate').value = `${yyyy}-${mm}-${dd}`;
+  document.getElementById('rcChannelShopee').checked = false;
+  document.getElementById('rcChannelTiktok').checked = false;
+  document.getElementById('rcCustomer').value = '';
+  document.getElementById('receiptParseStatus').innerHTML = '';
+  rcRenderItemsTable([ rcBlankItem() ]);
+}
+function rcBlankItem(){ return { name:'', qty:1, price:0 }; }
+function rcClearLabelState(){
+  rcLabelPdfBytes = null;
+  const fileInput = document.getElementById('receiptLabelFileInput');
+  if(fileInput) fileInput.value = '';
+}
+async function handleReceiptLabelFile(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const statusEl = document.getElementById('receiptParseStatus');
+  statusEl.innerHTML = '<div class="muted">กำลังอ่านไฟล์...</div>';
+  try{
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+    const page = await pdf.getPage(1);
+    const textContent = await page.getTextContent();
+    const lines = rcReconstructLines(textContent);
+    const parsed = rcParseLabelLines(lines);
+    // เติมฟอร์ม
+    if(parsed.customer) document.getElementById('rcCustomer').value = parsed.customer;
+    if(parsed.channel === 'shopee') document.getElementById('rcChannelShopee').checked = true;
+    else if(parsed.channel === 'tiktok') document.getElementById('rcChannelTiktok').checked = true;
+    const products = loadProducts();
+    let matchedCount = 0;
+    const items = (parsed.items.length ? parsed.items : [rcBlankItem()]).map(it=>{
+      const match = rcMatchItemToProduct(it, products);
+      let displayName = it.name || '';
+      if(it.color || it.size) displayName += ` (${[it.color, it.size].filter(Boolean).join(', ')})`;
+      if(match){
+        matchedCount++;
+        return { name: match.name + (it.size ? ` (${[it.color||match.color, it.size].filter(Boolean).join(', ')})` : ''), qty: it.qty || 1, price: match.price || 0 };
+      }
+      return { name: displayName.trim(), qty: it.qty || 1, price: 0 };
+    });
+    rcRenderItemsTable(items);
+    const notes = [];
+    if(!parsed.customer) notes.push('หาที่อยู่ลูกค้าไม่เจอ กรุณากรอกเอง');
+    if(!parsed.channel) notes.push('หาช่องทาง Shopee/TikTok ไม่เจอ กรุณาเลือกเอง');
+    if(!parsed.items.length) notes.push('หารายการสินค้าไม่เจอ กรุณากรอกเอง');
+    else if(matchedCount < parsed.items.length) notes.push(`จับคู่ราคาได้ ${matchedCount}/${parsed.items.length} รายการ ที่เหลือกรุณากรอกราคาเอง`);
+    statusEl.innerHTML = notes.length
+      ? `<div class="muted" style="color:var(--danger);">⚠️ อ่านได้บางส่วน — ${notes.join(' / ')} (ตรวจ/แก้ก่อนออกใบเสร็จเสมอ)</div>`
+      : `<div class="muted" style="color:var(--success,#16a34a);">✓ อ่านข้อมูล+จับคู่ราคาสำเร็จ — กรุณาตรวจความถูกต้องอีกครั้งก่อนออกใบเสร็จ</div>`;
+  }catch(err){
+    statusEl.innerHTML = `<div class="muted" style="color:var(--danger);">อ่านไฟล์ไม่สำเร็จ: ${escapeHtml((err && err.message) || String(err))} — กรอกข้อมูลเองด้านล่างได้เลย</div>`;
+  }finally{
+    // อ่านเสร็จแล้วไม่ต้องเก็บไฟล์ไว้ต่อ (ข้อมูลถูกดึงใส่ฟอร์มไปแล้ว)
+    rcClearLabelState();
+  }
+}
+// จัดกลุ่ม text items ของ pdf.js ตามตำแหน่งแนวตั้ง (y จาก transform matrix) ให้เป็น "บรรทัด" แล้วเรียงซ้าย->ขวาในแต่ละบรรทัด
+// (pdf.js คืนลำดับข้อความตามลำดับที่วาดในไฟล์ ซึ่งมักไม่ตรงกับลำดับที่อ่านจริงในเลย์เอาต์หลายคอลัมน์แบบใบปะหน้าพัสดุ)
+function rcReconstructLines(textContent){
+  const items = textContent.items.map(it=>({
+    text: it.str, x: it.transform[4], y: it.transform[5]
+  })).filter(it=>it.text && it.text.trim());
+  const groups = [];
+  const yTol = 3;
+  items.forEach(it=>{
+    let g = groups.find(g=>Math.abs(g.y - it.y) <= yTol);
+    if(!g){ g = { y: it.y, items: [] }; groups.push(g); }
+    g.items.push(it);
+  });
+  groups.sort((a,b)=> b.y - a.y); // บนลงล่าง (y มากไปน้อยในระบบพิกัด pdf)
+  return groups.map(g=>{
+    g.items.sort((a,b)=> a.x - b.x);
+    return g.items.map(it=>it.text).join(' ').replace(/\s+/g,' ').trim();
+  }).filter(Boolean);
+}
+function rcParseLabelLines(lines){
+  const fullText = lines.join('\n');
+  let channel = null;
+  if(/shopee/i.test(fullText)) channel = 'shopee';
+  else if(/tiktok|tik tok/i.test(fullText)) channel = 'tiktok';
+
+  // หาที่อยู่ลูกค้า: เริ่มจากบรรทัดที่มีคำว่า "ผู้รับ" หรือ "(TO)" ไปจนกว่าจะเจอ "ผู้ส่ง"/"(FROM)"/เลขคำสั่งซื้อ
+  let customer = '';
+  const recvIdx = lines.findIndex(l => /ผู้รับ|\(TO\)/i.test(l));
+  if(recvIdx !== -1){
+    const stopRe = /ผู้ส่ง|\(FROM\)|order no|หมายเลขคำสั่งซื้อ/i;
+    const block = [];
+    for(let i=recvIdx+1;i<lines.length && block.length<4;i++){
+      if(stopRe.test(lines[i])) break;
+      block.push(lines[i].replace(/^ผู้รับ|\(TO\)/i,'').trim());
+    }
+    customer = block.filter(Boolean).join(' ').trim();
+  }
+
+  // หารายการสินค้า: มองหาบรรทัดที่มี "สี,เบอร์" (เช่น "ดำ,31") ตามด้วยจำนวนตัวเลขท้ายบรรทัด
+  const items = [];
+  const itemLineRe = /^(?:\d+\s+)?(.+?)\s+([^\s,]{1,20}\s*,\s*[^\s,]{1,10})\s+(\d{1,4})\s*$/;
+  lines.forEach(l=>{
+    const m = l.match(itemLineRe);
+    if(!m) return;
+    const name = m[1].trim();
+    if(!name || /^(ชื่อสินค้า|รายการ|ตัวเลือกสินค้า|จำนวน)$/i.test(name)) return; // ข้ามหัวตาราง
+    const { color, size } = rcParseOptionColorSize(m[2]);
+    const qty = parseInt(m[3], 10) || 1;
+    items.push({ name, color, size, qty });
+  });
+  return { channel, customer, items };
+}
+
+// ---- ตารางรายการสินค้าที่แก้ไขได้ ----
+let rcItems = [];
+function rcRenderItemsTable(items){
+  rcItems = items;
+  const el = document.getElementById('rcItemsTable');
+  el.innerHTML = `
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead><tr style="text-align:left;color:var(--muted);">
+        <th style="padding:4px 4px;">รายการ</th>
+        <th style="padding:4px 4px;width:55px;">จำนวน</th>
+        <th style="padding:4px 4px;width:80px;">ราคา/หน่วย</th>
+        <th style="padding:4px 4px;width:24px;"></th>
+      </tr></thead>
+      <tbody id="rcItemsTbody"></tbody>
+    </table>`;
+  const tbody = document.getElementById('rcItemsTbody');
+  rcItems.forEach((it, idx)=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td style="padding:3px 4px;"><input type="text" value="${escapeAttr(it.name)}" oninput="rcItems[${idx}].name=this.value" style="width:100%;box-sizing:border-box;padding:5px 6px;border:1px solid var(--border);border-radius:6px;font-size:13px;"></td>
+      <td style="padding:3px 4px;"><input type="number" min="1" step="1" value="${it.qty}" oninput="rcItems[${idx}].qty=parseFloat(this.value)||0;rcRecalcTotal()" style="width:100%;box-sizing:border-box;padding:5px 4px;border:1px solid var(--border);border-radius:6px;font-size:13px;"></td>
+      <td style="padding:3px 4px;"><input type="number" min="0" step="0.01" value="${it.price}" oninput="rcItems[${idx}].price=parseFloat(this.value)||0;rcRecalcTotal()" style="width:100%;box-sizing:border-box;padding:5px 4px;border:1px solid var(--border);border-radius:6px;font-size:13px;"></td>
+      <td style="padding:3px 4px;text-align:center;"><button type="button" onclick="rcRemoveItemRow(${idx})" style="border:none;background:none;color:var(--danger);font-size:16px;cursor:pointer;">✕</button></td>`;
+    tbody.appendChild(tr);
+  });
+  rcRecalcTotal();
+}
+function rcAddItemRow(){
+  rcItems.push(rcBlankItem());
+  rcRenderItemsTable(rcItems);
+}
+function rcRemoveItemRow(idx){
+  rcItems.splice(idx,1);
+  if(!rcItems.length) rcItems.push(rcBlankItem());
+  rcRenderItemsTable(rcItems);
+}
+function rcRecalcTotal(){
+  const total = rcItems.reduce((s,it)=> s + (parseFloat(it.qty)||0) * (parseFloat(it.price)||0), 0);
+  const totalEl = document.getElementById('rcTotalText');
+  if(totalEl) totalEl.textContent = total.toFixed(2);
+  return total;
+}
+
+// ---- แปลงจำนวนเงินเป็นคำอ่านภาษาไทย (บาทถ้วน) สำหรับช่อง "จำนวนเงินรวมทั้งสิ้น(ตัวอักษร)" ----
+function thaiBahtText(amount){
+  const numTxt = ['ศูนย์','หนึ่ง','สอง','สาม','สี่','ห้า','หก','เจ็ด','แปด','เก้า'];
+  const digitTxt = ['','สิบ','ร้อย','พัน','หมื่น','แสน','ล้าน'];
+  function readNumber(numStr){
+    let result = '';
+    const len = numStr.length;
+    for(let i=0;i<len;i++){
+      const d = parseInt(numStr[i],10);
+      const place = len - i - 1;
+      if(d === 0) continue;
+      if(place === 0 && d === 1 && len > 1){ result += 'เอ็ด'; }
+      else if(place === 1 && d === 2){ result += 'ยี่' + digitTxt[1]; }
+      else if(place === 1 && d === 1){ result += digitTxt[1]; }
+      else { result += numTxt[d] + digitTxt[place]; }
+    }
+    return result;
+  }
+  amount = Math.round((parseFloat(amount)||0) * 100) / 100;
+  const negative = amount < 0;
+  amount = Math.abs(amount);
+  let baht = Math.floor(amount);
+  let satang = Math.round((amount - baht) * 100);
+  if(satang === 100){ baht += 1; satang = 0; }
+  let bahtStr = baht === 0 ? 'ศูนย์' : '';
+  if(baht > 0){
+    // แบ่งทีละ 7 หลัก (หน่วย "ล้าน" ซ้ำได้)
+    let millionsChunks = [];
+    let n = String(baht);
+    while(n.length > 7){ millionsChunks.unshift(n.slice(-6)); n = n.slice(0,-6); }
+    millionsChunks.unshift(n);
+    bahtStr = millionsChunks.map(chunk=> readNumber(String(parseInt(chunk,10)))).join('ล้าน');
+  }
+  let result = (negative ? 'ลบ' : '') + bahtStr + 'บาท';
+  result += satang > 0 ? (readNumber(String(satang)) + 'สตางค์') : 'ถ้วน';
+  return result;
+}
+
+// ---- ออกใบเสร็จเป็น PDF (เปิดหน้าต่างปริ้นแยก ใช้ "บันทึกเป็น PDF" ในกล่องปริ้นของเบราว์เซอร์ — วิธีเดียวกับที่แอปนี้ใช้ปริ้นรายงานอื่นๆ) ----
+function doGenerateReceipt(){
+  const no = (document.getElementById('rcNo').value || '').trim();
+  const dateVal = document.getElementById('rcDate').value;
+  const channel = document.querySelector('input[name="rcChannel"]:checked');
+  const customer = (document.getElementById('rcCustomer').value || '').trim();
+  const items = rcItems.filter(it => (it.name||'').trim());
+  if(!customer){ toast('กรุณากรอกชื่อ-ที่อยู่ลูกค้า'); return; }
+  if(!items.length){ toast('กรุณากรอกรายการสินค้าอย่างน้อย 1 รายการ'); return; }
+  const total = rcRecalcTotal();
+  const dateThai = dateVal ? (()=>{ const d=new Date(dateVal+'T00:00:00'); return `${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()+543}`; })() : '';
+  const rowsHtml = items.map((it,i)=>{
+    const amount = (parseFloat(it.qty)||0) * (parseFloat(it.price)||0);
+    return `<tr>
+      <td style="text-align:center;">${i+1}</td>
+      <td>${escapeHtml(it.name)}</td>
+      <td style="text-align:center;">${it.qty}</td>
+      <td style="text-align:right;">${(parseFloat(it.price)||0).toFixed(2)}</td>
+      <td style="text-align:right;">${amount.toFixed(2)}</td>
+    </tr>`;
+  }).join('');
+  // เติมแถวว่างให้ตารางดูเป็นทางการเหมือนใบเสร็จจริง (อย่างน้อย 3 แถว)
+  const blankRows = Math.max(0, 3 - items.length);
+  const blankRowsHtml = Array.from({length: blankRows}).map(()=>`<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr>`).join('');
+  const win = window.open('', '_blank');
+  if(!win){ toast('เบราว์เซอร์บล็อกป็อปอัป กรุณาอนุญาตป็อปอัปสำหรับหน้านี้แล้วลองใหม่'); return; }
+  win.document.write(`<!doctype html><html lang="th"><head><meta charset="utf-8">
+    <title>ใบเสร็จรับเงิน ${escapeHtml(no)}</title>
+    <style>
+      @page{ size:A4; margin:14mm; }
+      *{ box-sizing:border-box; }
+      body{ font-family:'Sarabun','Segoe UI',sans-serif; font-size:13px; color:#111; margin:0; }
+      .hdr{ text-align:center; margin-bottom:10px; }
+      .hdr h1{ font-size:18px; margin:0 0 2px; }
+      .hdr .sub{ font-size:12px; color:#333; }
+      .metaRow{ display:flex; justify-content:space-between; margin:10px 0; font-size:13px; }
+      .shopBox{ border:1px solid #333; border-radius:4px; padding:8px 10px; margin-bottom:10px; font-size:12.5px; line-height:1.5; }
+      .custBox{ border:1px solid #333; border-radius:4px; padding:8px 10px; margin-bottom:10px; min-height:40px; font-size:12.5px; }
+      table.items{ width:100%; border-collapse:collapse; margin-bottom:6px; }
+      table.items th, table.items td{ border:1px solid #333; padding:5px 6px; font-size:12.5px; }
+      table.items th{ background:#f0f0f0; }
+      .totals{ display:flex; justify-content:flex-end; margin-top:4px; }
+      .totals table{ border-collapse:collapse; font-size:13px; }
+      .totals td{ padding:3px 8px; }
+      .totals td.label{ text-align:right; }
+      .totals td.val{ text-align:right; width:110px; border-bottom:1px solid #333; }
+      .bahttext{ margin-top:8px; font-size:12.5px; }
+      .footRow{ display:flex; justify-content:space-between; align-items:flex-end; margin-top:40px; font-size:12.5px; }
+      .sigline{ text-align:center; }
+      .sigline .line{ width:160px; border-bottom:1px solid #333; margin-bottom:4px; height:24px; }
+      .channelBox label{ margin-right:14px; }
+    </style></head><body>
+    <div class="hdr">
+      <h1>ใบเสร็จรับเงิน / RECEIPT</h1>
+    </div>
+    <div class="metaRow">
+      <div>เลขที่ ${escapeHtml(no || '-')}</div>
+      <div>วันที่ ${escapeHtml(dateThai)}</div>
+    </div>
+    <div class="shopBox">
+      <strong>ร้านผลคูณตลาดรังสิต-ซอย 5</strong><br>
+      รังสิตซอย 5 ต. ประชาธิปัตย์ อ. ธัญบุรี จ. ปทุมธานี 12130<br>
+      โทร 091-216-5550
+    </div>
+    <div class="custBox"><strong>รายละเอียดลูกค้า</strong><br>${escapeHtml(customer).replace(/\n/g,'<br>')}</div>
+    <table class="items">
+      <thead><tr><th style="width:36px;">ลำดับ</th><th>รายการ</th><th style="width:60px;">จำนวน</th><th style="width:90px;">ราคาต่อหน่วย</th><th style="width:100px;">จำนวนเงิน</th></tr></thead>
+      <tbody>${rowsHtml}${blankRowsHtml}</tbody>
+    </table>
+    <div class="totals">
+      <table>
+        <tr><td class="label">รวมราคา</td><td class="val">${total.toFixed(2)}</td></tr>
+        <tr><td class="label">ไม่มีภาษีมูลค่าเพิ่ม 7%</td><td class="val"></td></tr>
+        <tr><td class="label"><strong>รวมทั้งสิ้น</strong></td><td class="val"><strong>${total.toFixed(2)}</strong></td></tr>
+      </table>
+    </div>
+    <div class="bahttext">จำนวนเงินรวมทั้งสิ้น(ตัวอักษร) : ${thaiBahtText(total)}</div>
+    <div class="footRow">
+      <div class="channelBox">
+        ช่องทางการจัดจำหน่าย:
+        <label>${channel && channel.value==='shopee' ? '●' : '○'} Shopee</label>
+        <label>${channel && channel.value==='tiktok' ? '●' : '○'} Tiktok</label>
+      </div>
+      <div class="sigline"><div class="line"></div>ผู้มีอำนาจลงนาม</div>
+    </div>
+    <script>
+      window.onload = function(){ window.print(); };
+      window.onafterprint = function(){ window.close(); };
+    <\/script>
+    </body></html>`);
+  win.document.close();
+  toast('ออกใบเสร็จแล้ว — ใช้ "บันทึกเป็น PDF" ในกล่องปริ้นของเบราว์เซอร์เพื่อเซฟไฟล์');
+  closeReceiptSheet();
+}
+
 // สลับแท็บ "รายการปรับ" (log ดิบของเครื่องนี้) / "สรุปยอดสุทธิ" (รวมทุกเครื่อง อิงตามช่วงเวลา) / "อัปเดต Shopee" (เทียบไฟล์ Shopee)
 function switchReportTab(tab){
   ['log','summary','shopee'].forEach(t=>{
