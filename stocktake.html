@@ -1335,8 +1335,15 @@ function rcParseLabelLines(lines){
   // ("ชื่อสินค้า" กลายเป็น "ชื่อสินคา" ไม่มี ้ ) ถ้าเทียบคำแบบเป๊ะๆ (แม้จะตัดช่องว่างแล้ว) ก็ยังหาหัวตาราง/ป้าย "ผู้รับ" ไม่เจอ เกิดปัญหาลูกโซ่ตามมา
   // (ขอบเขตตารางหาไม่เจอ -> ชื่อสินค้าดูดข้อความก่อนหน้ามาปนหมด -> จับคู่ราคาไม่ได้) จึงต้องตัดทั้งช่องว่างและวรรณยุกต์/สระบน-ล่างออกก่อนเทียบคำเสมอ
   // (ตัด "ตัวยึด" การันต์/สระ/วรรณยุกต์ = ไม้หันอากาศ, สระอิ-อือ-อุ-อู, พินทุ, ไม้ไต่คู้, ไม้เอก-โท-ตรี-จัตวา, การันต์, นิคหิต — เหลือแค่พยัญชนะ+สระเต็มตัวไว้เทียบ)
-  const rcThaiMarksRe = /[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E]/g;
-  const rcCompact = s => String(s||'').replace(/\s+/g,'').replace(rcThaiMarksRe,'');
+  // เจอจริงยิ่งกว่านั้นอีก: ฟอนต์ในไฟล์นี้แม็ปสัญลักษณ์บางตัว (เช่นไม้โท) ไปที่ช่วง Private Use Area (เช่น U+F70B) แทนรหัสยูนิโค้ดไทยมาตรฐาน (U+0E49)
+  // ทำให้ตัดด้วยช่วงอักขระไทยมาตรฐานอย่างเดียวไม่พอ ต้องตัดอักขระในช่วง Private Use Area ทิ้งไปด้วย (ฟอนต์เพี้ยนแบบนี้ไม่ควรมีอยู่ในข้อความที่ใช้เทียบคำอยู่แล้ว)
+  const rcThaiMarksRe = /[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E\uE000-\uF8FF]/g;
+  // เจอจริง: ไฟล์นี้เก็บตัว "ำ" (สระอำ) แบบแยกเป็นนิคหิต+สระอา (ํ + า) แทนที่จะเป็นอักขระ "ำ" ตัวเดียว
+  // ถ้าตัดวรรณยุกต์/สระลอย (ํ) ออกไปเฉยๆ จะเหลือแค่ "า" ซึ่งเป็นคนละตัวอักษรกับ "ำ" ที่ใช้พิมพ์คำค้นหาปกติ (เช่น "จำนวนรวม") เทียบกันไม่ตรงอยู่ดี
+  // ต้อง "รวมกลับ" เป็น ำ ตัวเดียวก่อน แล้วค่อยตัดวรรณยุกต์อื่นๆ ทีหลัง
+  const rcCompact = s => String(s||'').replace(/\u0E4D\u0E32/g,'\u0E33').replace(/\s+/g,'').replace(rcThaiMarksRe,'');
+  // สำหรับข้อความที่จะโชว์จริง (ที่อยู่ลูกค้า/ชื่อสินค้า) ตัดแค่สัญลักษณ์ขยะช่วง Private Use Area ออก (ตัวที่ไม่มีฟอนต์แสดงผลแน่ๆ) แต่คงวรรณยุกต์/สระที่ถูกต้องไว้ ให้อ่านง่ายกว่าตัดทุกอย่างทิ้งแบบที่ใช้เทียบคำ
+  const rcCleanDisplay = s => String(s||'').replace(/[\uE000-\uF8FF]/g,'');
   const compactLines = lines.map(rcCompact);
 
   // ป้าย/โค้ดขนส่งที่มักเจอปนอยู่ในบรรทัดเดียวกับที่อยู่ (เพราะอยู่คอลัมน์ขวาสุดของแถวเดียวกันในเลย์เอาต์) ต้องกรองทิ้งไม่ให้ปนในชื่อ-ที่อยู่ลูกค้า
@@ -1360,7 +1367,7 @@ function rcParseLabelLines(lines){
       if(badgeLineRe.test(raw.trim())) continue; // ข้ามป้ายขนส่ง/โค้ดที่หลุดมาปนแถว ไม่ถือว่าจบบล็อก แค่ไม่เอามาต่อ
       block.push(raw.replace(/^ผู้\s*รับ|\(TO\)/i,'').trim());
     }
-    customer = block.filter(Boolean).join(' ').trim();
+    customer = rcCleanDisplay(block.filter(Boolean).join(' ').trim());
   }
 
   // หารายการสินค้า: ตารางในใบปะหน้ามักตัดชื่อสินค้าเป็นหลายบรรทัด (ชื่อยาว) แล้วค่อยตามด้วยบรรทัด "สี,เบอร์ จำนวน" แยกต่างหาก
@@ -1368,6 +1375,8 @@ function rcParseLabelLines(lines){
   // เดิมเช็คแค่บรรทัดเดียวจบ (ชื่อ+ตัวเลือก+จำนวน) เลยพลาดเคสชื่อยาวแบบนี้ไปหมด ต้องสะสมชื่อจากบรรทัดก่อนหน้าไว้ก่อน แล้วค่อยปิดรายการตอนเจอบรรทัด "ตัวเลือก จำนวน"
   const items = [];
   const optionQtyOnlyRe = /^([^\s,]{1,20}\s*,\s*[^\s,]{1,10})\s+(\d{1,4})\s*$/; // บรรทัดที่มีแค่ "สี,เบอร์ จำนวน" ไม่มีชื่อนำหน้า
+  // บางไฟล์แถวนี้มีเลขลำดับ (#) นำหน้าติดมาด้วยในบรรทัดเดียวกัน (เช่น "1 ดำ ,31 1" = ลำดับ 1, สี-เบอร์ "ดำ,31", จำนวน 1) ต้องแยกทิ้งเลขลำดับไม่ให้หลุดไปต่อท้ายชื่อสินค้า
+  const indexOptionQtyRe = /^\d{1,3}\s+([^\s,]{1,20}\s*,\s*[^\s,]{1,10})\s+(\d{1,4})\s*$/;
   const nameThenOptionQtyRe = /^(?:\d+\s+)?(.+?)\s+([^\s,]{1,20}\s*,\s*[^\s,]{1,10})\s+(\d{1,4})\s*$/; // บรรทัดที่มีชื่อ+ตัวเลือก+จำนวน ในบรรทัดเดียวจบ (กรณีชื่อสั้นพอ)
   const bareIndexRe = /^\d{1,3}$/; // เลขลำดับแถว ("#") ที่แยกอยู่บรรทัดของตัวเอง ไม่ใช่ส่วนหนึ่งของชื่อ
   const headerWordRe = /^(ชื่อสินค้า|รายการ|ตัวเลือกสินค้า|จำนวน|#)$/i;
@@ -1385,33 +1394,49 @@ function rcParseLabelLines(lines){
     if(compactLines[i].includes(rcCompact('จำนวนรวม')) || (headerFoundForReal && i>tableHeaderIdx+1 && /order no/i.test(lines[i]))){ tableEndIdx = i; break; }
   }
   const tableLines = tableHeaderIdx !== -1 ? lines.slice(tableHeaderIdx+1, tableEndIdx) : lines;
+  // เจอจริงอีกเคส: เซลล์ "ตัวเลือก+จำนวน" ของแถว บางทีตำแหน่ง y มาแทรกอยู่ "กลาง" บรรทัดชื่อสินค้าที่ตัดขึ้นบรรทัดใหม่ 2 บรรทัด
+  // (เช่น ชื่อบรรทัดแรก -> ตัวเลือก+จำนวน -> ชื่อบรรทัดที่สองซึ่งเป็นส่วนต่อของชื่อเดิม) เพราะเซลล์นี้อยู่กึ่งกลางความสูงของแถวพอดี
+  // เดิมพอเจอบรรทัดตัวเลือก+จำนวนแล้วปิดรายการทันที เลยตัดชื่อสินค้าส่วนที่ตามมาทิ้งไป ต้องเปลี่ยนมาถือ "รายการที่ยังไม่ปิด" (pendingItem) ไว้ก่อน
+  // แล้วบรรทัดข้อความธรรมดาที่ตามมาหลังจากนั้น (ยังไม่เจอเลขลำดับแถวใหม่/ตัวเลือกของแถวถัดไป) ให้ถือว่าเป็นส่วนต่อของชื่อสินค้ารายการเดิม ต่อท้ายเข้าไปแทนที่จะเริ่มรายการใหม่
+  let pendingItem = null;
+  const finalizePending = () => { if(pendingItem){ items.push(pendingItem); pendingItem = null; } };
   tableLines.forEach(l=>{
     const line = l.trim();
     if(!line) return;
-    if(bareIndexRe.test(line) || headerWordRe.test(line)) return; // เลขลำดับ/หัวตาราง ไม่เอามาต่อชื่อ ไม่ต้อง flush อะไร
-    const onlyMatch = line.match(optionQtyOnlyRe);
+    if(bareIndexRe.test(line) || headerWordRe.test(line)){ finalizePending(); nameBuffer = []; return; } // เลขลำดับแถวใหม่/หัวตาราง = ขอบเขตแถวชัดเจน ปิดรายการที่ค้างไว้
+    const onlyMatch = line.match(optionQtyOnlyRe) || line.match(indexOptionQtyRe);
     if(onlyMatch){
-      const name = nameBuffer.join(' ').replace(/\s+/g,' ').trim();
+      finalizePending(); // เจอตัวเลือก+จำนวนอีกอันโดยยังไม่มีเลขลำดับคั่น แปลว่าเป็นแถวใหม่แล้ว ปิดรายการเดิมก่อน
+      const name = rcCleanDisplay(nameBuffer.join(' ').replace(/\s+/g,' ').trim());
       nameBuffer = [];
       if(!name) return; // ไม่มีชื่อสะสมไว้เลย ข้าม (กันจับ badge/โค้ดที่บังเอิญมีจุลภาคมาเป็นสินค้า)
       const { color, size } = rcParseOptionColorSize(onlyMatch[1]);
       const qty = parseInt(onlyMatch[2], 10) || 1;
-      items.push({ name, color, size, qty });
+      pendingItem = { name, color, size, qty }; // ยังไม่ push ทันที เผื่อมีชื่อส่วนที่เหลือตามมาอีก
       return;
     }
     const combinedMatch = line.match(nameThenOptionQtyRe);
     if(combinedMatch){
-      const name = (nameBuffer.join(' ') + ' ' + combinedMatch[1]).replace(/\s+/g,' ').trim();
+      finalizePending();
+      const name = rcCleanDisplay((nameBuffer.join(' ') + ' ' + combinedMatch[1]).replace(/\s+/g,' ').trim());
       nameBuffer = [];
       if(!name || headerWordRe.test(name)) return;
       const { color, size } = rcParseOptionColorSize(combinedMatch[2]);
       const qty = parseInt(combinedMatch[3], 10) || 1;
-      items.push({ name, color, size, qty });
+      pendingItem = { name, color, size, qty };
       return;
     }
-    // บรรทัดข้อความธรรมดา (ไม่ใช่ตัวเลือก/จำนวน) — ถือเป็นส่วนหนึ่งของชื่อสินค้าที่ตัดบรรทัด สะสมไว้รอบรรทัดตัวเลือกมาปิดรายการ
-    if(!badgeLineRe.test(line)) nameBuffer.push(line);
+    // บรรทัดข้อความธรรมดา (ไม่ใช่ตัวเลือก/จำนวน/เลขลำดับ)
+    if(badgeLineRe.test(line)) return;
+    if(pendingItem){
+      // มีรายการที่เพิ่งปิดตัวเลือก+จำนวนไปแล้วค้างอยู่ ถือว่าบรรทัดนี้เป็นชื่อสินค้าส่วนที่ตัดขึ้นบรรทัดใหม่ที่ตามมาทีหลัง ต่อท้ายเข้าไป
+      pendingItem.name = rcCleanDisplay((pendingItem.name + ' ' + line).replace(/\s+/g,' ').trim());
+    } else {
+      // ยังไม่มีรายการค้าง สะสมไว้รอบรรทัดตัวเลือก+จำนวนมาปิดรายการ (ชื่อสินค้าส่วนก่อนหน้า)
+      nameBuffer.push(line);
+    }
   });
+  finalizePending();
   return { channel, customer, items };
 }
 
