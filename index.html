@@ -685,6 +685,33 @@
         <span class="collapse-arrow">▾</span>
       </div>
       <div id="collapseDownloadReport" class="collapse-body" style="display:none;">
+        <div class="muted" style="font-size:12.5px;margin-bottom:6px;">เลือกเดือน/ปีเพื่อกรอกช่วงวันที่ให้อัตโนมัติ หรือจะกำหนดวันที่เองด้านล่างก็ได้</div>
+        <div class="btn-row" style="margin-bottom:10px;">
+          <div class="field" style="flex:1;margin-bottom:0;">
+            <label>เดือน</label>
+            <select id="reportDlMonth" onchange="applyReportDlMonthYear()">
+              <option value="">-- ทั้งปี --</option>
+              <option value="1">มกราคม</option>
+              <option value="2">กุมภาพันธ์</option>
+              <option value="3">มีนาคม</option>
+              <option value="4">เมษายน</option>
+              <option value="5">พฤษภาคม</option>
+              <option value="6">มิถุนายน</option>
+              <option value="7">กรกฎาคม</option>
+              <option value="8">สิงหาคม</option>
+              <option value="9">กันยายน</option>
+              <option value="10">ตุลาคม</option>
+              <option value="11">พฤศจิกายน</option>
+              <option value="12">ธันวาคม</option>
+            </select>
+          </div>
+          <div class="field" style="flex:1;margin-bottom:0;">
+            <label>ปี</label>
+            <select id="reportDlYear" onchange="applyReportDlMonthYear()">
+              <option value="">-- ปี --</option>
+            </select>
+          </div>
+        </div>
         <div class="btn-row">
           <div class="field" style="flex:1;margin-bottom:0;">
             <label>จากวันที่</label>
@@ -6840,6 +6867,38 @@ function buildSalesReturnReportRows(fromDate, toDate, selectedWindowIds){
   rows.sort((a,b)=> new Date(a.date) - new Date(b.date));
   return rows;
 }
+// เติมตัวเลือกปีใน dropdown ปี (ของตัวกรองดาวน์โหลดรายงาน) จากปีที่มีบิลขาย/คืนจริง ไปจนถึงปีปัจจุบัน แสดงเป็น พ.ศ. ให้ตรงกับที่อื่นในแอป
+function populateReportDlYearOptions(){
+  const el = document.getElementById('reportDlYear');
+  if(!el || el.children.length > 1) return; // กันเติมซ้ำถ้าเรียกมากกว่า 1 ครั้ง (children.length > 1 เพราะมี option ว่างอยู่แล้ว)
+  const now = new Date();
+  let minYear = now.getFullYear();
+  loadSales().forEach(s=>{ const y = new Date(s.timestamp).getFullYear(); if(!isNaN(y) && y < minYear) minYear = y; });
+  loadStockTransactions().filter(tx=>tx.type==='RETURN').forEach(tx=>{ const y = new Date(tx.timestamp).getFullYear(); if(!isNaN(y) && y < minYear) minYear = y; });
+  let html = '<option value="">-- ปี --</option>';
+  for(let y = now.getFullYear(); y >= minYear; y--){
+    html += `<option value="${y}">${y + 543}</option>`;
+  }
+  el.innerHTML = html;
+}
+// เมื่อเลือกเดือน/ปีจากตัวกรองด่วน ให้กรอกช่วง "จากวันที่/ถึงวันที่" ให้อัตโนมัติ (เลือกแค่ปีอย่างเดียว = เอาทั้งปี, เลือกเดือนแต่ไม่เลือกปี = ใช้ปีปัจจุบัน)
+function applyReportDlMonthYear(){
+  const month = document.getElementById('reportDlMonth').value;
+  const year = document.getElementById('reportDlYear').value;
+  if(!month && !year) return;
+  const pad = n => String(n).padStart(2,'0');
+  const y = year ? parseInt(year,10) : new Date().getFullYear();
+  if(month){
+    const m = parseInt(month,10);
+    const lastDay = new Date(y, m, 0).getDate();
+    document.getElementById('reportDlFrom').value = `${y}-${pad(m)}-01`;
+    document.getElementById('reportDlTo').value = `${y}-${pad(m)}-${pad(lastDay)}`;
+  } else {
+    document.getElementById('reportDlFrom').value = `${y}-01-01`;
+    document.getElementById('reportDlTo').value = `${y}-12-31`;
+  }
+  renderReportDlAdWindowPicker();
+}
 function getReportDlDateRange(){
   const from = document.getElementById('reportDlFrom').value || '';
   const to = document.getElementById('reportDlTo').value || '';
@@ -7674,6 +7733,7 @@ refreshCategoryBrandDatalists();
 populateAdLogTimeOptions();
 (function setDefaultAdLogDate(){ const el = document.getElementById('adLogDate'); if(el && !el.value) el.value = new Date().toISOString().slice(0,10); })();
 populateReportDlColumnPicker();
+populateReportDlYearOptions();
 (function setDefaultReportDlRange(){ // ค่าเริ่มต้นของตัวกรองวันที่ในการ์ดดาวน์โหลดรายงาน: ตั้งแต่ต้นเดือนนี้ถึงวันนี้
   const pad = n=>String(n).padStart(2,'0');
   const toLocalDate = (d)=> `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
