@@ -15,6 +15,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>if(window['pdfjsLib']) pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";</script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style>
   :root{
     --primary:#1E293B; --primary-dark:#141D2B; --bg:#FAFAFA; --card:#FDFCFA;
@@ -230,13 +232,17 @@
     </div>
     <div class="sheet-body">
       <div class="muted" style="font-size:12px;margin-bottom:10px;">
-        อัปโหลดไฟล์ใบปะหน้าพัสดุ Shopee/TikTok (PDF) — ระบบจะพยายามอ่านชื่อ-ที่อยู่ลูกค้า รายการสินค้า จำนวน และช่องทาง (Shopee/TikTok) ให้อัตโนมัติ พร้อมจับคู่ราคาจากสินค้าในระบบ
-        แต่อ่านได้แบบเดาที่ดีที่สุดเท่านั้น <strong>กรุณาตรวจ/แก้ไขให้ถูกต้องก่อนออกใบเสร็จทุกครั้ง</strong> —
-        <strong>ไฟล์ที่อัปโหลดไม่ถูกบันทึกเก็บไว้ที่ไหนเลย</strong> ออกใบเสร็จเสร็จหรือปิดหน้านี้ ไฟล์จะถูกลบออกจากเครื่องทันที
+        แนบไฟล์ใบปะหน้าพัสดุ Shopee/TikTok (PDF) หรือถ่ายรูปใบปะหน้าพัสดุจริงก็ได้ — ระบบจะพยายามอ่านชื่อ-ที่อยู่ลูกค้า รายการสินค้า จำนวน และช่องทาง (Shopee/TikTok) ให้อัตโนมัติ พร้อมจับคู่ราคาจากสินค้าในระบบ
+        แต่อ่านได้แบบเดาที่ดีที่สุดเท่านั้น <strong>กรุณาตรวจ/แก้ไขให้ถูกต้องก่อนออกใบเสร็จทุกครั้ง</strong> (ถ่ายรูปจะอ่านผิดง่ายกว่าไฟล์ PDF มาก เพราะต้องอ่านตัวหนังสือจากภาพ ไม่ใช่ข้อความจริงในไฟล์ — ตรวจให้ละเอียดเป็นพิเศษ) —
+        <strong>ไฟล์/รูปที่อัปโหลดไม่ถูกบันทึกเก็บไว้ที่ไหนเลย</strong> ออกใบเสร็จเสร็จหรือปิดหน้านี้ จะถูกลบออกจากเครื่องทันที
       </div>
       <div class="field">
         <label>ไฟล์ใบปะหน้าพัสดุ (PDF)</label>
         <input type="file" id="receiptLabelFileInput" accept=".pdf" onchange="handleReceiptLabelFile(event)">
+      </div>
+      <div class="field">
+        <label>หรือถ่ายรูปใบปะหน้าพัสดุจริง (กล้อง)</label>
+        <input type="file" id="receiptLabelPhotoInput" accept="image/*" capture="environment" onchange="handleReceiptLabelFile(event)">
       </div>
       <div id="receiptParseStatus" style="margin-bottom:10px;"></div>
       <div id="receiptFormArea">
@@ -271,8 +277,18 @@
         </div>
       </div>
     </div>
+    <div class="muted" style="font-size:11.5px;padding:0 18px 6px;">
+      สำหรับเครื่องพิมพ์ใบเสร็จความร้อน (Bluetooth) — เว็บเชื่อมต่อบลูทูธตรงๆ ไม่ได้เลยบน iPhone (ข้อจำกัดของ Safari เอง แก้ที่โค้ดไม่ได้)
+      ปุ่ม "แชร์พิมพ์ (Bluetooth)" ด้านล่างจะสร้างรูปใบเสร็จแล้วเปิดหน้าต่างแชร์ของ iPhone ให้ กดเลือกแอปเครื่องพิมพ์ของร้าน (เช่น แอปที่มากับเครื่องพิมพ์ตอนซื้อ) แล้วพิมพ์ผ่าน Bluetooth จากแอปนั้นได้เลย
+    </div>
+    <div style="display:flex;gap:16px;font-size:12.5px;padding:0 18px 8px;align-items:center;">
+      <span class="muted">ขนาดกระดาษ:</span>
+      <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="radio" name="rcThermalWidth" value="58" id="rcThermalWidth58"> 58mm</label>
+      <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="radio" name="rcThermalWidth" value="80" id="rcThermalWidth80"> 80mm</label>
+    </div>
     <div class="sheet-footer">
       <button type="button" class="btn btn-outline" style="flex:1;" onclick="closeReceiptSheet()">ปิด</button>
+      <button type="button" class="btn btn-outline" style="flex:2;" id="rcThermalBtn" onclick="doGenerateReceiptThermal()">🖨️ แชร์พิมพ์ (Bluetooth)</button>
       <button type="button" class="btn btn-primary" style="flex:2;" id="rcGenerateBtn" onclick="doGenerateReceipt()">🧾 ออกใบเสร็จ (PDF)</button>
     </div>
   </div>
@@ -1258,24 +1274,47 @@ function rcResetForm(){
   document.getElementById('rcCustomer').value = '';
   document.getElementById('receiptParseStatus').innerHTML = '';
   rcRenderItemsTable([ rcBlankItem() ]);
+  // จำขนาดกระดาษเครื่องพิมพ์ความร้อนที่เลือกล่าสุดไว้ (ร้านมีเครื่องเดียว ไม่ต้องเลือกใหม่ทุกครั้ง) ค่าเริ่มต้น 80mm
+  const savedWidth = localStorage.getItem('rcThermalWidth') || '80';
+  const widthRadio = document.getElementById(savedWidth === '58' ? 'rcThermalWidth58' : 'rcThermalWidth80');
+  if(widthRadio) widthRadio.checked = true;
 }
+document.addEventListener('DOMContentLoaded', ()=>{
+  ['rcThermalWidth58','rcThermalWidth80'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el) el.addEventListener('change', ()=>{ if(el.checked) localStorage.setItem('rcThermalWidth', el.value); });
+  });
+});
 function rcBlankItem(){ return { name:'', qty:1, price:0 }; }
 function rcClearLabelState(){
   rcLabelPdfBytes = null;
   const fileInput = document.getElementById('receiptLabelFileInput');
   if(fileInput) fileInput.value = '';
+  const photoInput = document.getElementById('receiptLabelPhotoInput');
+  if(photoInput) photoInput.value = '';
 }
 async function handleReceiptLabelFile(event){
   const file = event.target.files[0];
   if(!file) return;
+  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
+  const isImage = file.type.startsWith('image/');
   const statusEl = document.getElementById('receiptParseStatus');
-  statusEl.innerHTML = '<div class="muted">กำลังอ่านไฟล์...</div>';
+  statusEl.innerHTML = isPdf ? '<div class="muted">กำลังอ่านไฟล์...</div>' : '<div class="muted">กำลังอ่านรูปภาพ (OCR)... อาจใช้เวลาสักครู่</div>';
   try{
-    const buf = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
-    const page = await pdf.getPage(1);
-    const textContent = await page.getTextContent();
-    const lines = rcReconstructLines(textContent);
+    let lines;
+    if(isPdf){
+      const buf = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+      const page = await pdf.getPage(1);
+      const textContent = await page.getTextContent();
+      lines = rcReconstructLines(textContent);
+    }else if(isImage){
+      lines = await rcOcrImageToLines(file, pct=>{
+        statusEl.innerHTML = `<div class="muted">กำลังอ่านรูปภาพ (OCR)... ${pct}%</div>`;
+      });
+    }else{
+      throw new Error('รองรับเฉพาะไฟล์ PDF หรือรูปภาพเท่านั้น');
+    }
     const parsed = rcParseLabelLines(lines);
     // เติมฟอร์ม
     if(parsed.customer) document.getElementById('rcCustomer').value = parsed.customer;
@@ -1299,6 +1338,7 @@ async function handleReceiptLabelFile(event){
     if(!parsed.channel) notes.push('หาช่องทาง Shopee/TikTok ไม่เจอ กรุณาเลือกเอง');
     if(!parsed.items.length) notes.push('หารายการสินค้าไม่เจอ กรุณากรอกเอง');
     else if(matchedCount < parsed.items.length) notes.push(`จับคู่ราคาได้ ${matchedCount}/${parsed.items.length} รายการ ที่เหลือกรุณากรอกราคาเอง`);
+    if(!isPdf) notes.push('อ่านจากรูปถ่าย (OCR) ความแม่นยำต่ำกว่าไฟล์ PDF — ตรวจทุกช่องให้ละเอียดก่อนออกใบเสร็จ');
     statusEl.innerHTML = notes.length
       ? `<div class="muted" style="color:var(--danger);">⚠️ อ่านได้บางส่วน — ${notes.join(' / ')} (ตรวจ/แก้ก่อนออกใบเสร็จเสมอ)</div>`
       : `<div class="muted" style="color:var(--success,#16a34a);">✓ อ่านข้อมูล+จับคู่ราคาสำเร็จ — กรุณาตรวจความถูกต้องอีกครั้งก่อนออกใบเสร็จ</div>`;
@@ -1308,6 +1348,25 @@ async function handleReceiptLabelFile(event){
     // อ่านเสร็จแล้วไม่ต้องเก็บไฟล์ไว้ต่อ (ข้อมูลถูกดึงใส่ฟอร์มไปแล้ว)
     rcClearLabelState();
   }
+}
+// อ่านรูปถ่ายใบปะหน้าพัสดุจริงด้วย Tesseract.js (OCR ในเบราว์เซอร์ ไม่ส่งรูปออกไปที่ไหน) ใช้ภาษาไทย+อังกฤษ
+// เพราะในใบปะหน้ามีทั้งชื่อ-ที่อยู่ภาษาไทย และรหัสสินค้า/เลขพัสดุภาษาอังกฤษปนกัน แม่นยำน้อยกว่าอ่านจากไฟล์ PDF มาก (เพราะต้องเดาตัวอักษรจากภาพ ไม่ใช่ข้อความจริงในไฟล์)
+// จึงต้องพึ่งฟอร์มตรวจ/แก้ไขที่มีอยู่แล้วเป็นตัวกันพลาดเสมอ
+// สำคัญ (พิสูจน์จากการทดสอบด้วยรูปจริง): ห้ามเอาตำแหน่ง bbox ของแต่ละคำมาเรียงลำดับเองใหม่ (ซ้าย->ขวา) เพราะตัวอักษรไทย
+// ที่มีสระ/วรรณยุกต์ซ้อนกันหลายชั้น bbox มักวางตำแหน่งเพี้ยน ทำให้เรียงลำดับตัวอักษรผิดยับเยิน (ทดสอบแล้วได้ข้อความอ่านไม่ออกเลย)
+// ต้องใช้ data.text ที่ Tesseract เรียงลำดับการอ่านให้ถูกต้องอยู่แล้วในตัวเอง (ทดสอบแล้วอ่านได้ถูกต้องกว่ามาก)
+async function rcOcrImageToLines(file, onProgress){
+  const { data } = await Tesseract.recognize(file, 'tha+eng', {
+    logger: m => { if(onProgress && m.status === 'recognizing text') onProgress(Math.round((m.progress||0)*100)); }
+  });
+  return rcCleanOcrLines(String(data.text||'').split('\n'));
+}
+// เอนจิน OCR ที่ใช้ (Tesseract) มักแยกตัวอักษรไทยแต่ละตัวด้วยช่องว่าง (ไม่ได้แยกเป็น "คำ" จริงแบบภาษาไทยที่ไม่มีช่องว่างระหว่างคำ)
+// เช่น "กนกวรรณ" อาจได้ "ก น ก ว ร ร ณ" จึงต้องรวมช่องว่างระหว่างอักษรไทยที่ติดกันออกก่อนถึงจะอ่าน/เทียบคำได้ถูกต้อง
+// แต่คงช่องว่างระหว่างอักษรไทยกับอังกฤษ/ตัวเลข หรือระหว่างคำอังกฤษ/ตัวเลขด้วยกันไว้ตามเดิม (ไม่ใช่ปัญหาเดียวกัน)
+function rcCleanOcrLines(lines){
+  const thaiGapRe = /([\u0E01-\u0E4F])\s+(?=[\u0E01-\u0E4F])/g;
+  return lines.map(l => String(l||'').replace(thaiGapRe, '$1').replace(/\s+/g,' ').trim()).filter(Boolean);
 }
 // จัดกลุ่ม text items ของ pdf.js ตามตำแหน่งแนวตั้ง (y จาก transform matrix) ให้เป็น "บรรทัด" แล้วเรียงซ้าย->ขวาในแต่ละบรรทัด
 // (pdf.js คืนลำดับข้อความตามลำดับที่วาดในไฟล์ ซึ่งมักไม่ตรงกับลำดับที่อ่านจริงในเลย์เอาต์หลายคอลัมน์แบบใบปะหน้าพัสดุ)
@@ -1647,6 +1706,104 @@ function doGenerateReceipt(){
   win.document.close();
   toast('ออกใบเสร็จแล้ว — ใช้ "บันทึกเป็น PDF" ในกล่องปริ้นของเบราว์เซอร์เพื่อเซฟไฟล์');
   closeReceiptSheet();
+}
+
+// ---- แชร์ใบเสร็จเป็นรูปภาพ สำหรับพิมพ์ผ่านเครื่องพิมพ์ใบเสร็จความร้อน (Bluetooth) ----
+// สำคัญมาก (ข้อจำกัดของแพลตฟอร์ม แก้ในโค้ดไม่ได้): Safari บน iPhone "ไม่รองรับ Web Bluetooth เลย" ไม่ว่าเว็บไหนก็ตาม
+// เว็บนี้จึงเชื่อมต่อ/สั่งพิมพ์เครื่องพิมพ์ Bluetooth โดยตรงจากเบราว์เซอร์ไม่ได้ทั้งสิ้น (ต่างจาก Android ที่พอทำได้บางส่วนผ่าน Web Bluetooth)
+// เครื่องพิมพ์ใบเสร็จความร้อนราคาถูกส่วนใหญ่ก็ไม่ใช่เครื่องพิมพ์แบบ AirPrint ด้วย จึงไม่โผล่ในกล่องพิมพ์ปกติของ iPhone (ที่ปุ่ม "ออกใบเสร็จ PDF" ใช้อยู่)
+// ทางที่ใช้ได้จริงบน iPhone คือ: สร้างใบเสร็จเป็น "รูปภาพ" แล้วเปิดหน้าต่างแชร์ของ iOS (Web Share API) ให้พนักงานเลือกแอปของเครื่องพิมพ์เอง
+// (แอปที่มากับเครื่องพิมพ์ความร้อนมักรับรูปภาพจากหน้าแชร์ได้อยู่แล้ว แล้วมันไปคุย Bluetooth กับเครื่องพิมพ์เอง) — จึงไม่ต้องรู้จักยี่ห้อ/รุ่นเครื่องพิมพ์เลย
+async function doGenerateReceiptThermal(){
+  const no = (document.getElementById('rcNo').value || '').trim();
+  const dateVal = document.getElementById('rcDate').value;
+  const channel = document.querySelector('input[name="rcChannel"]:checked');
+  const customer = (document.getElementById('rcCustomer').value || '').trim();
+  const items = rcItems.filter(it => (it.name||'').trim());
+  if(!customer){ toast('กรุณากรอกชื่อ-ที่อยู่ลูกค้า'); return; }
+  if(!items.length){ toast('กรุณากรอกรายการสินค้าอย่างน้อย 1 รายการ'); return; }
+  if(typeof html2canvas === 'undefined'){ toast('โหลดตัวสร้างรูปภาพไม่สำเร็จ ลองเช็คอินเทอร์เน็ตแล้วลองใหม่'); return; }
+  const total = rcRecalcTotal();
+  const dateThai = dateVal ? (()=>{ const d=new Date(dateVal+'T00:00:00'); return `${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()+543}`; })() : '';
+  const channelLabel = channel ? (channel.value === 'shopee' ? 'Shopee' : 'Tiktok') : '';
+  // ความกว้างรูปเป็นพิกเซล อิงจากความกว้างกระดาษที่เลือก ที่ 203dpi (ค่ามาตรฐานของเครื่องพิมพ์ความร้อนทั่วไป) — 58mm≈384px, 80mm≈576px
+  const widthRadio = document.querySelector('input[name="rcThermalWidth"]:checked');
+  const paperMm = widthRadio ? widthRadio.value : '80';
+  const pxWidth = paperMm === '58' ? 384 : 576;
+
+  const rowsHtml = items.map(it=>{
+    const amount = (parseFloat(it.qty)||0) * (parseFloat(it.price)||0);
+    return `<div style="margin-bottom:4px;">
+      <div>${escapeHtml(it.name)}</div>
+      <div style="display:flex;justify-content:space-between;">
+        <span>${it.qty} x ${(parseFloat(it.price)||0).toFixed(2)}</span>
+        <span>${amount.toFixed(2)}</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  // สร้างใบเสร็จแบบย่อ (ไม่ใช่เลย์เอาต์ A4 เดียวกับปุ่ม "ออกใบเสร็จ PDF") เพราะกระดาษความร้อนแคบมาก ต้องออกแบบให้อ่านง่ายในแนวตั้งยาวแทน
+  const holder = document.createElement('div');
+  holder.style.position = 'fixed';
+  holder.style.left = '-9999px';
+  holder.style.top = '0';
+  holder.style.width = pxWidth + 'px';
+  holder.style.background = '#fff';
+  holder.style.color = '#000';
+  holder.style.fontFamily = '-apple-system,"Segoe UI",Roboto,sans-serif';
+  holder.style.fontSize = (paperMm === '58' ? '13px' : '15px');
+  holder.style.padding = '16px 14px';
+  holder.style.lineHeight = '1.5';
+  holder.innerHTML = `
+    <div style="text-align:center;font-weight:700;font-size:1.25em;margin-bottom:2px;">ร้านผลคูณตลาดรังสิต-ซอย 5</div>
+    <div style="text-align:center;font-size:0.85em;margin-bottom:10px;">
+      รังสิตซอย 5 ต. ประชาธิปัตย์ อ. ธัญบุรี จ. ปทุมธานี 12130<br>โทร 091-216-5550
+    </div>
+    <div style="border-top:1px dashed #000;border-bottom:1px dashed #000;padding:6px 0;margin-bottom:8px;">
+      <div>เลขที่: ${escapeHtml(no)}</div>
+      <div>วันที่: ${escapeHtml(dateThai)}</div>
+      ${channelLabel ? `<div>ช่องทาง: ${escapeHtml(channelLabel)}</div>` : ''}
+    </div>
+    <div style="margin-bottom:8px;"><strong>ลูกค้า:</strong><br>${escapeHtml(customer).replace(/\n/g,'<br>')}</div>
+    <div style="border-top:1px dashed #000;padding-top:6px;margin-bottom:6px;">${rowsHtml}</div>
+    <div style="border-top:1px dashed #000;padding-top:6px;display:flex;justify-content:space-between;font-weight:700;font-size:1.1em;">
+      <span>รวมทั้งสิ้น</span><span>${total.toFixed(2)} บาท</span>
+    </div>
+    <div style="font-size:0.8em;margin-top:2px;">(${escapeHtml(thaiBahtText(total))})</div>
+    <div style="text-align:center;font-size:0.85em;margin-top:14px;">ไม่มีภาษีมูลค่าเพิ่ม 7% — ขอบคุณที่อุดหนุนค่ะ</div>
+  `;
+  document.body.appendChild(holder);
+  let blob;
+  try{
+    const canvas = await html2canvas(holder, { backgroundColor: '#ffffff', scale: 2, width: pxWidth });
+    blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+  }catch(err){
+    document.body.removeChild(holder);
+    toast('สร้างรูปใบเสร็จไม่สำเร็จ: ' + ((err && err.message) || String(err)));
+    return;
+  }
+  document.body.removeChild(holder);
+  if(!blob){ toast('สร้างรูปใบเสร็จไม่สำเร็จ'); return; }
+
+  const fileName = `ใบเสร็จ${no ? '-' + no : ''}.png`;
+  const file = new File([blob], fileName, { type: 'image/png' });
+
+  // ใช้ Web Share API (มือถือ/iPhone รองรับ) เปิดหน้าต่างแชร์ของระบบให้เลือกแอปเครื่องพิมพ์ได้เลย
+  // ถ้าเบราว์เซอร์ไม่รองรับการแชร์ไฟล์ (เช่น เปิดจากคอมพิวเตอร์) ให้เปิดรูปในแท็บใหม่แทน จะได้กดเซฟรูปแล้วส่งเข้าแอปเครื่องพิมพ์เองได้
+  if(navigator.canShare && navigator.canShare({ files: [file] })){
+    try{
+      await navigator.share({ files: [file], title: `ใบเสร็จ ${no}` });
+      closeReceiptSheet();
+      return;
+    }catch(err){
+      // ผู้ใช้กดยกเลิกหน้าต่างแชร์เอง ไม่ต้องแจ้ง error
+      if(err && err.name === 'AbortError') return;
+      toast('แชร์ไม่สำเร็จ: ' + ((err && err.message) || String(err)) + ' — เปิดรูปให้แทน');
+    }
+  }
+  const url = URL.createObjectURL(blob);
+  window.open(url, '_blank');
+  toast('เปิดรูปใบเสร็จในแท็บใหม่แล้ว กดค้างที่รูปเพื่อบันทึก แล้วเปิดแอปเครื่องพิมพ์เพื่อพิมพ์ผ่าน Bluetooth');
 }
 
 // สลับแท็บ "รายการปรับ" (log ดิบของเครื่องนี้) / "สรุปยอดสุทธิ" (รวมทุกเครื่อง อิงตามช่วงเวลา) / "อัปเดต Shopee" (เทียบไฟล์ Shopee)
