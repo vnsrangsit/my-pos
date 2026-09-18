@@ -708,10 +708,14 @@ function escapeHtml(s){ return escapeAttr(s); }
 
 /* ============ จัดกลุ่มสินค้าเป็น รุ่น+สี (การ์ดละ 1 รูป) ============ */
 function groupProducts(products){
+  // จัดกลุ่มด้วย ชื่อ+รุ่น+สี เท่านั้น (ไม่รวม gender เข้าไปในคีย์) กันสินค้าตัวเดียวกันแต่บาง size บันทึก gender ไว้ไม่ตรงกัน
+  // (เช่น บาง size ตั้ง "หญิง" บาง size ปล่อยว่าง) แล้วถูกแยกเป็นคนละการ์ดทั้งที่ควรเป็นการ์ดเดียวกัน ทำให้พนักงานสับสนว่าของหมดจริงไหม
   const groups = {}; const order = [];
   products.forEach(p=>{
-    const key = [p.name||'', p.model||'', p.color||'', p.gender||''].join('|||');
+    const key = [p.name||'', p.model||'', p.color||''].join('|||');
     if(!groups[key]){ groups[key] = { name:p.name, model:p.model||'', color:p.color||'', gender:p.gender||'', items:[] }; order.push(key); }
+    // ใช้ gender ตัวแรกที่มีค่า (ไม่ว่าง) เป็นตัวแสดงป้ายของการ์ดรวม เผื่อบาง size ไม่ได้ตั้ง gender ไว้
+    if(!groups[key].gender && p.gender) groups[key].gender = p.gender;
     groups[key].items.push(p);
   });
   return order.map(k=>groups[k]);
