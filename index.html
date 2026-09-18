@@ -5275,9 +5275,12 @@ function matchOrderRowToProduct(row, products){
   if(!row.title) return null;
   const oc = canonicalColor(row.color);
   const os = normalizeVariantText(row.size);
+  // ถ้าไฟล์ไม่มีข้อมูลสีเลย (เช่น "ชื่อตัวเลือก" มีแค่ไซส์ล้วนๆ อย่าง "32" ไม่มีสีปนมา) ต้องข้ามการเทียบสีไปเลย
+  // ไม่งั้นจะเอาไปเทียบกับ canonicalColor('') = '' ซึ่งไม่ตรงกับสีจริงของสินค้า (เช่น "ดำ") ทำให้จับคู่ไม่เจอทั้งที่จริงๆ มีของอยู่
+  // ถ้าโค้ด+ไซส์ตรงกันมากกว่า 1 สี (มีหลายสีให้เลือกจริง) จะยังคืนค่า null เหมือนเดิม (ไม่ชัวร์ว่าใช่สีไหน ให้ผู้ใช้เพิ่มเองแทนการเดา)
   const candidates = products.filter(p=>{
     if(!codeAppearsInTitle(effectiveProductCode(p), row.title)) return false;
-    if(canonicalColor(p.color) !== oc) return false;
+    if(oc && canonicalColor(p.color) !== oc) return false;
     if(normalizeVariantText(p.size) !== os) return false;
     return true;
   });
