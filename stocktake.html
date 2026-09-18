@@ -8,6 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#1E293B">
+<link rel="manifest" href="manifest.json">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -15,7 +16,6 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>if(window['pdfjsLib']) pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";</script>
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style>
   :root{
@@ -232,17 +232,13 @@
     </div>
     <div class="sheet-body">
       <div class="muted" style="font-size:12px;margin-bottom:10px;">
-        แนบไฟล์ใบปะหน้าพัสดุ Shopee/TikTok (PDF) หรือถ่ายรูปใบปะหน้าพัสดุจริงก็ได้ — ระบบจะพยายามอ่านชื่อ-ที่อยู่ลูกค้า รายการสินค้า จำนวน และช่องทาง (Shopee/TikTok) ให้อัตโนมัติ พร้อมจับคู่ราคาจากสินค้าในระบบ
-        แต่อ่านได้แบบเดาที่ดีที่สุดเท่านั้น <strong>กรุณาตรวจ/แก้ไขให้ถูกต้องก่อนออกใบเสร็จทุกครั้ง</strong> (ถ่ายรูปจะอ่านผิดง่ายกว่าไฟล์ PDF มาก เพราะต้องอ่านตัวหนังสือจากภาพ ไม่ใช่ข้อความจริงในไฟล์ — ตรวจให้ละเอียดเป็นพิเศษ) —
-        <strong>ไฟล์/รูปที่อัปโหลดไม่ถูกบันทึกเก็บไว้ที่ไหนเลย</strong> ออกใบเสร็จเสร็จหรือปิดหน้านี้ จะถูกลบออกจากเครื่องทันที
+        แนบไฟล์ใบปะหน้าพัสดุ Shopee/TikTok (PDF) — ระบบจะพยายามอ่านชื่อ-ที่อยู่ลูกค้า รายการสินค้า จำนวน และช่องทาง (Shopee/TikTok) ให้อัตโนมัติ พร้อมจับคู่ราคาจากสินค้าในระบบ
+        แต่อ่านได้แบบเดาที่ดีที่สุดเท่านั้น <strong>กรุณาตรวจ/แก้ไขให้ถูกต้องก่อนออกใบเสร็จทุกครั้ง</strong> —
+        <strong>ไฟล์ที่อัปโหลดไม่ถูกบันทึกเก็บไว้ที่ไหนเลย</strong> ออกใบเสร็จเสร็จหรือปิดหน้านี้ ไฟล์จะถูกลบออกจากเครื่องทันที
       </div>
       <div class="field">
         <label>ไฟล์ใบปะหน้าพัสดุ (PDF)</label>
         <input type="file" id="receiptLabelFileInput" accept=".pdf" onchange="handleReceiptLabelFile(event)">
-      </div>
-      <div class="field">
-        <label>หรือถ่ายรูปใบปะหน้าพัสดุจริง (กล้อง)</label>
-        <input type="file" id="receiptLabelPhotoInput" accept="image/*" capture="environment" onchange="handleReceiptLabelFile(event)">
       </div>
       <div id="receiptParseStatus" style="margin-bottom:10px;"></div>
       <div id="receiptFormArea">
@@ -1285,36 +1281,58 @@ document.addEventListener('DOMContentLoaded', ()=>{
     if(el) el.addEventListener('change', ()=>{ if(el.checked) localStorage.setItem('rcThermalWidth', el.value); });
   });
 });
+
+// ---- รับไฟล์ใบปะหน้าพัสดุที่แชร์เข้ามาจากแอปอื่น (เช่น กด "แชร์" ใน Shopee แล้วเลือกแอปนี้) ----
+// ใช้ได้เฉพาะ Android/Chrome ที่ติดตั้งเว็บนี้เป็นแอปแล้ว (กด "เพิ่มลงหน้าจอหลัก") เท่านั้น — iPhone ไม่รองรับ Web Share Target เลย
+// ต้องลงทะเบียน Service Worker ก่อนถึงจะทำงานได้ (ตัว sw.js เป็นคนดักไฟล์ที่แชร์มาไว้ใน Cache Storage ชั่วคราว ดูรายละเอียดในไฟล์นั้น)
+if('serviceWorker' in navigator){
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(()=>{}); // ติดตั้งไม่สำเร็จก็ไม่เป็นไร แค่ใช้ฟีเจอร์แชร์ไม่ได้ ส่วนอื่นของแอปใช้ได้ตามปกติ
+  });
+}
+const RC_SHARE_CACHE = 'rc-share-cache-v1';
+const RC_SHARE_KEY = 'shared-pdf-payload';
+async function rcCheckIncomingShare(){
+  // sw.js จะ redirect กลับมาที่หน้านี้พร้อม ?share=1 ต่อเมื่อมีไฟล์ถูกแชร์เข้ามาจริง (ดู sw.js)
+  if(new URLSearchParams(location.search).get('share') !== '1') return;
+  // เคลียร์ ?share=1 ออกจาก URL ทันที กันรีเฟรชหน้าแล้วเข้าใจผิดว่ามีไฟล์แชร์ใหม่เข้ามาอีก (ทั้งที่ดึงไปใช้แล้ว)
+  history.replaceState(null, '', location.pathname);
+  try{
+    const cache = await caches.open(RC_SHARE_CACHE);
+    const cached = await cache.match(RC_SHARE_KEY);
+    if(!cached) return; // แชร์มาแต่ไม่มีไฟล์แนบ (หรือ sw.js ดึงไฟล์ไม่สำเร็จ) ปล่อยผ่าน ไม่ต้องเปิดฟอร์มเปล่าๆ
+    const blob = await cached.blob();
+    await cache.delete(RC_SHARE_KEY); // ใช้แล้วลบทิ้งทันที (เหมือนไฟล์ PDF ที่อัปโหลดเอง ไม่เก็บค้างไว้)
+    openReceiptSheet();
+    await rcProcessLabelPdfBlob(blob);
+  }catch(err){
+    // ดึงไฟล์จาก cache ไม่สำเร็จ ปล่อยผ่านเงียบๆ พนักงานยังกดออกใบเสร็จเองตามปกติได้
+  }
+}
+document.addEventListener('DOMContentLoaded', rcCheckIncomingShare);
+
 function rcBlankItem(){ return { name:'', qty:1, price:0 }; }
 function rcClearLabelState(){
   rcLabelPdfBytes = null;
   const fileInput = document.getElementById('receiptLabelFileInput');
   if(fileInput) fileInput.value = '';
-  const photoInput = document.getElementById('receiptLabelPhotoInput');
-  if(photoInput) photoInput.value = '';
 }
 async function handleReceiptLabelFile(event){
   const file = event.target.files[0];
   if(!file) return;
-  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
-  const isImage = file.type.startsWith('image/');
+  await rcProcessLabelPdfBlob(file);
+}
+// แยกออกมาจาก handleReceiptLabelFile เพื่อให้เรียกใช้ได้ทั้งจากการเลือกไฟล์เอง (input) และจากการแชร์ PDF เข้ามาจากแอปอื่น (Shopee) ผ่าน Web Share Target
+// (ดูส่วน "รับไฟล์ที่แชร์เข้ามาจากแอปอื่น" ด้านล่าง) — ตรรกะแกะ/เติมฟอร์มเหมือนกันทุกอย่าง ต่างกันแค่ที่มาของไฟล์
+async function rcProcessLabelPdfBlob(blob){
   const statusEl = document.getElementById('receiptParseStatus');
-  statusEl.innerHTML = isPdf ? '<div class="muted">กำลังอ่านไฟล์...</div>' : '<div class="muted">กำลังอ่านรูปภาพ (OCR)... อาจใช้เวลาสักครู่</div>';
+  statusEl.innerHTML = '<div class="muted">กำลังอ่านไฟล์...</div>';
   try{
-    let lines;
-    if(isPdf){
-      const buf = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
-      const page = await pdf.getPage(1);
-      const textContent = await page.getTextContent();
-      lines = rcReconstructLines(textContent);
-    }else if(isImage){
-      lines = await rcOcrImageToLines(file, pct=>{
-        statusEl.innerHTML = `<div class="muted">กำลังอ่านรูปภาพ (OCR)... ${pct}%</div>`;
-      });
-    }else{
-      throw new Error('รองรับเฉพาะไฟล์ PDF หรือรูปภาพเท่านั้น');
-    }
+    const buf = await blob.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+    const page = await pdf.getPage(1);
+    const textContent = await page.getTextContent();
+    const lines = rcReconstructLines(textContent);
     const parsed = rcParseLabelLines(lines);
     // เติมฟอร์ม
     if(parsed.customer) document.getElementById('rcCustomer').value = parsed.customer;
@@ -1339,7 +1357,6 @@ async function handleReceiptLabelFile(event){
     if(!parsed.items.length) notes.push('หารายการสินค้าไม่เจอ กรุณากรอกเอง');
     else if(matchedCount < parsed.items.length) notes.push(`จับคู่ราคาได้ ${matchedCount}/${parsed.items.length} รายการ ที่เหลือกรุณากรอกราคาเอง`);
     if(parsed.items.some(it=>it.looseMatch)) notes.push('บางรายการอ่านแบบเดาโครงสร้าง (ไม่ชัวร์) กรุณาตรวจชื่อ/สี/เบอร์ให้ดีเป็นพิเศษ');
-    if(!isPdf) notes.push('อ่านจากรูปถ่าย (OCR) ความแม่นยำต่ำกว่าไฟล์ PDF — ตรวจทุกช่องให้ละเอียดก่อนออกใบเสร็จ');
     statusEl.innerHTML = notes.length
       ? `<div class="muted" style="color:var(--danger);">⚠️ อ่านได้บางส่วน — ${notes.join(' / ')} (ตรวจ/แก้ก่อนออกใบเสร็จเสมอ)</div>`
       : `<div class="muted" style="color:var(--success,#16a34a);">✓ อ่านข้อมูล+จับคู่ราคาสำเร็จ — กรุณาตรวจความถูกต้องอีกครั้งก่อนออกใบเสร็จ</div>`;
@@ -1349,73 +1366,6 @@ async function handleReceiptLabelFile(event){
     // อ่านเสร็จแล้วไม่ต้องเก็บไฟล์ไว้ต่อ (ข้อมูลถูกดึงใส่ฟอร์มไปแล้ว)
     rcClearLabelState();
   }
-}
-// อ่านรูปถ่ายใบปะหน้าพัสดุจริงด้วย Tesseract.js (OCR ในเบราว์เซอร์ ไม่ส่งรูปออกไปที่ไหน) ใช้ภาษาไทย+อังกฤษ
-// เพราะในใบปะหน้ามีทั้งชื่อ-ที่อยู่ภาษาไทย และรหัสสินค้า/เลขพัสดุภาษาอังกฤษปนกัน แม่นยำน้อยกว่าอ่านจากไฟล์ PDF มาก (เพราะต้องเดาตัวอักษรจากภาพ ไม่ใช่ข้อความจริงในไฟล์)
-// จึงต้องพึ่งฟอร์มตรวจ/แก้ไขที่มีอยู่แล้วเป็นตัวกันพลาดเสมอ
-// สำคัญ (พิสูจน์จากการทดสอบด้วยรูปจริง): ห้ามเอาตำแหน่ง bbox ของแต่ละคำมาเรียงลำดับเองใหม่ (ซ้าย->ขวา) เพราะตัวอักษรไทย
-// ที่มีสระ/วรรณยุกต์ซ้อนกันหลายชั้น bbox มักวางตำแหน่งเพี้ยน ทำให้เรียงลำดับตัวอักษรผิดยับเยิน (ทดสอบแล้วได้ข้อความอ่านไม่ออกเลย)
-// ต้องใช้ data.text ที่ Tesseract เรียงลำดับการอ่านให้ถูกต้องอยู่แล้วในตัวเอง (ทดสอบแล้วอ่านได้ถูกต้องกว่ามาก)
-async function rcOcrImageToLines(file, onProgress){
-  const preprocessed = await rcPreprocessImageForOcr(file);
-  const { data } = await Tesseract.recognize(preprocessed || file, 'tha+eng', {
-    logger: m => { if(onProgress && m.status === 'recognizing text') onProgress(Math.round((m.progress||0)*100)); }
-  });
-  return rcCleanOcrLines(String(data.text||'').split('\n'));
-}
-// แปลงรูปถ่ายให้ขาวดำคมชัดก่อนส่งเข้า OCR (ขั้นตอนมาตรฐานที่ช่วยความแม่นยำของ OCR ได้มากในสภาพแสงจริง/กล้องมือถือ):
-// 1) แปลงเป็นสีเทา 2) หาค่า threshold ที่เหมาะสมอัตโนมัติด้วยวิธี Otsu (แยกพิกเซล "ตัวหนังสือ" ออกจาก "พื้นหลัง" ได้ดีกว่าใช้ค่าคงที่ตายตัว)
-// 3) แปลงเป็นขาว-ดำล้วนตาม threshold นั้น — ลดผลจากแสงเงา/สีกระดาษ/คุณภาพกล้องที่ทำให้ตัวอักษรเล็กๆ เบลอจนอ่านผิด
-// ถ้าขั้นตอนนี้พลาด (เช่น browser เก่าไม่รองรับ) ให้คืนค่า null แล้วใช้รูปต้นฉบับแทน ไม่ทำให้ทั้งฟีเจอร์พังเพราะขั้นตอนเสริมนี้
-async function rcPreprocessImageForOcr(file){
-  try{
-    const bitmap = await createImageBitmap(file);
-    // จำกัดด้านยาวสุดไม่ให้ใหญ่เกินไป (รูปจากกล้องมือถือมักใหญ่มาก) กันประมวลผลช้าเกินไปโดยไม่ได้ความแม่นยำเพิ่มขึ้นจริง
-    const maxDim = 2000;
-    const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
-    const w = Math.round(bitmap.width * scale), h = Math.round(bitmap.height * scale);
-    const canvas = document.createElement('canvas');
-    canvas.width = w; canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(bitmap, 0, 0, w, h);
-    const imgData = ctx.getImageData(0, 0, w, h);
-    const px = imgData.data;
-    const gray = new Uint8ClampedArray(w*h);
-    const hist = new Array(256).fill(0);
-    for(let i=0, j=0; i<px.length; i+=4, j++){
-      // สูตรมาตรฐานแปลง RGB -> สีเทา (ถ่วงน้ำหนักตามความไวสายตามนุษย์ต่อแต่ละสี)
-      const g = Math.round(0.299*px[i] + 0.587*px[i+1] + 0.114*px[i+2]);
-      gray[j] = g;
-      hist[g]++;
-    }
-    // Otsu's method: หา threshold ที่ทำให้ variance ระหว่างกลุ่มพิกเซลมืด/สว่างมากที่สุด (แยกตัวหนังสือจากพื้นหลังได้ดีที่สุด)
-    const total = w*h;
-    let sum = 0; for(let t=0;t<256;t++) sum += t*hist[t];
-    let sumB=0, wB=0, wF=0, maxVar=-1, threshold=127;
-    for(let t=0;t<256;t++){
-      wB += hist[t]; if(wB===0) continue;
-      wF = total - wB; if(wF===0) break;
-      sumB += t*hist[t];
-      const mB = sumB/wB, mF = (sum-sumB)/wF;
-      const varBetween = wB*wF*(mB-mF)*(mB-mF);
-      if(varBetween > maxVar){ maxVar = varBetween; threshold = t; }
-    }
-    for(let i=0, j=0; i<px.length; i+=4, j++){
-      const v = gray[j] >= threshold ? 255 : 0;
-      px[i] = px[i+1] = px[i+2] = v;
-    }
-    ctx.putImageData(imgData, 0, 0);
-    return await new Promise(resolve => canvas.toBlob(b=>resolve(b), 'image/png'));
-  }catch(err){
-    return null; // ขั้นตอนเสริม พลาดแล้วไม่เป็นไร ใช้รูปต้นฉบับแทน
-  }
-}
-// เอนจิน OCR ที่ใช้ (Tesseract) มักแยกตัวอักษรไทยแต่ละตัวด้วยช่องว่าง (ไม่ได้แยกเป็น "คำ" จริงแบบภาษาไทยที่ไม่มีช่องว่างระหว่างคำ)
-// เช่น "กนกวรรณ" อาจได้ "ก น ก ว ร ร ณ" จึงต้องรวมช่องว่างระหว่างอักษรไทยที่ติดกันออกก่อนถึงจะอ่าน/เทียบคำได้ถูกต้อง
-// แต่คงช่องว่างระหว่างอักษรไทยกับอังกฤษ/ตัวเลข หรือระหว่างคำอังกฤษ/ตัวเลขด้วยกันไว้ตามเดิม (ไม่ใช่ปัญหาเดียวกัน)
-function rcCleanOcrLines(lines){
-  const thaiGapRe = /([\u0E01-\u0E4F])\s+(?=[\u0E01-\u0E4F])/g;
-  return lines.map(l => String(l||'').replace(thaiGapRe, '$1').replace(/\s+/g,' ').trim()).filter(Boolean);
 }
 // จัดกลุ่ม text items ของ pdf.js ตามตำแหน่งแนวตั้ง (y จาก transform matrix) ให้เป็น "บรรทัด" แล้วเรียงซ้าย->ขวาในแต่ละบรรทัด
 // (pdf.js คืนลำดับข้อความตามลำดับที่วาดในไฟล์ ซึ่งมักไม่ตรงกับลำดับที่อ่านจริงในเลย์เอาต์หลายคอลัมน์แบบใบปะหน้าพัสดุ)
