@@ -1338,6 +1338,7 @@ async function handleReceiptLabelFile(event){
     if(!parsed.channel) notes.push('หาช่องทาง Shopee/TikTok ไม่เจอ กรุณาเลือกเอง');
     if(!parsed.items.length) notes.push('หารายการสินค้าไม่เจอ กรุณากรอกเอง');
     else if(matchedCount < parsed.items.length) notes.push(`จับคู่ราคาได้ ${matchedCount}/${parsed.items.length} รายการ ที่เหลือกรุณากรอกราคาเอง`);
+    if(parsed.items.some(it=>it.looseMatch)) notes.push('บางรายการอ่านแบบเดาโครงสร้าง (ไม่ชัวร์) กรุณาตรวจชื่อ/สี/เบอร์ให้ดีเป็นพิเศษ');
     if(!isPdf) notes.push('อ่านจากรูปถ่าย (OCR) ความแม่นยำต่ำกว่าไฟล์ PDF — ตรวจทุกช่องให้ละเอียดก่อนออกใบเสร็จ');
     statusEl.innerHTML = notes.length
       ? `<div class="muted" style="color:var(--danger);">⚠️ อ่านได้บางส่วน — ${notes.join(' / ')} (ตรวจ/แก้ก่อนออกใบเสร็จเสมอ)</div>`
@@ -1356,10 +1357,58 @@ async function handleReceiptLabelFile(event){
 // ที่มีสระ/วรรณยุกต์ซ้อนกันหลายชั้น bbox มักวางตำแหน่งเพี้ยน ทำให้เรียงลำดับตัวอักษรผิดยับเยิน (ทดสอบแล้วได้ข้อความอ่านไม่ออกเลย)
 // ต้องใช้ data.text ที่ Tesseract เรียงลำดับการอ่านให้ถูกต้องอยู่แล้วในตัวเอง (ทดสอบแล้วอ่านได้ถูกต้องกว่ามาก)
 async function rcOcrImageToLines(file, onProgress){
-  const { data } = await Tesseract.recognize(file, 'tha+eng', {
+  const preprocessed = await rcPreprocessImageForOcr(file);
+  const { data } = await Tesseract.recognize(preprocessed || file, 'tha+eng', {
     logger: m => { if(onProgress && m.status === 'recognizing text') onProgress(Math.round((m.progress||0)*100)); }
   });
   return rcCleanOcrLines(String(data.text||'').split('\n'));
+}
+// แปลงรูปถ่ายให้ขาวดำคมชัดก่อนส่งเข้า OCR (ขั้นตอนมาตรฐานที่ช่วยความแม่นยำของ OCR ได้มากในสภาพแสงจริง/กล้องมือถือ):
+// 1) แปลงเป็นสีเทา 2) หาค่า threshold ที่เหมาะสมอัตโนมัติด้วยวิธี Otsu (แยกพิกเซล "ตัวหนังสือ" ออกจาก "พื้นหลัง" ได้ดีกว่าใช้ค่าคงที่ตายตัว)
+// 3) แปลงเป็นขาว-ดำล้วนตาม threshold นั้น — ลดผลจากแสงเงา/สีกระดาษ/คุณภาพกล้องที่ทำให้ตัวอักษรเล็กๆ เบลอจนอ่านผิด
+// ถ้าขั้นตอนนี้พลาด (เช่น browser เก่าไม่รองรับ) ให้คืนค่า null แล้วใช้รูปต้นฉบับแทน ไม่ทำให้ทั้งฟีเจอร์พังเพราะขั้นตอนเสริมนี้
+async function rcPreprocessImageForOcr(file){
+  try{
+    const bitmap = await createImageBitmap(file);
+    // จำกัดด้านยาวสุดไม่ให้ใหญ่เกินไป (รูปจากกล้องมือถือมักใหญ่มาก) กันประมวลผลช้าเกินไปโดยไม่ได้ความแม่นยำเพิ่มขึ้นจริง
+    const maxDim = 2000;
+    const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
+    const w = Math.round(bitmap.width * scale), h = Math.round(bitmap.height * scale);
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    const imgData = ctx.getImageData(0, 0, w, h);
+    const px = imgData.data;
+    const gray = new Uint8ClampedArray(w*h);
+    const hist = new Array(256).fill(0);
+    for(let i=0, j=0; i<px.length; i+=4, j++){
+      // สูตรมาตรฐานแปลง RGB -> สีเทา (ถ่วงน้ำหนักตามความไวสายตามนุษย์ต่อแต่ละสี)
+      const g = Math.round(0.299*px[i] + 0.587*px[i+1] + 0.114*px[i+2]);
+      gray[j] = g;
+      hist[g]++;
+    }
+    // Otsu's method: หา threshold ที่ทำให้ variance ระหว่างกลุ่มพิกเซลมืด/สว่างมากที่สุด (แยกตัวหนังสือจากพื้นหลังได้ดีที่สุด)
+    const total = w*h;
+    let sum = 0; for(let t=0;t<256;t++) sum += t*hist[t];
+    let sumB=0, wB=0, wF=0, maxVar=-1, threshold=127;
+    for(let t=0;t<256;t++){
+      wB += hist[t]; if(wB===0) continue;
+      wF = total - wB; if(wF===0) break;
+      sumB += t*hist[t];
+      const mB = sumB/wB, mF = (sum-sumB)/wF;
+      const varBetween = wB*wF*(mB-mF)*(mB-mF);
+      if(varBetween > maxVar){ maxVar = varBetween; threshold = t; }
+    }
+    for(let i=0, j=0; i<px.length; i+=4, j++){
+      const v = gray[j] >= threshold ? 255 : 0;
+      px[i] = px[i+1] = px[i+2] = v;
+    }
+    ctx.putImageData(imgData, 0, 0);
+    return await new Promise(resolve => canvas.toBlob(b=>resolve(b), 'image/png'));
+  }catch(err){
+    return null; // ขั้นตอนเสริม พลาดแล้วไม่เป็นไร ใช้รูปต้นฉบับแทน
+  }
 }
 // เอนจิน OCR ที่ใช้ (Tesseract) มักแยกตัวอักษรไทยแต่ละตัวด้วยช่องว่าง (ไม่ได้แยกเป็น "คำ" จริงแบบภาษาไทยที่ไม่มีช่องว่างระหว่างคำ)
 // เช่น "กนกวรรณ" อาจได้ "ก น ก ว ร ร ณ" จึงต้องรวมช่องว่างระหว่างอักษรไทยที่ติดกันออกก่อนถึงจะอ่าน/เทียบคำได้ถูกต้อง
@@ -1443,6 +1492,16 @@ function rcParseLabelLines(lines){
       block.push(raw.replace(/^ผู้\s*รับ|\(TO\)/i,'').trim());
     }
     customer = rcCleanDisplay(block.filter(Boolean).join(' ').trim());
+    // เจอจริงจาก OCR รูปถ่าย: มักมีขยะหลุดเข้ามาปนหัว-ท้ายบล็อกที่อยู่ (เช่น ไอคอนกล่องเช็ค "TO" ที่อ่านผิดเป็นสัญลักษณ์/ตัวเลขสั้นๆ ต่อจาก "ผู้รับ"
+    // หรือโค้ดขนส่ง/บาร์โค้ดที่อยู่ถัดจากที่อยู่จริงหลุดเข้ามาปนท้าย) แก้แบบระมัดระวัง 2 จุดที่มั่นใจว่าปลอดภัย ไม่เสี่ยงตัดเนื้อหาจริงทิ้ง:
+    // 1) ตัดวงเล็บขยะสั้นๆ ที่ติดมาทันทีหลังคำว่า "ผู้รับ" (ที่อยู่จริงไม่มีทางขึ้นต้นด้วยวงเล็บสั้นแบบนี้)
+    customer = customer.replace(/^\([^)]{0,6}\)\s*/, '');
+    // 2) ที่อยู่ไทยจริงจบด้วยรหัสไปรษณีย์ 5 หลักเสมอ — ถ้าเจอเลข 5 หลักในบล็อก ตัดทุกอย่างหลังเลข 5 หลัก "ตัวสุดท้าย" ทิ้ง (มักเป็นขยะจากโค้ด/บาร์โค้ดที่ไม่เกี่ยวกับที่อยู่)
+    const zipMatches = [...customer.matchAll(/\b\d{5}\b/g)];
+    if(zipMatches.length){
+      const last = zipMatches[zipMatches.length-1];
+      customer = customer.slice(0, last.index + last[0].length).trim();
+    }
   }
 
   // หารายการสินค้า: ตารางในใบปะหน้ามักตัดชื่อสินค้าเป็นหลายบรรทัด (ชื่อยาว) แล้วค่อยตามด้วยบรรทัด "สี,เบอร์ จำนวน" แยกต่างหาก
@@ -1453,6 +1512,10 @@ function rcParseLabelLines(lines){
   // บางไฟล์แถวนี้มีเลขลำดับ (#) นำหน้าติดมาด้วยในบรรทัดเดียวกัน (เช่น "1 ดำ ,31 1" = ลำดับ 1, สี-เบอร์ "ดำ,31", จำนวน 1) ต้องแยกทิ้งเลขลำดับไม่ให้หลุดไปต่อท้ายชื่อสินค้า
   const indexOptionQtyRe = /^\d{1,3}\s+([^\s,]{1,20}\s*,\s*[^\s,]{1,10})\s+(\d{1,4})\s*$/;
   const nameThenOptionQtyRe = /^(?:\d+\s+)?(.+?)\s+([^\s,]{1,20}\s*,\s*[^\s,]{1,10})\s+(\d{1,4})\s*$/; // บรรทัดที่มีชื่อ+ตัวเลือก+จำนวน ในบรรทัดเดียวจบ (กรณีชื่อสั้นพอ)
+  // สำรองสุดท้าย เจอจริงจากรูปถ่าย (OCR): จุลภาคคั่นระหว่างสี,เบอร์ บนป้ายจริงตัวเล็กมาก OCR มักอ่านจุลภาคหลุดหายไปเลย กลายเป็นเว้นวรรคธรรมดา
+  // (เช่น "ดำ,31 1" ในไฟล์ PDF จริง กลายเป็น "ดำ 31 1" จาก OCR) ทำให้ regex ที่ต้องมีจุลภาคด้านบนไม่ตรงเลยสักอัน รายการสินค้าเลยหายไปทั้งบรรทัด
+  // จึงต้องมี pattern สำรองที่ไม่บังคับจุลภาค จับรูปแบบ "...ชื่อ... สี เบอร์(ตัวเลข) จำนวน(ตัวเลข)" ท้ายบรรทัดแทน ความแม่นยำต่ำกว่า แต่ดีกว่าไม่ได้อะไรเลย
+  const looseColorSizeQtyRe = /^(?:\d+\s+)?(.+?)\s+([ก-๙a-zA-Z]{1,12})\s+(\d{1,3})\s+(\d{1,2})\s*$/;
   const bareIndexRe = /^\d{1,3}$/; // เลขลำดับแถว ("#") ที่แยกอยู่บรรทัดของตัวเอง ไม่ใช่ส่วนหนึ่งของชื่อ
   const headerWordRe = /^(ชื่อสินค้า|รายการ|ตัวเลือกสินค้า|จำนวน|#)$/i;
   let nameBuffer = [];
@@ -1499,6 +1562,16 @@ function rcParseLabelLines(lines){
       const { color, size } = rcParseOptionColorSize(combinedMatch[2]);
       const qty = parseInt(combinedMatch[3], 10) || 1;
       pendingItem = { name, color, size, qty };
+      return;
+    }
+    // ลองแบบสำรอง (ไม่บังคับจุลภาค) ก่อนจะยอมแพ้แล้วเก็บบรรทัดนี้เป็นแค่ส่วนของชื่อ — ดูเหตุผลที่ looseColorSizeQtyRe ด้านบน
+    const looseMatch = line.match(looseColorSizeQtyRe);
+    if(looseMatch){
+      finalizePending();
+      const name = rcCleanDisplay((nameBuffer.join(' ') + ' ' + looseMatch[1]).replace(/\s+/g,' ').trim());
+      nameBuffer = [];
+      if(!name || headerWordRe.test(name)) return;
+      pendingItem = { name, color: rcNormalizeVariantText(looseMatch[2]), size: rcNormalizeVariantText(looseMatch[3]), qty: parseInt(looseMatch[4], 10) || 1, looseMatch: true };
       return;
     }
     // บรรทัดข้อความธรรมดา (ไม่ใช่ตัวเลือก/จำนวน/เลขลำดับ)
