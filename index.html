@@ -4404,6 +4404,26 @@ function toggleShopeeUpdateQueue(idx, checked){
   renderShopeeCompareModal();
 }
 
+// ปุ่มลัด: ตั้งสต็อกเริ่มต้นให้สินค้าที่ "จับคู่ได้แน่นอนแล้ว แต่ในระบบยังไม่เคยตั้งสต็อก" (stock เป็น null) ทีเดียวทั้งหมด
+// โดยเอาจำนวนคงเหลือจากไฟล์ Shopee มาใส่ตรงๆ — กันต้องมานั่งพิมพ์ทีละรายการ (เช่นสินค้าใหม่ที่เพิ่งลงขาย มีหลายสิบ SKU)
+// ใช้เฉพาะกลุ่ม "ไม่ได้ติดตามสต็อก" เท่านั้น (จะไม่ไปทับสต็อกของรายการที่มีตัวเลขอยู่แล้วเด็ดขาด ต่อให้ตรง/ไม่ตรงก็ตาม)
+function applyAllNotTrackedStockFromShopee(){
+  const g = groupShopeeCompareResults(shopeeCompareResults);
+  const rows = g.notTracked.filter(r => r.match && r.match.product);
+  if(!rows.length){ toast('ไม่มีรายการที่ต้องตั้งสต็อก'); return; }
+  if(!confirm(`ตั้งสต็อกเริ่มต้นให้ ${rows.length} รายการ ตามจำนวนคงเหลือในไฟล์ Shopee เลยไหม?\n(ใช้กับรายการที่ระบบยังไม่เคยตั้งสต็อกเท่านั้น ไม่ทับรายการที่มีสต็อกอยู่แล้ว)`)) return;
+  const products = loadProducts();
+  rows.forEach(r=>{
+    recordStockTransaction(products, r.match.product.id, 'ADJUSTMENT', r.row.stock, BASE_UNIT, 'ตั้งสต็อกเริ่มต้นจากไฟล์เทียบสต็อก Shopee', { setAbsolute: true });
+  });
+  saveProducts(products);
+  // คำนวณผลเทียบใหม่ทั้งหมดจากสต็อกล่าสุด (รายการที่เพิ่งตั้งค่าจะย้ายไปกลุ่ม "ตรงกัน" ทันที)
+  const skuIndex = buildLocalSkuIndex(products);
+  shopeeCompareResults = shopeeCompareResults.map(r => ({ row: r.row, match: matchShopeeStockRow(products, skuIndex, r.row), queued: r.queued }));
+  toast(`ตั้งสต็อกให้ ${rows.length} รายการเรียบร้อยแล้ว`);
+  renderShopeeCompareModal();
+}
+
 // ปรับสต็อกในระบบทีละ 1 ตรงจากการ์ดเทียบสต็อก (ใช้ adjustStockStep เดิม กันพิมพ์เลขเองผิด) แล้วคำนวณผลเทียบแถวนี้ใหม่ทันทีจากสต็อกล่าสุด
 function adjustCompareRowStock(idx, delta){
   const r = shopeeCompareResults[idx];
@@ -4688,7 +4708,10 @@ function renderShopeeCompareModal(){
     html += g.notFound.map(r=>shopeeCompareRowCardHtml(r, idxOf(r), true)).join('');
   }
   if(g.notTracked.length){
-    html += `<h4 style="margin:10px 0 6px;font-size:13.5px;">ℹ️ ไม่ได้ติดตามสต็อกในระบบ (${g.notTracked.length})</h4>`;
+    html += `<h4 style="margin:10px 0 6px;font-size:13.5px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+      <span>ℹ️ ไม่ได้ติดตามสต็อกในระบบ (${g.notTracked.length})</span>
+      <button class="btn btn-primary" style="font-size:12px;padding:6px 10px;" onclick="applyAllNotTrackedStockFromShopee()">✅ ตั้งสต็อกทั้งหมดตามไฟล์ Shopee</button>
+    </h4>`;
     html += g.notTracked.map(r=>shopeeCompareRowCardHtml(r, idxOf(r), false)).join('');
   }
   if(g.match.length){
