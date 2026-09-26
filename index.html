@@ -101,8 +101,8 @@
   #scanner-modal.open,#voice-modal.open{display:flex;}
   #reader{width:90vw;max-width:400px;background:#000;border-radius:20px;overflow:hidden;}
   .modal-close{margin-top:18px;}
-  #confirm-modal, #bulk-modal, #import-modal, #import-orders-modal, #cancel-orders-modal, #shopee-compare-modal, #tiktok-compare-modal{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:55;display:none;align-items:center;justify-content:center;padding:16px;overflow-y:auto;backdrop-filter:blur(2px);}
-  #confirm-modal.open, #bulk-modal.open, #import-modal.open, #import-orders-modal.open, #cancel-orders-modal.open, #shopee-compare-modal.open, #tiktok-compare-modal.open{display:flex;}
+  #confirm-modal, #bulk-modal, #import-modal, #import-orders-modal, #cancel-orders-modal, #shopee-compare-modal, #tiktok-compare-modal, #shopee-price-calc-modal{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:55;display:none;align-items:center;justify-content:center;padding:16px;overflow-y:auto;backdrop-filter:blur(2px);}
+  #confirm-modal.open, #bulk-modal.open, #import-modal.open, #import-orders-modal.open, #cancel-orders-modal.open, #shopee-compare-modal.open, #tiktok-compare-modal.open, #shopee-price-calc-modal.open{display:flex;}
   .tiktok-compare-table{width:100%;border-collapse:collapse;font-size:12.5px;}
   .tiktok-compare-table th, .tiktok-compare-table td{border:1px solid var(--border);padding:6px 7px;text-align:left;vertical-align:top;}
   .tiktok-compare-table th{background:var(--bg-alt,#f5f5f5);position:sticky;top:0;}
@@ -610,6 +610,9 @@
         <div class="btn-row">
           <button class="btn btn-outline btn-full" onclick="exportStockTxCSV()">ส่งออกประวัติสต็อกทั้งหมด CSV</button>
         </div>
+        <div class="btn-row" style="margin-top:12px;">
+          <button class="btn btn-success btn-full" onclick="openPriceCalcModal()">🧮 คำนวณราคาขาย Shopee (หักค่าธรรมเนียม)</button>
+        </div>
       </div>
 
       <input type="text" id="productFilter" placeholder="ค้นหาสินค้า..." style="margin-top:14px;margin-bottom:0;" oninput="renderProductList()">
@@ -1011,6 +1014,31 @@
     <div id="tiktokCompareTableWrap" style="max-height:60vh;overflow:auto;margin-bottom:14px;border:1px solid var(--border);border-radius:8px;"></div>
     <div class="btn-row">
       <button class="btn btn-primary btn-full" onclick="closeTiktokCompareModal()">ปิด</button>
+    </div>
+  </div>
+</div>
+
+<!-- คำนวณราคาขาย Shopee (หักค่าธรรมเนียม) -->
+<div id="shopee-price-calc-modal">
+  <div class="confirm-card" style="max-width:460px;">
+    <h3>🧮 คำนวณราคาขาย Shopee</h3>
+    <div class="confirm-sub">หักค่าธรรมเนียม Shopee แล้วดูว่าควรตั้งราคาเท่าไหร่ หรือถ้าตั้งราคานี้จะกำไร/ขาดทุนเท่าไหร่</div>
+
+    <div class="field"><label>ราคาทุน (บาท)</label><input type="number" id="pcCost" step="0.01" min="0" oninput="renderPriceCalc()"></div>
+    <div class="field">
+      <label>ค่าธรรมเนียม Shopee รวม (%)</label>
+      <input type="number" id="pcFee" step="0.01" min="0" max="99" value="30" oninput="renderPriceCalc()">
+    </div>
+    <div class="muted" style="font-size:11.5px;margin:-8px 0 12px;">รวมค่าคอมมิชชั่น + ค่าธุรกรรม + ค่าโฆษณา (ถ้ามี) เป็น % ของราคาขายทั้งหมด — ปรับให้ตรงกับที่ร้านโดนหักจริงได้ (ระบบจะจำค่านี้ไว้ใช้ครั้งหน้า)</div>
+
+    <div class="field"><label>1) กำไรที่ต้องการ (บาท) — ใส่เพื่อหาราคาที่ควรตั้งขาย</label><input type="number" id="pcWantProfit" step="0.01" value="0" oninput="renderPriceCalc()"></div>
+    <div id="pcSuggestedPriceBox"></div>
+
+    <div class="field" style="margin-top:14px;"><label>2) ราคาที่จะตั้งขาย/ราคาตลาดที่แข่งอยู่ (บาท) — ใส่เพื่อเช็คว่ากำไรหรือขาดทุน</label><input type="number" id="pcCheckPrice" step="0.01" oninput="renderPriceCalc()"></div>
+    <div id="pcCheckResultBox"></div>
+
+    <div class="btn-row" style="margin-top:14px;">
+      <button class="btn btn-primary btn-full" onclick="closePriceCalcModal()">ปิด</button>
     </div>
   </div>
 </div>
@@ -3269,6 +3297,66 @@ function quickEditStock(id){
   toast(`แก้ไขสต็อกแล้ว: ${newQty} ${BASE_UNIT}`);
 }
 // ปุ่ม +/- ปรับสต็อกทีละ 1 คู่ ตรงจากการ์ดสินค้าในหน้าสต็อก ไม่ต้องเปิด prompt/ใช้คีย์บอร์ดเลย (แทนที่ปุ่ม "แก้ไขสต็อก" เดิม)
+/* ============ คำนวณราคาขาย Shopee (หักค่าธรรมเนียม) ============
+   สูตร: ถ้าตั้งราคาขาย S แล้ว Shopee หักค่าธรรมเนียมรวม fee% ของราคาขาย จะได้เงินจริง = S * (1 - fee%)
+   ดังนั้นถ้าอยากได้ทุนคืน + กำไรที่ต้องการ (cost + wantProfit) พอดี ต้องตั้งราคาขาย S = (cost + wantProfit) / (1 - fee%)
+   (เช่น ทุน 100 ค่าธรรมเนียม 30% ไม่เอากำไรเพิ่ม -> ต้องตั้ง 100/0.7 = 142.86 บาท ถึงจะได้ทุนคืนเป๊ะหลังหักค่าธรรมเนียม)
+   ส่วนที่ 2 ใช้เช็คย้อนกลับ: ถ้ามีราคาตลาด/ราคาที่จะตั้งอยู่แล้ว จะได้เงินจริงหลังหักค่าธรรมเนียมเท่าไหร่ เทียบกับทุนแล้วกำไรหรือขาดทุนเท่าไหร่
+   ค่าธรรมเนียม % ที่กรอกไว้ล่าสุดจะจำไว้ใน localStorage ให้ใช้ครั้งหน้าไม่ต้องพิมพ์ใหม่ */
+const PRICE_CALC_FEE_KEY = 'shopeeFeePercentDefault';
+function openPriceCalcModal(){
+  const saved = localStorage.getItem(PRICE_CALC_FEE_KEY);
+  if(saved !== null && saved !== '') document.getElementById('pcFee').value = saved;
+  document.getElementById('shopee-price-calc-modal').classList.add('open');
+  renderPriceCalc();
+}
+function closePriceCalcModal(){
+  document.getElementById('shopee-price-calc-modal').classList.remove('open');
+}
+function renderPriceCalc(){
+  const cost = parseFloat(document.getElementById('pcCost').value) || 0;
+  const feeInput = document.getElementById('pcFee').value;
+  const feePct = parseFloat(feeInput);
+  const fee = isNaN(feePct) ? 0 : feePct;
+  if(feeInput !== '') localStorage.setItem(PRICE_CALC_FEE_KEY, feeInput);
+  const feeFraction = fee / 100;
+  const wantProfit = parseFloat(document.getElementById('pcWantProfit').value) || 0;
+
+  const suggestedBox = document.getElementById('pcSuggestedPriceBox');
+  if(feeFraction >= 1){
+    suggestedBox.innerHTML = '<div class="muted" style="color:var(--danger);font-size:12.5px;">ค่าธรรมเนียมตั้งไว้ 100% ขึ้นไป คำนวณราคาไม่ได้</div>';
+  } else {
+    const suggestedPrice = (cost + wantProfit) / (1 - feeFraction);
+    const feeAmount = suggestedPrice * feeFraction;
+    const netReceived = suggestedPrice - feeAmount;
+    suggestedBox.innerHTML = `
+      <div class="sku-card-grid" style="margin-top:6px;">
+        <div><div class="g-label">ราคาที่ควรตั้งขาย</div><strong>฿${suggestedPrice.toFixed(2)}</strong></div>
+        <div><div class="g-label">Shopee หักค่าธรรมเนียม</div><strong>฿${feeAmount.toFixed(2)}</strong></div>
+        <div><div class="g-label">ยอดที่ได้รับจริง</div><strong>฿${netReceived.toFixed(2)}</strong></div>
+        <div><div class="g-label">กำไรจริงที่ได้</div><strong>฿${(netReceived - cost).toFixed(2)}</strong></div>
+      </div>`;
+  }
+
+  const checkBox = document.getElementById('pcCheckResultBox');
+  const checkPriceRaw = document.getElementById('pcCheckPrice').value;
+  if(checkPriceRaw === ''){
+    checkBox.innerHTML = '<div class="muted" style="font-size:12px;margin-top:4px;">กรอกราคาด้านบนเพื่อเช็คว่ากำไรหรือขาดทุน</div>';
+  } else {
+    const checkPrice = parseFloat(checkPriceRaw) || 0;
+    const feeAmount2 = checkPrice * feeFraction;
+    const netReceived2 = checkPrice - feeAmount2;
+    const profit2 = netReceived2 - cost;
+    const isLoss = profit2 < 0;
+    const statusText = isLoss ? `⚠️ ขาดทุน ฿${Math.abs(profit2).toFixed(2)}` : `✅ กำไร ฿${profit2.toFixed(2)}`;
+    checkBox.innerHTML = `
+      <div class="sku-card-grid" style="margin-top:6px;">
+        <div><div class="g-label">ยอดที่ได้รับจริงหลังหักค่าธรรมเนียม</div><strong>฿${netReceived2.toFixed(2)}</strong></div>
+        <div><div class="g-label">เทียบกับทุน ฿${cost.toFixed(2)}</div><strong style="color:${isLoss ? 'var(--danger)' : 'var(--success)'};">${statusText}</strong></div>
+      </div>`;
+  }
+}
+
 function adjustStockStep(id, delta){
   const products = loadProducts();
   const p = products.find(x=>x.id===id);
